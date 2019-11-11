@@ -34,12 +34,13 @@ class Study:
     def __init__(self,
 
                  # Default parameters
-                 study=None, controls=None,
+                 study=None, controls=None, colors=None,
                  alpha=0.05, detection_threshold=0.0001,
                  base_directory=os.getcwd()):
 
         # Parameters
-        self.params = _Parameters(study=study, controls=controls, alpha=alpha, detection_threshold=detection_threshold)
+        self.params = _Parameters(study=study, controls=controls, colors=colors,
+                                  alpha=alpha, detection_threshold=detection_threshold)
 
         # Directories
         self.dirs = _Directories(base_directory)
@@ -206,25 +207,23 @@ class Study:
         :return: df
         """
 
-        def fig(curr_df):
+        def fig_abundance_distribution(input_df):
 
-            ab = pd.DataFrame(curr_df.stack()).reset_index()
-            ab['log'] = False
+            df1 = pd.DataFrame(input_df.stack()).reset_index()
+            df1['log'] = False
+            df2 = pd.DataFrame(np.log10(input_df).stack()).reset_index()
+            df2['log'] = True
+            df3 = pd.DataFrame(self.get_delta_df(input_df).stack()).reset_index()
+            df3['log'] = False
+            df4 = pd.DataFrame(self.get_delta_df(np.log10(input_df)).stack()).reset_index()
+            df4['log'] = True
 
-            ab_log = pd.DataFrame(np.log10(curr_df).stack()).reset_index()
-            ab_log['log'] = True
+            full_df = pd.concat([df1, df2, df3, df4]).rename(columns={0: 'abundance'})
 
-            ab_delta = pd.DataFrame(self.get_delta_df(curr_df).stack()).reset_index()
-            ab_delta['log'] = False
-
-            ab_log_delta = pd.DataFrame(self.get_delta_df(np.log10(curr_df)).stack()).reset_index()
-            ab_log_delta['log'] = True
-
-            ab_full = pd.concat([ab, ab_log, ab_delta, ab_log_delta]).rename(columns={0: 'abundance'})
-
-            sns.FacetGrid(ab_full, row='log', col='time_point', hue='group',
-                          sharex=False, sharey=False, margin_titles=True)\
-                .map(sns.distplot, 'abundance', hist=True, kde=False).add_legend()
+            g = sns.FacetGrid(full_df, row='log', col='time_point', hue='group', palette=self.params.colors,
+                              sharex=False, sharey=False, margin_titles=True)
+            g = g.map(sns.distplot, 'abundance', hist=True, kde=False)
+            g.add_legend()
 
             plt.savefig(os.path.join(self.dirs.figs, 'abundance distribution.png'))
 
@@ -283,7 +282,7 @@ class Study:
             df = df.groupby(['person']).apply(declare_missing_values)
 
             # figure
-            fig(df)
+            fig_abundance_distribution(df)
 
         # filter out empty columns (species/test)
         df = df.dropna(axis=1, how='all')
@@ -372,7 +371,7 @@ class Study:
         :return: None
         """
 
-        def fig(curr_data_df):
+        def fig_significant_stats(curr_data_df):
 
             # in case there are some significant results
             curr_data_df = curr_data_df.dropna()
@@ -407,7 +406,7 @@ class Study:
 
                 # plotting
                 figure, ax = plt.subplots()
-                sns.boxplot(x='index', y='value', hue=major, data=curr_data_df, ax=ax)
+                sns.boxplot(x='index', y='value', hue=major, palette=self.params.colors, data=curr_data_df, ax=ax)
                 plt.title('{} - {}\n{} - significant results'.format(minor, minor_e, test))
                 plt.xticks(rotation=90)
                 plt.xlabel('')
@@ -415,10 +414,8 @@ class Study:
                 plt.legend(loc=1)
 
                 # saving
-                fig_path = os.path.join(self.dirs.figs,
-                                        'stats {}{} {} - {}.png'.format(obj.type, delta_str, test,
-                                                                        stats_df_list[-1].name))
-                figure.savefig(fig_path)
+                fig_name = 'stats {}{} {} - {}.png'.format(obj.type, delta_str, test, stats_df_list[-1].name)
+                plt.savefig(os.path.join(self.dirs.figs, fig_name))
                 # TODO: fix problem with lost edges in files
 
         # retrieving the data frames from the objects
@@ -489,7 +486,8 @@ class Study:
                 if test not in tests_without_control:
                     stats_df_list[-1].name = '{} {} vs. {} of {} {}'.format(major, major_control, major_e,
                                                                             minor, minor_e)
-                    excel_sheet = '{} {} {}'.format(major_control, major_e, minor_e)
+                    excel_sheet = '{} {} {}'.format(major_control, major_e, minor_e).replace('mediterranean', 'med')
+                    # mediterranean handling just to limit excel sheet name to the 31 character count limit
                 else:
                     stats_df_list[-1].name = '{} {} of {} {}'.format(major, major_e, minor, minor_e)
                     excel_sheet = '{} {}'.format(major_e, minor_e)
@@ -600,11 +598,11 @@ class Study:
 
                 # figure
                 if test not in tests_without_control:
-                    fig(data_df[[major_control, major_e]]
-                        .xs(minor_e, level=minor, axis=1))
+                    fig_significant_stats(data_df[[major_control, major_e]]
+                                          .xs(minor_e, level=minor, axis=1))
                 else:
-                    fig(data_df.xs(major_e, level=major, axis=1, drop_level=False)
-                        .xs(minor_e, level=minor, axis=1))
+                    fig_significant_stats(data_df.xs(major_e, level=major, axis=1, drop_level=False)
+                                          .xs(minor_e, level=minor, axis=1))
 
         # excel finishes
         excel_writer.save()
@@ -855,7 +853,7 @@ class Study:
 class _Object:
 
     # Initialization
-    def __init__(self, obj_type, df=None, columns=None):
+    def __init__(self, obj_type=None, df=None, columns=None):
         self.type = obj_type
         self.df = df
         self.columns = columns
@@ -894,18 +892,32 @@ class _Directories:
 class _Parameters:
 
     # Initialization
-    def __init__(self, study=None, controls=None, alpha=None, detection_threshold=None):
+    def __init__(self, study=None, controls=None, colors=None, alpha=None, detection_threshold=None):
 
         self.study = study
         self.controls = controls
+        self.colors = colors
         self.alpha = alpha
         self.detection_threshold = detection_threshold
 
 
 if __name__ == "__main__":
+    PNP3 = Study(
 
-    PNP3 = Study(study='PNP3', controls={'time_point': '0months', 'group': 'mediterranean'},
-                 base_directory='/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3')
+        study='PNP3',
+
+        controls={'time_point': '0months',
+                  'group': 'mediterranean'},
+
+        colors={'0months': 'orchid',
+                '6months': 'darkorchid',
+
+                '6months-0months': 'deeppink',
+
+                'mediterranean': 'blue',
+                'algorithm': 'orange'},
+
+        base_directory='/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3')
 
     indices_dict = {
         'group': {0: 'mediterranean', 1: 'algorithm'},
