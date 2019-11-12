@@ -22,9 +22,12 @@ from scipy.stats import mannwhitneyu, ttest_ind, ttest_rel, ttest_1samp, binom_t
 # plots
 import seaborn as sns
 import matplotlib.pyplot as plt
+from matplotlib import rcParams
 
 # lab
 from LabData.DataLoaders import MBLoader, BloodTestsLoader, BodyMeasuresLoader, CGMLoader
+
+rcParams['figure.figsize'] = (rcParams['figure.figsize'][0]*1.5, rcParams['figure.figsize'][1]*1.5)
 
 
 # Main class
@@ -220,9 +223,13 @@ class Study:
 
             full_df = pd.concat([df1, df2, df3, df4]).rename(columns={0: 'abundance'})
 
+            plt.figure()
             g = sns.FacetGrid(full_df, row='log', col='time_point', hue='group', palette=self.params.colors,
                               sharex=False, sharey=False, margin_titles=True)
             g = g.map(sns.distplot, 'abundance', hist=True, kde=False)
+            g.set_titles(col_template="{col_name}")  # row_template="{row_name}"
+            for ax in g.axes.flatten():
+                ax.set_title(label=ax.get_title(), color=self.params.colors[ax.get_title()])
             g.add_legend()
 
             plt.savefig(os.path.join(self.dirs.figs, 'abundance distribution.png'))
@@ -371,7 +378,15 @@ class Study:
         :return: None
         """
 
-        def fig_significant_stats(curr_data_df):
+        def fig_significant_stats(figure_internal, axes_internal, curr_data_df):
+
+            # first run
+            if figure_internal is None and axes_internal is None:  # if first time
+                figure_internal, axes_internal = plt.subplots(nrows=len(major_elements), ncols=len(minor_elements))
+                plt.subplots_adjust(bottom=0.5)
+                plt.suptitle('{} - significant results'.format(test))
+
+            ax = axes_internal[major_elements.index(major_e) * len(minor_elements) + minor_elements.index(minor_e)]
 
             # in case there are some significant results
             curr_data_df = curr_data_df.dropna()
@@ -405,18 +420,28 @@ class Study:
                 curr_data_df = curr_data_df.sort_values(by='index')
 
                 # plotting
-                figure, ax = plt.subplots()
                 sns.boxplot(x='index', y='value', hue=major, palette=self.params.colors, data=curr_data_df, ax=ax)
-                plt.title('{} - {}\n{} - significant results'.format(minor, minor_e, test))
-                plt.xticks(rotation=90)
-                plt.xlabel('')
-                plt.ylabel(y_label)
-                plt.legend(loc=1)
+                ax.legend().set_visible(False)
+                ax.set_ylabel(y_label)
+                ax.set_xlabel('')
+                ax.set_xticklabels(labels=ax.get_xticklabels(), rotation=90)
 
-                # saving
+            else:
+                # texting
+                ax.text(x=0.5, y=0.5, s='no significant results', horizontalalignment='center')
+                ax.axis('off')
+
+            ax.set_title('{} - {}'.format(minor, minor_e), color=self.params.colors[minor_e])
+
+            # last run
+            if major_e == major_elements[-1] and minor_e == minor_elements[-1]:
+                figure_internal.legend(loc=4)
                 fig_name = 'stats {}{} {} - {}.png'.format(obj.type, delta_str, test, stats_df_list[-1].name)
                 plt.savefig(os.path.join(self.dirs.figs, fig_name))
-                # TODO: fix problem with lost edges in files
+                figure_internal = None
+                axes_internal = None
+
+            return figure_internal, axes_internal
 
         # retrieving the data frames from the objects
         df = obj.df
@@ -460,6 +485,8 @@ class Study:
         # data frame to hold all the data compered for further (figure) analysis
         columns = pd.MultiIndex.from_product([major_elements, minor_elements], names=[major, minor])
         data_df = pd.DataFrame(index=df.columns, columns=columns)
+        figure = None
+        axes = None
 
         # remove control from the list of elements
         if test not in tests_without_control:
@@ -598,11 +625,15 @@ class Study:
 
                 # figure
                 if test not in tests_without_control:
-                    fig_significant_stats(data_df[[major_control, major_e]]
-                                          .xs(minor_e, level=minor, axis=1))
+                    figure, axes = \
+                        fig_significant_stats(figure_internal=figure, axes_internal=axes,
+                                              curr_data_df=data_df[[major_control, major_e]]
+                                              .xs(minor_e, level=minor, axis=1))
                 else:
-                    fig_significant_stats(data_df.xs(major_e, level=major, axis=1, drop_level=False)
-                                          .xs(minor_e, level=minor, axis=1))
+                    figure, axes = \
+                        fig_significant_stats(figure_internal=figure, axes_internal=axes,
+                                              curr_data_df=data_df.xs(major_e, level=major, axis=1, drop_level=False)
+                                              .xs(minor_e, level=minor, axis=1))
 
         # excel finishes
         excel_writer.save()
