@@ -52,6 +52,8 @@ class Study:
         self.objs = _Objects()
 
     # Functions
+
+    # data generation
     def load_df(self, data,
                 columns_from_metadata=None,
                 columns_from_file=None, file=None, file_index=None):
@@ -67,6 +69,17 @@ class Study:
         :return: (pd.DataFrame) df
         """
 
+        def fig_abundance_reads(input_metadata_df):
+            columns = ['RawRC', 'PostTrimRC', 'PostQCRC', 'PostHGFRC', 'UnalignedRC']
+
+            plt.figure()
+            sns.boxplot(data=input_metadata_df[columns])
+            plt.title('Read Count')
+            plt.ylabel('read count')
+            plt.ylim([0, 0.4 * (10 ** 8)])
+
+            plt.savefig(os.path.join(self.dirs.figs, 'read count'))
+
         # default parameters to always act on
         default_indices_order = ['group', 'person', 'time_point', 'time', 'sample']
         default_name_changes = {'SampleName': 'sample', 'RegistrationCode': 'person', 'Date': 'time', 'alloc': 'group'}
@@ -75,6 +88,7 @@ class Study:
         if type(data) == str:
             if data == 'microbiome':
                 data = MBLoader.MBLoader().get_data('segata_species', study_ids=self.params.study)
+                fig_abundance_reads(data.df_metadata)
             elif data == 'blood':
                 data = BloodTestsLoader.BloodTestsLoader().get_data(study_ids=self.params.study)
             elif data == 'body':
@@ -210,15 +224,17 @@ class Study:
         :return: df
         """
 
-        def fig_abundance_distribution(input_df):
+        def fig_abundance_distribution(abundance_df):
 
-            df1 = pd.DataFrame(input_df.stack()).reset_index()
+            df1 = pd.DataFrame(abundance_df.stack()).reset_index()
             df1['log'] = False
-            df2 = pd.DataFrame(np.log10(input_df).stack()).reset_index()
+            df2 = pd.DataFrame(np.log10(abundance_df).stack()).reset_index()
             df2['log'] = True
-            df3 = pd.DataFrame(self.get_delta_df(input_df).stack()).reset_index()
+            df3 = pd.DataFrame(self.get_delta_df(abundance_df, self.params.controls['time_point'])
+                               .stack()).reset_index()
             df3['log'] = False
-            df4 = pd.DataFrame(self.get_delta_df(np.log10(input_df)).stack()).reset_index()
+            df4 = pd.DataFrame(self.get_delta_df(np.log10(abundance_df, self.params.controls['time_point']))
+                               .stack()).reset_index()
             df4['log'] = True
 
             full_df = pd.concat([df1, df2, df3, df4]).rename(columns={0: 'abundance'})
@@ -231,8 +247,27 @@ class Study:
             for ax in g.axes.flatten():
                 ax.set_title(label=ax.get_title(), color=self.params.colors[ax.get_title()])
             g.add_legend()
+            plt.title('Abundance distribution')
 
-            plt.savefig(os.path.join(self.dirs.figs, 'abundance distribution.png'))
+            plt.savefig(os.path.join(self.dirs.figs, 'abundance distribution'))
+
+        def fig_species_samples_distribution(abundance_df):
+            n_samples_per_specie = (abundance_df > PNP3.params.detection_threshold).sum(axis=0)
+            n_species_per_sample = (abundance_df > PNP3.params.detection_threshold).sum(axis=1)
+
+            figure, axes = plt.subplots(nrows=1, ncols=2)
+
+            sns.distplot(n_samples_per_specie, ax=axes[0], kde=False)
+            axes[0].set_xlabel('samples per specie')
+            axes[0].set_ylabel('# species')
+
+            sns.distplot(n_species_per_sample, ax=axes[1], kde=False)
+            axes[1].set_xlabel('species per sample')
+            axes[1].set_ylabel('# samples')
+
+            plt.suptitle('species-samples distribution')
+
+            plt.savefig(os.path.join(self.dirs.figs, 'species-samples distribution'))
 
         def time2time_point(person_abundance_df):
 
@@ -288,8 +323,9 @@ class Study:
             # declare missing values
             df = df.groupby(['person']).apply(declare_missing_values)
 
-            # figure
+            # figures
             fig_abundance_distribution(df)
+            fig_species_samples_distribution(df)
 
         # filter out empty columns (species/test)
         df = df.dropna(axis=1, how='all')
@@ -300,70 +336,7 @@ class Study:
 
         return df
 
-    def get_diversity_df(self, abundance_df=None):
-        """
-        Compute the Shanon's alpha diversity index (using log10) based on an "abundance_df"
-
-        :param abundance_df: (pd.DataFrame) data frame to compute on, if not given takes the self.objs.abundance.df
-
-        :return: (pd.DataFrame) "diversity_df"
-        (same as abundance_df just instead of bacteria columns there is a single diversity column)
-        """
-
-        # Shannon's alpha diversity index = -sum(Pi*log10(Pi))
-
-        # in case no data frame was given take the self.objs.abundance.df
-        if abundance_df is None:
-            abundance_df = self.objs.abundance.df
-
-        # revert values to their pre log state
-        if not (0 <= abundance_df.min().min() and abundance_df.max().max() <= 1):
-            abundance_df = (10 ** abundance_df)
-
-        diversity_df = pd.DataFrame(-(abundance_df * np.log10(abundance_df)).sum(axis=1).dropna())
-        diversity_df.columns = ['diversity']
-
-        return diversity_df
-
-    def get_delta_df(self, regular_df):
-        """
-        Subtract from each time point values the self.params.control_time values
-
-        :param regular_df: (pd.DataFrame) data frame to calculate for the delta
-
-        :return: delta_df (pd.DataFrame)
-        """
-
-        # list of all indices columns TO REMOVE in order to not have a contradicting indices
-        # between different time points
-        index_names2remove = list(regular_df.index.names)
-        index_names2remove.remove('person')
-        index_names2remove.remove('time_point')
-
-        # copy of the data frame in order to not delete the additional indices from the returned data frame
-        delta_df = regular_df.copy()
-        regular_df = regular_df.droplevel(index_names2remove)
-
-        # all possible time points
-        time_points = delta_df.index.get_level_values('time_point').unique().to_list()
-        time_points.remove(self.params.controls['time_point'])
-
-        # subtract from each time point values the control time values
-        for time_point in time_points:
-            idx = delta_df.xs(time_point, level='time_point', drop_level=False).index
-            delta_df.loc[idx] = \
-                (regular_df.xs(time_point, level='time_point') -
-                 regular_df.xs(self.params.controls['time_point'], level='time_point')).values
-            delta_df = delta_df.rename(
-                index={time_point: '{}-{}'.format(time_point, self.params.controls['time_point'])},
-                level='time_point')
-
-        # delete the control time points
-        idx = delta_df.xs(self.params.controls['time_point'], level='time_point', drop_level=False).index
-        delta_df = delta_df.drop(idx)
-
-        return delta_df
-
+    # analysis
     def comp_stats(self, obj, test, between, delta=False, minimal_samples=0.1):
         """
         Compute the statistical significance for the difference between elements
@@ -381,8 +354,19 @@ class Study:
         def fig_significant_stats(figure_internal, axes_internal, curr_data_df):
 
             # first run
-            if figure_internal is None and axes_internal is None:  # if first time
-                figure_internal, axes_internal = plt.subplots(nrows=len(major_elements), ncols=len(minor_elements))
+            if major_e == major_elements[0] and minor_e == minor_elements[0]:
+
+                # create figure object
+                if len(major_elements) == 1 and len(minor_elements) == 1:  # in case of a single plot
+                    figure_internal, axes_internal = \
+                        plt.subplots(figsize=(rcParams['figure.figsize'][0]/2, rcParams['figure.figsize'][1]))
+                    axes_internal = [axes_internal]
+
+                else:  # in case of multiple plots
+                    figure_internal, axes_internal = \
+                        plt.subplots(nrows=min(len(major_elements), len(minor_elements)),
+                                     ncols=max(len(major_elements), len(minor_elements)))
+
                 plt.subplots_adjust(bottom=0.5)
                 plt.suptitle('{} - significant results'.format(test))
 
@@ -421,23 +405,36 @@ class Study:
 
                 # plotting
                 sns.boxplot(x='index', y='value', hue=major, palette=self.params.colors, data=curr_data_df, ax=ax)
-                ax.legend().set_visible(False)
                 ax.set_ylabel(y_label)
                 ax.set_xlabel('')
                 ax.set_xticklabels(labels=ax.get_xticklabels(), rotation=90)
+                ax.legend().set_visible(False)
 
             else:
                 # texting
                 ax.text(x=0.5, y=0.5, s='no significant results', horizontalalignment='center')
                 ax.axis('off')
 
-            ax.set_title('{} - {}'.format(minor, minor_e), color=self.params.colors[minor_e])
+            ax.set_title(minor_e, color=self.params.colors[minor_e])
 
             # last run
             if major_e == major_elements[-1] and minor_e == minor_elements[-1]:
-                figure_internal.legend(loc=4)
-                fig_name = 'stats {}{} {} - {}.png'.format(obj.type, delta_str, test, stats_df_list[-1].name)
-                plt.savefig(os.path.join(self.dirs.figs, fig_name))
+
+                # legend
+                label_list = []
+                handle_list = []
+                for ax in axes_internal:
+                    handles, labels = ax.get_legend_handles_labels()
+                    for handle, label in zip(handles, labels):
+                        if label not in label_list:
+                            label_list.append(label)
+                            handle_list.append(handle)
+                figure_internal.legend(handle_list, label_list, loc='lower center')
+
+                # saving
+                plt.savefig(os.path.join(
+                    self.dirs.figs,
+                    'stats {}{} {} - {}'.format(obj.type, delta_str, test, stats_df_list[-1].name.replace('.', ''))))
                 figure_internal = None
                 axes_internal = None
 
@@ -449,7 +446,7 @@ class Study:
         # change the values in the data frames to be the change in value between two time points:
         # any time point and the control time point
         if delta:
-            df = self.get_delta_df(df)
+            df = self.get_delta_df(df, self.params.controls['time_point'])
             delta_str = ' delta'  # for file names
         else:
             delta_str = ''  # for file names
@@ -668,8 +665,8 @@ class Study:
         # change the values in the data frames to be the change in value between two time points:
         # any time point and the control time point
         if delta:
-            x_df = self.get_delta_df(x_df)
-            y_df = self.get_delta_df(y_df)
+            x_df = self.get_delta_df(x_df, self.params.controls['time_point'])
+            y_df = self.get_delta_df(y_df, self.params.controls['time_point'])
             delta_str = ' delta'  # for file names
         else:
             delta_str = ''  # for file names
@@ -800,7 +797,71 @@ class Study:
 
         return summary_score_df
 
-    # Static functions - general file handling
+    # data frame computations
+    @staticmethod
+    def get_diversity_df(abundance_df):
+        """
+        Compute the Shanon's alpha diversity index (using log10) based on an "abundance_df"
+
+        :param abundance_df: (pd.DataFrame) data frame to compute on, if not given takes the self.objs.abundance.df
+
+        :return: (pd.DataFrame) "diversity_df"
+        (same as abundance_df just instead of bacteria columns there is a single diversity column)
+        """
+
+        # Shannon's alpha diversity index = -sum(Pi*log10(Pi))
+
+        # revert values to their pre log state
+        if not (0 <= abundance_df.min().min() and abundance_df.max().max() <= 1):
+            abundance_df = (10 ** abundance_df)
+
+        diversity_df = pd.DataFrame(-(abundance_df * np.log10(abundance_df)).sum(axis=1).dropna())
+        diversity_df.columns = ['diversity']
+
+        return diversity_df
+
+    @staticmethod
+    def get_delta_df(regular_df, control_time_point):
+        """
+        Subtract from each time point values the self.params.control_time values
+
+        :param regular_df: (pd.DataFrame) data frame to calculate for the delta
+        :param control_time_point: time point values to subtract for all other time points values
+
+        :return: delta_df (pd.DataFrame)
+        """
+
+        # list of all indices columns TO REMOVE in order to not have a contradicting indices
+        # between different time points
+        index_names2remove = list(regular_df.index.names)
+        index_names2remove.remove('person')
+        index_names2remove.remove('time_point')
+
+        # copy of the data frame in order to not delete the additional indices from the returned data frame
+        delta_df = regular_df.copy()
+        regular_df = regular_df.droplevel(index_names2remove)
+
+        # all possible time points
+        time_points = delta_df.index.get_level_values('time_point').unique().to_list()
+        time_points.remove(control_time_point)
+
+        # subtract from each time point values the control time values
+        for time_point in time_points:
+            idx = delta_df.xs(time_point, level='time_point', drop_level=False).index
+            delta_df.loc[idx] = \
+                (regular_df.xs(time_point, level='time_point') -
+                 regular_df.xs(control_time_point, level='time_point')).values
+            delta_df = delta_df.rename(
+                index={time_point: '{}-{}'.format(time_point, control_time_point)},
+                level='time_point')
+
+        # delete the control time points
+        idx = delta_df.xs(control_time_point, level='time_point', drop_level=False).index
+        delta_df = delta_df.drop(idx)
+
+        return delta_df
+
+    # general file handling
     @staticmethod
     def ftp_download(address, username, password,
                      directories, skip_files=None, destination=os.getcwd(),
@@ -942,15 +1003,14 @@ if __name__ == "__main__":
 
         colors={'0months': 'orchid',
                 '6months': 'darkorchid',
-
                 '6months-0months': 'deeppink',
-
-                'mediterranean': 'blue',
+                '': 'gray',  # necessary
+                'mediterranean': 'mediumblue',
                 'algorithm': 'orange'},
 
         base_directory='/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3')
 
-    indices_dict = {
+    indices_dict2 = {
         'group': {0: 'mediterranean', 1: 'algorithm'},
         'time_point': {5.0: '0months', 14.0: '6months'}}
 
