@@ -87,21 +87,21 @@ class Study:
         # loading from Lab Data
         if type(data) == str:
             if data == 'microbiome':
-                data = MBLoader.MBLoader().get_data('segata_species', study_ids=self.params.study)
-                fig_abundance_reads(data.df_metadata)
+                lab_data = MBLoader.MBLoader().get_data('segata_species', study_ids=self.params.study)
+                fig_abundance_reads(lab_data.df_metadata)
             elif data == 'blood':
-                data = BloodTestsLoader.BloodTestsLoader().get_data(study_ids=self.params.study)
+                lab_data = BloodTestsLoader.BloodTestsLoader().get_data(study_ids=self.params.study)
             elif data == 'body':
-                data = BodyMeasuresLoader.BodyMeasuresLoader().get_data(study_ids=self.params.study)
+                lab_data = BodyMeasuresLoader.BodyMeasuresLoader().get_data(study_ids=self.params.study)
             elif data == 'cgm':
-                data = CGMLoader.CGMLoader().get_data(study_ids=self.params.study)
+                lab_data = CGMLoader.CGMLoader().get_data(study_ids=self.params.study)
             else:
                 raise Exception('data string is not valid')
             # TODO: check additional arguments for each loader
 
             # retrieving
-            df = data.df
-            metadata_df = data.df_metadata
+            df = lab_data.df
+            metadata_df = lab_data.df_metadata
 
         # loading from data frame
         elif type(data) == pd.DataFrame:
@@ -221,7 +221,7 @@ class Study:
         inner key for index value and value after replacement
         :param log: (bool) whether or not to log10 the values
 
-        :return: df
+        :return: (pd.DataFrame) df
         """
 
         def fig_abundance_distribution(abundance_df):
@@ -230,44 +230,44 @@ class Study:
             df1['log'] = False
             df2 = pd.DataFrame(np.log10(abundance_df).stack()).reset_index()
             df2['log'] = True
-            df3 = pd.DataFrame(self.get_delta_df(abundance_df, self.params.controls['time_point'])
-                               .stack()).reset_index()
+            df3 = pd.DataFrame(self.get_delta_df(abundance_df, self.params.controls['time_point']).stack())\
+                .reset_index()
             df3['log'] = False
-            df4 = pd.DataFrame(self.get_delta_df(np.log10(abundance_df, self.params.controls['time_point']))
-                               .stack()).reset_index()
+            df4 = pd.DataFrame(self.get_delta_df(np.log10(abundance_df), self.params.controls['time_point']).stack())\
+                .reset_index()
             df4['log'] = True
 
             full_df = pd.concat([df1, df2, df3, df4]).rename(columns={0: 'abundance'})
 
-            plt.figure()
             g = sns.FacetGrid(full_df, row='log', col='time_point', hue='group', palette=self.params.colors,
                               sharex=False, sharey=False, margin_titles=True)
             g = g.map(sns.distplot, 'abundance', hist=True, kde=False)
-            g.set_titles(col_template="{col_name}")  # row_template="{row_name}"
+            g.set_titles(col_template="{col_name}")
             for ax in g.axes.flatten():
                 ax.set_title(label=ax.get_title(), color=self.params.colors[ax.get_title()])
             g.add_legend()
-            plt.title('Abundance distribution')
+            plt.suptitle('Abundance distribution', horizontalalignment='left')
+            plt.subplots_adjust(top=0.9)
 
             plt.savefig(os.path.join(self.dirs.figs, 'abundance distribution'))
 
-        def fig_species_samples_distribution(abundance_df):
-            n_samples_per_specie = (abundance_df > PNP3.params.detection_threshold).sum(axis=0)
-            n_species_per_sample = (abundance_df > PNP3.params.detection_threshold).sum(axis=1)
+        def fig_species_distribution(abundance_df):
+            n_species_per_sample = pd.DataFrame(pd.DataFrame(
+                (abundance_df > self.params.detection_threshold).sum(axis=1))
+                                                .stack()).reset_index().rename(columns={0: 'n_species'})
 
-            figure, axes = plt.subplots(nrows=1, ncols=2)
+            g = sns.FacetGrid(n_species_per_sample, col='time_point', hue='group', palette=self.params.colors,
+                              sharex=True, sharey=True, margin_titles=True)
+            g = g.map(sns.distplot, 'n_species', hist=True, kde=False)
+            g.set_titles(col_template="{col_name}")
+            for ax in g.axes.flatten():
+                ax.set_title(label=ax.get_title(), color=self.params.colors[ax.get_title()])
+            g.add_legend()
+            g.set_ylabels('n_samples')
+            plt.suptitle('Species distribution', horizontalalignment='left')
+            plt.subplots_adjust(top=0.8)
 
-            sns.distplot(n_samples_per_specie, ax=axes[0], kde=False)
-            axes[0].set_xlabel('samples per specie')
-            axes[0].set_ylabel('# species')
-
-            sns.distplot(n_species_per_sample, ax=axes[1], kde=False)
-            axes[1].set_xlabel('species per sample')
-            axes[1].set_ylabel('# samples')
-
-            plt.suptitle('species-samples distribution')
-
-            plt.savefig(os.path.join(self.dirs.figs, 'species-samples distribution'))
+            plt.savefig(os.path.join(self.dirs.figs, 'species distribution'))
 
         def time2time_point(person_abundance_df):
 
@@ -325,7 +325,7 @@ class Study:
 
             # figures
             fig_abundance_distribution(df)
-            fig_species_samples_distribution(df)
+            fig_species_distribution(df)
 
         # filter out empty columns (species/test)
         df = df.dropna(axis=1, how='all')
@@ -367,7 +367,7 @@ class Study:
                         plt.subplots(nrows=min(len(major_elements), len(minor_elements)),
                                      ncols=max(len(major_elements), len(minor_elements)))
 
-                plt.subplots_adjust(bottom=0.5)
+                plt.subplots_adjust(bottom=0.5, left=0.14)
                 plt.suptitle('{} - significant results'.format(test))
 
             ax = axes_internal[major_elements.index(major_e) * len(minor_elements) + minor_elements.index(minor_e)]
@@ -994,35 +994,5 @@ class _Parameters:
 
 
 if __name__ == "__main__":
-    PNP3 = Study(
-
-        study='PNP3',
-
-        controls={'time_point': '0months',
-                  'group': 'mediterranean'},
-
-        colors={'0months': 'orchid',
-                '6months': 'darkorchid',
-                '6months-0months': 'deeppink',
-                '': 'gray',  # necessary
-                'mediterranean': 'mediumblue',
-                'algorithm': 'orange'},
-
-        base_directory='/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3')
-
-    indices_dict2 = {
-        'group': {0: 'mediterranean', 1: 'algorithm'},
-        'time_point': {5.0: '0months', 14.0: '6months'}}
-
-    meta_data_dir = '/net/mraid08/export/genie/LabData/Data/WIS'
-
-    blood_file = 'all_blood_tests.xlsx'
-    body_file = 'all_measurements.xlsx'
-    metadata_file = 'Combined_RandomizationResults_final.xlsx'
-
-    PNP3.objs.abundance.df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'abundance'))
-    PNP3.objs.diversity.df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'diversity'))
-    PNP3.objs.blood.df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'blood'))
-    PNP3.objs.body.df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'body'))
 
     print(help(Study))
