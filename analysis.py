@@ -25,7 +25,7 @@ import matplotlib.pyplot as plt
 from matplotlib import rcParams
 
 # lab
-from LabData.DataLoaders import MBLoader, BloodTestsLoader, BodyMeasuresLoader, CGMLoader
+from LabData.DataLoaders import GutMBLoader, OralMBLoader, BloodTestsLoader, BodyMeasuresLoader, CGMLoader
 
 rcParams['figure.figsize'] = (rcParams['figure.figsize'][0]*1.5, rcParams['figure.figsize'][1]*1.5)
 
@@ -60,7 +60,7 @@ class Study:
         """
         Load a data frame and add columns from external sources
 
-        :param data: (str or pd.DataFrame) string of data type ('microbiome', 'blood', 'body' or 'cgm') or a data frame
+        :param data: (str or pd.DataFrame) string of data type ('gutMB', 'oralMB', 'blood', 'body' or 'cgm') or a data frame
         :param columns_from_metadata: (str, list or dict) to add from the LabDataLoader meta data data frame
         :param columns_from_file: (str, list or dict) to add from
         :param file: (str or pd.DataFrame) from which to add columns ('xlsx' or 'csv')
@@ -69,16 +69,16 @@ class Study:
         :return: (pd.DataFrame) df
         """
 
-        def fig_abundance_reads(input_metadata_df):
-            columns = ['RawRC', 'PostTrimRC', 'PostQCRC', 'PostHGFRC', 'UnalignedRC']
+        def fig_abundance_reads(input_metadata_df, name):
+            columns = ['RawRC', 'PostQCRC', 'PostHGFRC', 'UnalignedRC']
 
             plt.figure()
             sns.boxplot(data=input_metadata_df[columns])
-            plt.title('Read Count')
-            plt.ylabel('read count')
-            plt.ylim([0, 0.4 * (10 ** 8)])
+            title = '{} reads count'.format(name.replace('MB', ''))
+            plt.title(title)
+            plt.ylabel('reads count')
 
-            plt.savefig(os.path.join(self.dirs.figs, 'read count'))
+            plt.savefig(os.path.join(self.dirs.figs, title))
 
         # default parameters to always act on
         default_indices_order = ['group', 'person', 'time_point', 'time', 'sample']
@@ -86,9 +86,12 @@ class Study:
 
         # loading from Lab Data
         if type(data) == str:
-            if data == 'microbiome':
-                lab_data = MBLoader.MBLoader().get_data('segata_species', study_ids=self.params.study)
-                fig_abundance_reads(lab_data.df_metadata)
+            if data == 'gutMB':
+                lab_data = GutMBLoader.GutMBLoader().get_data('segata_species', study_ids=self.params.study)
+                fig_abundance_reads(lab_data.df_metadata, data)
+            elif data == 'oralMB':
+                lab_data = OralMBLoader.OralMBLoader().get_data('segata_species', study_ids=self.params.study)
+                fig_abundance_reads(lab_data.df_metadata, data)
             elif data == 'blood':
                 lab_data = BloodTestsLoader.BloodTestsLoader().get_data(study_ids=self.params.study)
             elif data == 'body':
@@ -224,7 +227,7 @@ class Study:
         :return: (pd.DataFrame) df
         """
 
-        def fig_abundance_distribution(abundance_df):
+        def fig_abundance_distribution(abundance_df, name):
 
             df1 = pd.DataFrame(abundance_df.stack()).reset_index()
             df1['log'] = False
@@ -246,12 +249,13 @@ class Study:
             for ax in g.axes.flatten():
                 ax.set_title(label=ax.get_title(), color=self.params.colors[ax.get_title()])
             g.add_legend()
-            plt.suptitle('Abundance distribution', horizontalalignment='left')
+            title = '{} distribution'.format(name)
+            plt.suptitle(title, horizontalalignment='left')
             plt.subplots_adjust(top=0.9)
 
-            plt.savefig(os.path.join(self.dirs.figs, 'abundance distribution'))
+            plt.savefig(os.path.join(self.dirs.figs, title))
 
-        def fig_species_distribution(abundance_df):
+        def fig_species_distribution(abundance_df, name):
             n_species_per_sample = pd.DataFrame(pd.DataFrame(
                 (abundance_df > self.params.detection_threshold).sum(axis=1))
                                                 .stack()).reset_index().rename(columns={0: 'n_species'})
@@ -264,10 +268,11 @@ class Study:
                 ax.set_title(label=ax.get_title(), color=self.params.colors[ax.get_title()])
             g.add_legend()
             g.set_ylabels('n_samples')
-            plt.suptitle('Species distribution', horizontalalignment='left')
+            title = '{}species distribution'.format(name.replace('abundance', ''))
+            plt.suptitle(title, horizontalalignment='left')
             plt.subplots_adjust(top=0.8)
 
-            plt.savefig(os.path.join(self.dirs.figs, 'species distribution'))
+            plt.savefig(os.path.join(self.dirs.figs, title))
 
         def time2time_point(person_abundance_df):
 
@@ -313,7 +318,7 @@ class Study:
                 if ind in df.index.names:
                     df = df.rename(index=indices_dict[ind], level=ind)
 
-        if obj.type == 'abundance':
+        if 'abundance' in obj.type:
             # fill missing values caused by MBLoader with detection threshold
             df = df.fillna(self.params.detection_threshold)
 
@@ -324,8 +329,8 @@ class Study:
             df = df.groupby(['person']).apply(declare_missing_values)
 
             # figures
-            fig_abundance_distribution(df)
-            fig_species_distribution(df)
+            fig_abundance_distribution(df, obj.type)
+            fig_species_distribution(df, obj.type)
 
         # filter out empty columns (species/test)
         df = df.dropna(axis=1, how='all')
@@ -368,7 +373,7 @@ class Study:
                                      ncols=max(len(major_elements), len(minor_elements)))
 
                 plt.subplots_adjust(bottom=0.5, left=0.14)
-                plt.suptitle('{} - significant results'.format(test))
+                plt.suptitle('{}\n{} - significant results'.format(obj.type.replace('abundance', ''), test))
 
             ax = axes_internal[major_elements.index(major_e) * len(minor_elements) + minor_elements.index(minor_e)]
 
@@ -677,7 +682,7 @@ class Study:
             # needs to be after the delta because delta effects the shape
 
         # deal with missing values
-        if xobj.type == 'abundance':  # only for abundance otherwise the min min might not be the best solution
+        if 'abundance' in xobj.type:  # only for abundance otherwise the min min might not be the best solution
             x_df = x_df.fillna(x_df.min().min())
         # drop samples with missing values as long as it does not go over the minimal_samples
         na_columns = (y_df.isna().sum(axis=0) > 0) & (y_df.isna().sum(axis=0) < (x_df.shape[0] - minimal_samples))
@@ -815,7 +820,7 @@ class Study:
         if not (0 <= abundance_df.min().min() and abundance_df.max().max() <= 1):
             abundance_df = (10 ** abundance_df)
 
-        diversity_df = pd.DataFrame(-(abundance_df * np.log10(abundance_df)).sum(axis=1).dropna())
+        diversity_df = pd.DataFrame(-(abundance_df * np.log2(abundance_df)).sum(axis=1).dropna())
         diversity_df.columns = ['diversity']
 
         return diversity_df
@@ -860,6 +865,64 @@ class Study:
         delta_df = delta_df.drop(idx)
 
         return delta_df
+
+    @staticmethod
+    def time_series2time_point(person_df, days_between_time_points=6):
+        """
+        Takes the time index column and converts adds to it time_point columns for each group of samples that have less
+        than days_between_time_points between them
+
+        :param person_df: (pd.DataFrame) single person data frame to apply the function on
+        :param days_between_time_points: (int) maximum amount of days that can be between samples that will still be
+        considered as a single time_point
+
+        :return: person_df (pd.DataFrame)
+        """
+
+        person_df['diff'] = person_df.index.get_level_values('time')
+        person_df = person_df.sort_values('diff')  # which is actually 'time'
+        person_df['diff'] = person_df['diff'].diff().apply(lambda x: x.days)
+
+        break_points = person_df['diff'][person_df['diff'] > days_between_time_points].index
+        break_points = break_points.union([person_df.index[-1]])
+
+        person_df['time_point'] = np.nan
+        previous_break_point = person_df.index[0]
+        for time_point, current_break_point in enumerate(break_points):
+            person_df.loc[previous_break_point:current_break_point, 'time_point'] = time_point
+            previous_break_point = current_break_point
+
+        person_df.drop('diff', axis=1)
+
+        return person_df
+
+    @staticmethod
+    def add_cgm(samples_df, cgm_df, days_back=7, glucose_threshold=140):
+        """
+        Adds percentage of cgm measurements above glucose_threshold from these amount of days_back
+        to each sample in samples_df
+
+        :param samples_df: (pd.DataFrame) to add to each sample the relevant measurements
+        :param cgm_df: (pd.DataFrame) to take the relevant cgm measurements from
+        :param days_back: (int) amount of days before sample to consider
+        :param glucose_threshold: (int) to count measurements above it
+
+        :return: samples_df (pd.DataFrame)
+        """
+
+        samples_df['time_above{}'.format(glucose_threshold)] = np.nan
+        for i, sample in samples_df.reset_index().iterrows():
+
+            if sample['person'] in cgm_df.index.get_level_values('person'):
+                curr_cgm = cgm_df.xs(sample['person'], level='person')  # this person
+                delta_days = (curr_cgm.index.get_level_values('time').tz_convert('UTC') -
+                              sample['time']).days  # conversion to UTC should be part of the LabData
+                curr_cgm = curr_cgm[(0 <= delta_days) & (delta_days <= days_back)]  # this days_back
+
+                samples_df.iloc[i, -1] = (curr_cgm['GlucoseValue'] > glucose_threshold).sum() / curr_cgm.shape[0]
+                # assuming the last column is the column added
+
+        return samples_df
 
     # general file handling
     @staticmethod
@@ -957,11 +1020,13 @@ class _Objects:
     def __init__(self):
 
         # microbiome
-        self.abundance = _Object(obj_type='abundance', columns='bacteria')
-        self.diversity = _Object(obj_type='diversity', columns='diversity')
+        self.gut_abundance = _Object(obj_type='gut abundance', columns='bacteria')
+        self.oral_abundance = _Object(obj_type='oral abundance', columns='bacteria')
+        self.gut_diversity = _Object(obj_type='gut diversity', columns='diversity')
+        self.oral_diversity = _Object(obj_type='oral diversity', columns='diversity')
 
         # others
-        self.blood = _Object(obj_type='blood', columns='tests')
+        self.blood = _Object(obj_type='blood', columns='measurements')
         self.body = _Object(obj_type='body', columns='measurements')
 
 
