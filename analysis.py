@@ -69,12 +69,12 @@ class Study:
         :return: (pd.DataFrame) df
         """
 
-        def fig_abundance_reads(input_metadata_df, name):
+        def fig_abundance_reads(input_metadata_df):
             columns = ['RawRC', 'PostQCRC', 'PostHGFRC', 'UnalignedRC']
 
             plt.figure()
             sns.boxplot(data=input_metadata_df[columns])
-            title = '{} reads count'.format(name.replace('MB', ''))
+            title = '{} reads count'.format(data.replace('MB', ''))
             plt.title(title)
             plt.ylabel('reads count')
 
@@ -88,10 +88,10 @@ class Study:
         if type(data) == str:
             if data == 'gutMB':
                 lab_data = GutMBLoader.GutMBLoader().get_data('segata_species', study_ids=self.params.study)
-                fig_abundance_reads(lab_data.df_metadata, data)
+                fig_abundance_reads(lab_data.df_metadata)
             elif data == 'oralMB':
                 lab_data = OralMBLoader.OralMBLoader().get_data('segata_species', study_ids=self.params.study)
-                fig_abundance_reads(lab_data.df_metadata, data)
+                fig_abundance_reads(lab_data.df_metadata)
             elif data == 'blood':
                 lab_data = BloodTestsLoader.BloodTestsLoader().get_data(study_ids=self.params.study)
             elif data == 'body':
@@ -227,7 +227,7 @@ class Study:
         :return: (pd.DataFrame) df
         """
 
-        def fig_abundance_distribution(abundance_df, name):
+        def fig_abundance_distribution(abundance_df):
 
             df1 = pd.DataFrame(abundance_df.stack()).reset_index()
             df1['log'] = False
@@ -249,13 +249,13 @@ class Study:
             for ax in g.axes.flatten():
                 ax.set_title(label=ax.get_title(), color=self.params.colors[ax.get_title()])
             g.add_legend()
-            title = '{} distribution'.format(name)
+            title = '{} distribution'.format(obj.type)
             plt.suptitle(title, horizontalalignment='left')
             plt.subplots_adjust(top=0.9)
 
             plt.savefig(os.path.join(self.dirs.figs, title))
 
-        def fig_species_distribution(abundance_df, name):
+        def fig_species_distribution(abundance_df):
             n_species_per_sample = pd.DataFrame(pd.DataFrame(
                 (abundance_df > self.params.detection_threshold).sum(axis=1))
                                                 .stack()).reset_index().rename(columns={0: 'n_species'})
@@ -268,7 +268,7 @@ class Study:
                 ax.set_title(label=ax.get_title(), color=self.params.colors[ax.get_title()])
             g.add_legend()
             g.set_ylabels('n_samples')
-            title = '{}species distribution'.format(name.replace('abundance', ''))
+            title = '{}species distribution'.format(obj.type.replace('abundance', ''))
             plt.suptitle(title, horizontalalignment='left')
             plt.subplots_adjust(top=0.8)
 
@@ -329,8 +329,8 @@ class Study:
             df = df.groupby(['person']).apply(declare_missing_values)
 
             # figures
-            fig_abundance_distribution(df, obj.type)
-            fig_species_distribution(df, obj.type)
+            fig_abundance_distribution(df)
+            fig_species_distribution(df)
 
         # filter out empty columns (species/test)
         df = df.dropna(axis=1, how='all')
@@ -373,7 +373,7 @@ class Study:
                                      ncols=max(len(major_elements), len(minor_elements)))
 
                 plt.subplots_adjust(bottom=0.5, left=0.14)
-                plt.suptitle('{}\n{} - significant results'.format(obj.type.replace('abundance', ''), test))
+                plt.suptitle('{}\n{} - significant results'.format(obj.type, test))
 
             ax = axes_internal[major_elements.index(major_e) * len(minor_elements) + minor_elements.index(minor_e)]
 
@@ -439,7 +439,7 @@ class Study:
                 # saving
                 plt.savefig(os.path.join(
                     self.dirs.figs,
-                    'stats {}{} {} - {}'.format(obj.type, delta_str, test, stats_df_list[-1].name.replace('.', ''))))
+                    'stats {}{} {} {}'.format(obj.type, delta_str, test, between)))
                 figure_internal = None
                 axes_internal = None
 
