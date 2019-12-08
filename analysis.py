@@ -305,8 +305,11 @@ class Study:
 
         # average multiple entries from the same time
         if mean_time_point:
-            df = df.groupby(['group', 'person', 'time_point']).apply(lambda g: g.mean())
-            # this obliviates any index that is not the group by!!!
+            indices = list(df.index.names)
+            indices.remove('time')
+            df = df.reset_index().groupby(['person', 'time_point']).mean().reset_index()
+            df = df.set_index(indices)
+            # this obliviates time index because the mean function can not handel datetime values
 
         # filter out cases where a person has the wrong number of samples
         if n_entries is not None:
@@ -741,6 +744,20 @@ class Study:
                 y_pred = np.empty(y.shape)
                 y_pred.fill(np.nan)
 
+                # linear model
+                if model_type == 'linear':
+                    model = LinearRegression()
+
+                # xgb model
+                elif model_type == 'xgb' and binary:
+                    model = XGBClassifier()
+                elif model_type == 'xgb' and not binary:
+                    model = XGBRegressor(objective='reg:squarederror')
+                    # objective='reg:squarederror' is the default and is written explicitly just to avoid a warning
+                # TODO: ask Eran about the parameters
+                else:
+                    raise Exception('model not valid')
+
                 # create K folds of the data and do for each fold
                 kf = KFold(n_splits=n_splits, random_state=random_state[i], shuffle=True)
                 for train_index, test_index in kf.split(x):
@@ -749,26 +766,15 @@ class Study:
                     x_train, x_test = x[train_index], x[test_index]
                     y_train, y_test = y[train_index], y[test_index]
 
-                    # linear model
-                    if model_type == 'linear':
-                        model = LinearRegression().fit(x_train, y_train)
-
-                    # xgb model
-                    elif model_type == 'xgb' and binary:
-                        model = XGBClassifier().fit(x_train, y_train)
-                    elif model_type == 'xgb' and not binary:
-                        model = XGBRegressor(objective='reg:squarederror').fit(x_train, y_train)
-                        # objective='reg:squarederror' is the default and is written explicitly just to avoid a warning
-                    # TODO: ask Eran about the parameters
-                    else:
-                        raise Exception('model not valid')
+                    model = model.fit(x_train, y_train)
 
                     # fill up y_pred in steps so can be analyzed in total later on
                     y_pred[test_index] = model.predict(x_test)
 
                 # produce model evaluation
                 if binary:
-                    score_df.loc[col, (i, 'roc_auc')] = roc_auc_score(y, y_pred)
+                    y_score = model.predict_proba(x)[:, 1]
+                    score_df.loc[col, (i, 'roc_auc')] = roc_auc_score(y, y_score)  # notice y_score and not y_pred
                 else:
                     score_df.loc[col, (i, 'R^2')] = r2_score(y, y_pred)
                     # R^2 (coefficient of determination) regression score function.
@@ -897,14 +903,14 @@ class Study:
         return person_df
 
     @staticmethod
-    def add_cgm(samples_df, cgm_df, days_back=7, glucose_threshold=140):
+    def add_cgm(samples_df, cgm_df, delta_days=-7, glucose_threshold=140):
         """
         Adds percentage of cgm measurements above glucose_threshold from these amount of days_back
         to each sample in samples_df
 
         :param samples_df: (pd.DataFrame) to add to each sample the relevant measurements
         :param cgm_df: (pd.DataFrame) to take the relevant cgm measurements from
-        :param days_back: (int) amount of days before sample to consider
+        :param delta_days: (int) cgm time in days to consider before (negative) or after (positive) sample time
         :param glucose_threshold: (int) to count measurements above it
 
         :return: samples_df (pd.DataFrame)
@@ -915,12 +921,17 @@ class Study:
 
             if sample['person'] in cgm_df.index.get_level_values('person'):
                 curr_cgm = cgm_df.xs(sample['person'], level='person')  # this person
-                delta_days = (curr_cgm.index.get_level_values('time').tz_convert('UTC') -
+                delta_time = (curr_cgm.index.get_level_values('time').tz_convert('UTC') -
                               sample['time']).days  # conversion to UTC should be part of the LabData
-                curr_cgm = curr_cgm[(0 <= delta_days) & (delta_days <= days_back)]  # this days_back
 
-                samples_df.iloc[i, -1] = (curr_cgm['GlucoseValue'] > glucose_threshold).sum() / curr_cgm.shape[0]
-                # assuming the last column is the column added
+                if delta_days < 0:
+                    curr_cgm = curr_cgm[(delta_days <= delta_time) & (delta_time <= 0)]  # these days back
+                else:
+                    curr_cgm = curr_cgm[(0 <= delta_time) & (delta_time <= delta_days)]  # these days forward
+
+                if curr_cgm.shape[0] != 0:
+                    samples_df.iloc[i, -1] = (curr_cgm['GlucoseValue'] > glucose_threshold).sum() / curr_cgm.shape[0]
+                    # assuming the last column is the column added
 
         return samples_df
 
