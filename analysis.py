@@ -808,6 +808,92 @@ class Study:
 
         return summary_score_df
 
+    def corr_datasets(self, xobj, yobj, delta=False, minimal_samples=0.1):
+        # TODO: add description, and check comments
+
+        # retrieving the data frames from the objects
+        if type(xobj) == _Object and type(yobj) == _Object:
+            x_df = xobj.df
+            y_df = yobj.df
+        else:
+            raise Exception('xobj and yobj type is not object')
+
+        # change the values in the data frames to be the change in value between two time points:
+        # any time point and the control time point
+        if delta:
+            x_df = self.get_delta_df(x_df, self.params.controls['time_point'])
+            y_df = self.get_delta_df(y_df, self.params.controls['time_point'])
+            delta_str = ' delta'  # for file names
+        else:
+            delta_str = ''  # for file names
+
+        # find the indices and columns that exists in both the x_df and the y_df
+        combined_indices = x_df.index.get_level_values('person').intersection(
+                           y_df.index.get_level_values('person'))
+        combined_columns = x_df.columns & y_df.columns
+        # filter the data frames to only include these indices and columns
+        x_df = x_df[x_df.index.isin(combined_indices, level='person')][combined_columns]
+        y_df = y_df[y_df.index.isin(combined_indices, level='person')][combined_columns]
+
+        # synchronizing indices levels
+        indices_names = list(set(x_df.index.names) & set(y_df.index.names) - set(['sample', 'time']))
+        x_indices2remove = list(set(x_df.index.names) - set(indices_names))
+        y_indices2remove = list(set(y_df.index.names) - set(indices_names))
+        x_df = x_df.droplevel(x_indices2remove)
+        y_df = y_df.droplevel(y_indices2remove)
+
+        # convert the minimal_samples percentage from the argument to the number of samples
+        if minimal_samples < 1:  # meaning minimal_samples is in percentage
+            minimal_samples = round(minimal_samples * len(combined_indices))
+            # needs to be after the delta because delta effects the shape
+
+        # create a data frame to fill with results
+        corr_df = pd.DataFrame(index=combined_columns, columns=['rho', 'p', 'p_FDR'])
+
+        # correlate the data sets for each column
+        for col in combined_columns:
+
+            # match the x and y values
+            data_df = pd.DataFrame(columns=['x', 'y'])
+            data_df['x'] = x_df[col]
+            data_df['y'] = y_df[col]
+
+            # remove cases where one or both of the datasets are empty
+            data_df = data_df.dropna(how='any')
+
+            # make sure you have enough samples and then correlate the x and the y
+            if data_df.shape[0] > minimal_samples:
+                corr_df.loc[col, ['rho', 'p']] = spearmanr(data_df['x'], data_df['y'])
+                # The p-value roughly indicates the probability of an uncorrelated system producing datasets that have a
+                # Spearman correlation at least as extreme as the one computed from these datasets.
+                # The p-values are not entirely reliable but are probably reasonable for datasets larger than 500 or so.
+
+        # dropping all the un-ran "columns"
+        corr_df = corr_df.dropna(how='all')
+
+        # fdr correction
+        _, corr_df['p_FDR'] = fdr_correction(corr_df['p'], alpha=self.params.alpha)
+        corr_df.sort_values('p_FDR', inplace=True)
+
+        # print for the user
+        print('')
+        print('{} and {}{}'.format(xobj.type, yobj.type, delta_str))
+        print('{}/{} {} are significant after FDR correction'
+              .format((corr_df['p_FDR'] < self.params.alpha).sum(), len(combined_columns), xobj.columns))
+        print('{} {} were not analyzed because they do not have enough samples'
+              .format(len(combined_columns) - corr_df.shape[0], xobj.columns))
+
+        # save the data frame as excel
+        # create excel writer to fill up
+        excel_path = os.path.join(self.dirs.excels,
+                                  'correlations {} {}{}.xlsx'.format(xobj.type, yobj.type, delta_str))
+        excel_writer = pd.ExcelWriter(excel_path)
+        corr_df.to_excel(excel_writer, freeze_panes=(1, 1))
+        excel_writer.save()
+        excel_writer.close()
+
+        return corr_df
+
     # data frame computations
     @staticmethod
     def get_diversity_df(abundance_df):
@@ -869,6 +955,8 @@ class Study:
         # delete the control time points
         idx = delta_df.xs(control_time_point, level='time_point', drop_level=False).index
         delta_df = delta_df.drop(idx)
+
+        # TODO: delete time column
 
         return delta_df
 
