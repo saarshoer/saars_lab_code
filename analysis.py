@@ -886,7 +886,7 @@ class Study:
                         title = 'correlation {}{}{} colored by {}'.format(param, delta_str, group_by_str, hue)
                         plt.suptitle(title)
                         plt.title('each dot represents a {}'.format(list(param_df.columns[:-2]) + [param]))
-                        plt.savefig(os.path.join(PNP3.dirs.figs, title))
+                        plt.savefig(os.path.join(self.dirs.figs, title))
 
         # retrieving the data frames from the objects
         if type(xobj) == _Object and type(yobj) == _Object:
