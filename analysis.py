@@ -1316,27 +1316,5 @@ class _Parameters:
 
 
 if __name__ == "__main__":
-    PNP3 = Study(
-
-        study='PNP3',
-
-        controls={'time_point': '0months',
-                  'group': 'mediterranean'},
-
-        colors={'0months': 'orchid',
-                '6months': 'darkorchid',
-                '6months-0months': 'deeppink',
-                '': 'gray',  # necessary
-                'mediterranean': 'mediumblue',
-                'algorithm': 'orange',
-                'gut abundance': 'brown',
-                'oral abundance': 'red'},
-
-        base_directory='/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3')
-
-    PNP3.objs.gut_abundance.df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'gut_abundance.df'))
-    PNP3.objs.oral_abundance.df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'oral_abundance.df'))
-
-    PNP3.corr_datasets(PNP3.objs.gut_abundance, PNP3.objs.oral_abundance, delta=True)
 
     print(help(Study))
