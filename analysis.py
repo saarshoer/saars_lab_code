@@ -9,15 +9,19 @@ from ftplib import FTP
 import numpy as np
 import pandas as pd
 
+# statistics
+from mne.stats.multi_comp import fdr_correction
+from sklearn.metrics import roc_auc_score, r2_score
+from scipy.stats import mannwhitneyu, ttest_ind, ttest_rel, ttest_1samp, binom_test, pearsonr, spearmanr
+
 # models
 from sklearn.model_selection import KFold
 from xgboost import XGBClassifier, XGBRegressor
 from sklearn.linear_model import LinearRegression
 
-# statistics
-from mne.stats.multi_comp import fdr_correction
-from sklearn.metrics import roc_auc_score, r2_score
-from scipy.stats import mannwhitneyu, ttest_ind, ttest_rel, ttest_1samp, binom_test, pearsonr, spearmanr
+# dimensionality reduction
+from sklearn.manifold import TSNE
+from sklearn.decomposition import PCA
 
 # plots
 import seaborn as sns
@@ -100,7 +104,6 @@ class Study:
                 lab_data = CGMLoader.CGMLoader().get_data(study_ids=self.params.study)
             else:
                 raise Exception('data string is not valid')
-            # TODO: check additional arguments for each loader
 
             # retrieving
             df = lab_data.df
@@ -808,8 +811,82 @@ class Study:
 
         return summary_score_df
 
-    def corr_datasets(self, xobj, yobj, delta=False, minimal_samples=0.1):
-        # TODO: add description, and check comments
+    def corr_datasets(self, xobj, yobj, delta=False, group_by=None, minimal_samples=0.1):
+        """
+        Correlates between the xobj and the yobj overlapping categories.
+        The resulting excel is filtering while the figures are not
+
+        :param xobj: (object) some object
+        :param yobj: (object) another object
+        :param delta: (bool) whether or not to correlate based on the difference between time_point values
+        :param group_by: whether to mean multiple values of a category
+        - only relevant for figures
+        :param minimal_samples: (percentage or int) that needs to be included in order to correlate
+        - only relevant for the excel
+
+        :return: None
+        """
+
+        def fig_corr_indices(x__df, y__df):
+
+            # unite both data frames into one
+            x__df = pd.DataFrame(x__df.stack()).rename(columns={0: xobj.type})
+            y__df = pd.DataFrame(y__df.stack()).rename(columns={0: yobj.type})
+            df = x__df.join(y__df, how='outer')
+
+            # set all levels to be the same
+            df = pd.DataFrame(df.stack()).reset_index()  # to include what used to be columns
+            df = df.rename(columns={df.columns[-3]: xobj.columns, df.columns[-2]: 'obj', df.columns[-1]: 'value'})
+
+            # for the title
+            if group_by is not None:
+                group_by_str = ' grouped by {}'.format(group_by)
+            else:
+                group_by_str = ''
+
+            # for each parameter
+            for param in df.columns[:-1]:  # -1 so to not include 'value'
+                indices = list(set(df.columns) - set([param, 'value']))
+                param_values = df[param].unique()
+
+                # for each hue
+                for hue in indices:
+                    param_df = df.pivot_table(index=indices, columns=param, values='value').dropna().reset_index()
+                    # defined here and not outside the loop in order to be renewed in case group by changed it
+
+                    # len 2 to be plottable, shape > 0 to have values, param different than hue for hue to make sense
+                    if len(param_values) == 2 and param_df.shape[0] > 0 and param != hue:
+
+                        # group by
+                        if group_by is not None:
+                            param_df = param_df.groupby(list(set([group_by, hue])))[param_values].mean().reset_index()
+                            # list(set()) is necessary in case group_by == hue and then it cannot be grouped "twice"
+
+                        # palette
+                        # if all hue values are in colors
+                        if len(set(param_df[hue].unique()) - set(self.params.colors.keys())) == 0:
+                            palette = self.params.colors
+                        else:
+                            palette = sns.color_palette("hls", len(param_df[hue].unique()))
+
+                        # plot
+                        fig, ax = plt.subplots()
+
+                        sns.scatterplot(x=param_values[0], y=param_values[1], hue=hue, data=param_df,
+                                        alpha=0.3, palette=palette, ax=ax)
+
+                        # add spearman correlation to legend
+                        handles, labels = ax.get_legend_handles_labels()
+                        for i in np.arange(len(labels))[1:]:  # [1:] so to skip the title
+                            hue_df = param_df[param_df[hue] == labels[i]]
+                            r, p = spearmanr(hue_df[param_values[0]], hue_df[param_values[1]])
+                            labels[i] = '{}\nr={:.2f}, p={:.2f}'.format(labels[i], r, p)
+                        ax.legend(handles, labels)
+
+                        title = 'correlation {}{}{} colored by {}'.format(param, delta_str, group_by_str, hue)
+                        plt.suptitle(title)
+                        plt.title('each dot represents a {}'.format(list(param_df.columns[:-2]) + [param]))
+                        plt.savefig(os.path.join(PNP3.dirs.figs, title))
 
         # retrieving the data frames from the objects
         if type(xobj) == _Object and type(yobj) == _Object:
@@ -835,7 +912,7 @@ class Study:
         x_df = x_df[x_df.index.isin(combined_indices, level='person')][combined_columns]
         y_df = y_df[y_df.index.isin(combined_indices, level='person')][combined_columns]
 
-        # synchronizing indices levels
+        # synchronize indices levels (some time one data frame has different indices levels than the other)
         indices_names = list(set(x_df.index.names) & set(y_df.index.names) - set(['sample', 'time']))
         x_indices2remove = list(set(x_df.index.names) - set(indices_names))
         y_indices2remove = list(set(y_df.index.names) - set(indices_names))
@@ -846,6 +923,9 @@ class Study:
         if minimal_samples < 1:  # meaning minimal_samples is in percentage
             minimal_samples = round(minimal_samples * len(combined_indices))
             # needs to be after the delta because delta effects the shape
+
+        # plot
+        fig_corr_indices(x_df, y_df)
 
         # create a data frame to fill with results
         corr_df = pd.DataFrame(index=combined_columns, columns=['rho', 'p', 'p_FDR'])
@@ -861,7 +941,7 @@ class Study:
             # remove cases where one or both of the datasets are empty
             data_df = data_df.dropna(how='any')
 
-            # make sure you have enough samples and then correlate the x and the y
+            # make sure you have enough samples and then correlate x and y
             if data_df.shape[0] > minimal_samples:
                 corr_df.loc[col, ['rho', 'p']] = spearmanr(data_df['x'], data_df['y'])
                 # The p-value roughly indicates the probability of an uncorrelated system producing datasets that have a
@@ -892,7 +972,85 @@ class Study:
         excel_writer.save()
         excel_writer.close()
 
-        return corr_df
+    def dim_reduction(self, obj, n_pca_comp=50, n_tsne_comp=2):
+        """
+        Reduces the dimensionality of a features X samples data frame
+        and save the best 2 components as figures, colored by each index
+
+        :param obj: (_Object) with data frame containing features X samples,
+        index levels are used to color and create different figures
+        :param n_pca_comp: (None, 0 or int) number of desired components out of the pca
+        :param n_tsne_comp: (None, 0 or int) number of desired components out of the pca
+
+        ** not filling either of the n_*_comp will use the dim_reduction default arguments
+        ** filling either of the n_comp with 'None' will use pca/tsne default arguments
+        ** filling either of the n_comp with '0' will cause the function to skip the method (pca/tsne)
+
+        :return: None
+        """
+
+        # the default n_pca_comp is 50 because that is the maximal number of features recommend to the tsne function
+        # the default n_tsne_comp is 2 because this is plotable
+
+        def fig_best_components():
+
+            # create a separate figure for each index
+            for index_name in df.index.names:
+
+                fig, axes = plt.subplots(1, 2, figsize=[rcParams['figure.figsize'][0] * 2,
+                                                        rcParams['figure.figsize'][1]])
+
+                # coloring
+                hue = df.index.get_level_values(index_name)
+                if len(set(hue.unique()) - set(self.params.colors.keys())) == 0:
+                    palette = self.params.colors
+                else:
+                    palette = sns.color_palette("hls", len(hue.unique()))
+
+                # pca
+                if n_pca_comp != 0:
+                    sns.scatterplot(x=pca_result[:, 0], y=pca_result[:, 1],
+                                    hue=hue, palette=palette, alpha=0.3, ax=axes[0])
+                    axes[0].set_title('pca')
+                    axes[0].set_xlabel('pca component 1 - {:.2%}'.format(pca.explained_variance_ratio_[0]))
+                    axes[0].set_ylabel('pca component 2 - {:.2%}'.format(pca.explained_variance_ratio_[1]))
+
+                # tsne
+                if n_tsne_comp != 0:
+                    sns.scatterplot(x=tsne_result[:, 0], y=tsne_result[:, 1],
+                                    hue=hue, palette=palette, alpha=0.3, ax=axes[1])
+                    axes[1].set_title('tsne')
+                    axes[1].set_xlabel('tsne component 1')
+                    axes[1].set_ylabel('tsne component 2')
+
+                title = 'dim reduction {} colored by {}'.format(obj.type, index_name)
+                fig.suptitle(title)
+                plt.savefig(os.path.join(self.dirs.figs, title))
+
+        # retrieving the data frames from the object
+        if type(obj) == _Object:
+            df = obj.df
+        else:
+            raise Exception('obj is not object')
+
+        if n_pca_comp == 0 and n_tsne_comp == 0:
+            raise Exception('both reduction methods are empty')
+
+        # pca
+        if n_pca_comp != 0:
+            pca = PCA(n_components=n_pca_comp)
+            pca_result = pca.fit_transform(df.values)
+        else:
+            pca_result = df.values
+
+        # tsne
+        if n_tsne_comp != 0:
+            tsne = TSNE(n_components=n_tsne_comp)
+            tsne_result = tsne.fit_transform(pca_result)
+        else:
+            tsne_result = pca_result
+
+        fig_best_components()
 
     # data frame computations
     @staticmethod
@@ -1158,5 +1316,27 @@ class _Parameters:
 
 
 if __name__ == "__main__":
+    PNP3 = Study(
+
+        study='PNP3',
+
+        controls={'time_point': '0months',
+                  'group': 'mediterranean'},
+
+        colors={'0months': 'orchid',
+                '6months': 'darkorchid',
+                '6months-0months': 'deeppink',
+                '': 'gray',  # necessary
+                'mediterranean': 'mediumblue',
+                'algorithm': 'orange',
+                'gut abundance': 'brown',
+                'oral abundance': 'red'},
+
+        base_directory='/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3')
+
+    PNP3.objs.gut_abundance.df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'gut_abundance.df'))
+    PNP3.objs.oral_abundance.df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'oral_abundance.df'))
+
+    PNP3.corr_datasets(PNP3.objs.gut_abundance, PNP3.objs.oral_abundance, delta=True)
 
     print(help(Study))
