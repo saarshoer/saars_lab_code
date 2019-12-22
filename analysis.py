@@ -29,7 +29,8 @@ import matplotlib.pyplot as plt
 from matplotlib import rcParams
 
 # lab
-from LabData.DataLoaders import GutMBLoader, OralMBLoader, BloodTestsLoader, BodyMeasuresLoader, CGMLoader
+from LabData.DataLoaders import GutMBLoader, OralMBLoader, BloodTestsLoader, BodyMeasuresLoader, \
+    CGMLoader, DietLoggingLoader
 
 rcParams['figure.figsize'] = (rcParams['figure.figsize'][0]*1.5, rcParams['figure.figsize'][1]*1.5)
 
@@ -53,7 +54,15 @@ class Study:
         self.dirs = _Directories(base_directory)
 
         # Objects
-        self.objs = _Objects()
+        self.objs = {}
+
+    class Object:
+
+        # Initialization
+        def __init__(self, obj_type=None, df=None, columns=None):
+            self.type = obj_type
+            self.df = df
+            self.columns = columns
 
     # Functions
 
@@ -64,7 +73,7 @@ class Study:
         """
         Load a data frame and add columns from external sources
 
-        :param data: (str or pd.DataFrame) string of data type ('gutMB', 'oralMB', 'blood', 'body' or 'cgm') or a data frame
+        :param data: (str or pd.DataFrame) string of data type ('gutMB', 'oralMB', 'blood', 'body', 'cgm', 'diet') or a data frame
         :param columns_from_metadata: (str, list or dict) to add from the LabDataLoader meta data data frame
         :param columns_from_file: (str, list or dict) to add from
         :param file: (str or pd.DataFrame) from which to add columns ('xlsx' or 'csv')
@@ -102,6 +111,11 @@ class Study:
                 lab_data = BodyMeasuresLoader.BodyMeasuresLoader().get_data(study_ids=self.params.study)
             elif data == 'cgm':
                 lab_data = CGMLoader.CGMLoader().get_data(study_ids=self.params.study)
+            elif data == 'diet':
+                loader = DietLoggingLoader.DietLoggingLoader()
+                lab_data = loader.get_data(study_ids=self.params.study)
+                lab_data.df = loader.add_nutrients(lab_data.df,
+                                                   nutrient_list=['protein_g', 'totallipid_g', 'carbohydrate_g'])
             else:
                 raise Exception('data string is not valid')
 
@@ -411,6 +425,11 @@ class Study:
                     curr_data_df['index'] = curr_data_df['index'].apply(
                         lambda row: row.replace('bt__', ''))
 
+                # clean the nutrient name
+                if obj.type == 'diet':
+                    curr_data_df['index'] = curr_data_df['index'].apply(
+                        lambda row: row.replace('_g', ''))
+
                 # sort index values so they will be sorted in the plot
                 curr_data_df = curr_data_df.sort_values(by='index')
 
@@ -667,7 +686,7 @@ class Study:
         """
 
         # retrieving the data frames from the objects
-        if type(xobj) == _Object and type(yobj) == _Object:
+        if type(xobj) == self.Object and type(yobj) == self.Object:
             x_df = xobj.df
             y_df = yobj.df
         else:
@@ -889,7 +908,7 @@ class Study:
                         plt.savefig(os.path.join(self.dirs.figs, title))
 
         # retrieving the data frames from the objects
-        if type(xobj) == _Object and type(yobj) == _Object:
+        if type(xobj) == self.Object and type(yobj) == self.Object:
             x_df = xobj.df
             y_df = yobj.df
         else:
@@ -927,6 +946,7 @@ class Study:
         # plot
         fig_corr_indices(x_df, y_df)
 
+        # TODO: think if the excel portion is still relevant
         # create a data frame to fill with results
         corr_df = pd.DataFrame(index=combined_columns, columns=['rho', 'p', 'p_FDR'])
 
@@ -977,7 +997,7 @@ class Study:
         Reduces the dimensionality of a features X samples data frame
         and save the best 2 components as figures, colored by each index
 
-        :param obj: (_Object) with data frame containing features X samples,
+        :param obj: (Object) with data frame containing features X samples,
         index levels are used to color and create different figures
         :param n_pca_comp: (None, 0 or int) number of desired components out of the pca
         :param n_tsne_comp: (None, 0 or int) number of desired components out of the pca
@@ -1028,7 +1048,7 @@ class Study:
                 plt.savefig(os.path.join(self.dirs.figs, title))
 
         # retrieving the data frames from the object
-        if type(obj) == _Object:
+        if type(obj) == self.Object:
             df = obj.df
         else:
             raise Exception('obj is not object')
@@ -1121,7 +1141,7 @@ class Study:
     @staticmethod
     def time_series2time_point(person_df, days_between_time_points=6):
         """
-        Takes the time index column and converts adds to it time_point columns for each group of samples that have less
+        Takes the time index column and adds to it time_point columns for each group of samples that have less
         than days_between_time_points between them
 
         :param person_df: (pd.DataFrame) single person data frame to apply the function on
@@ -1136,7 +1156,7 @@ class Study:
         person_df['diff'] = person_df['diff'].diff().apply(lambda x: x.days)
 
         break_points = person_df['diff'][person_df['diff'] > days_between_time_points].index
-        break_points = break_points.union([person_df.index[-1]])
+        break_points = break_points.union([person_df.index[-1]])  # add last row
 
         person_df['time_point'] = np.nan
         previous_break_point = person_df.index[0]
@@ -1144,7 +1164,7 @@ class Study:
             person_df.loc[previous_break_point:current_break_point, 'time_point'] = time_point
             previous_break_point = current_break_point
 
-        person_df.drop('diff', axis=1)
+        person_df = person_df.drop('diff', axis=1).set_index('time_point', append=True)
 
         return person_df
 
@@ -1262,30 +1282,6 @@ class Study:
 
 
 # Helper classes
-class _Object:
-
-    # Initialization
-    def __init__(self, obj_type=None, df=None, columns=None):
-        self.type = obj_type
-        self.df = df
-        self.columns = columns
-
-
-class _Objects:
-
-    # Initialization
-    def __init__(self):
-
-        # microbiome
-        self.gut_abundance = _Object(obj_type='gut abundance', columns='bacteria')
-        self.oral_abundance = _Object(obj_type='oral abundance', columns='bacteria')
-        self.gut_diversity = _Object(obj_type='gut diversity', columns='diversity')
-        self.oral_diversity = _Object(obj_type='oral diversity', columns='diversity')
-
-        # others
-        self.blood = _Object(obj_type='blood', columns='measurements')
-        self.body = _Object(obj_type='body', columns='measurements')
-
 
 class _Directories:
 
