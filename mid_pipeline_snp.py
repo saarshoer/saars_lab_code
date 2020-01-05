@@ -7,14 +7,11 @@ from LabMBPipeline import config_global as config
 from LabMBPipeline.mmmbp import get_args, main
 import logging
 
-start_run = 'Oral'
-# start_run = 'Hanson'
-
-out_dir = os.path.join(config.mbpipeline_data_base, start_run)
+out_dir = os.path.join('/net/mraid08/export/jafar/Microbiome/Analyses/saar/IBD/mmmbp')
 DFOut_dir = os.path.join(out_dir, 'DFOut_SNP')
-tmp_dir = os.path.join(out_dir, 'tmp2')
+tmp_dir = os.path.join(out_dir, 'tmp')
 
-Email = 'nastyagodneva@gmail.com'
+Email = 'saar.shoer@weizmann.com'
 
 max_r = 550
 General_params = ' --max_r {} --use_general_python '.format(max_r)
@@ -27,7 +24,7 @@ if not os.path.exists(DFOut_dir):
 NUM_SAMPLES = 100
 
 MID_params = '--mid_md_path ' + os.path.join(DFOut_dir, "PostUniteMetadata.df ") + \
-             '--mid_input_path ' + os.path.join(out_dir, "tmp2", "UNT", " ") + \
+             '--mid_input_path ' + os.path.join(out_dir, "tmp", "UNT", " ") + \
              '--mid_check_cont ' + \
              '--mid_ext .fastq.gz '
 
@@ -35,17 +32,9 @@ jobs_dir = os.path.join(tmp_dir, 'jobs')
 mkdirifnotexists(jobs_dir)
 os.chdir(jobs_dir)
 
-from LabData.DataLoaders import OralMBLoader
-
-
-old = OralMBLoader.OralMBLoader().get_data('segata_species')
-
 md_df = pd.read_pickle(os.path.join(out_dir, 'DFOut', "PostUniteMetadata.df"))
-
-md_df_done = pd.DataFrame(columns = md_df.columns)
-
+md_df_done = pd.DataFrame(columns=md_df.columns)
 md_df_done.to_pickle(os.path.join(DFOut_dir, "PostUniteMetadata.df"))
-
 
 logf, warnstream = sethandlers(logging.INFO, True, True, file_prefix='mmmbp_')
 
@@ -56,9 +45,7 @@ with config.qp(jobname='mmmbp_', max_r=max_r, q=['himem7.q'],
     cnt = 0
     while True:
         md_df = pd.read_pickle(os.path.join(out_dir, 'DFOut', "PostUniteMetadata.df"))
-        md_df = md_df.loc[old.df_metadata.index]
         md_df['RawReadLength'] = 100
-        md_df_done = pd.DataFrame()
         if os.path.exists(os.path.join(DFOut_dir, "PostUniteMetadata.df")):
             md_df_done = pd.read_pickle(os.path.join(DFOut_dir, "PostUniteMetadata.df"))
             md_df_done.to_pickle(os.path.join(DFOut_dir, 'PostUniteMetadata.df_{}'.format(cnt)))
