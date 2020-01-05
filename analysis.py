@@ -43,12 +43,14 @@ class Study:
 
                  # Default parameters
                  study=None, controls=None, colors=None,
-                 alpha=0.05, detection_threshold=0.0001,
+                 alpha=0.05, detection_threshold=0.0001, dissimilarity_threshold=1/20000,
                  base_directory=os.getcwd()):
 
         # Parameters
         self.params = _Parameters(study=study, controls=controls, colors=colors,
-                                  alpha=alpha, detection_threshold=detection_threshold)
+                                  alpha=alpha,
+                                  detection_threshold=detection_threshold,
+                                  dissimilarity_threshold=dissimilarity_threshold)
 
         # Directories
         self.dirs = _Directories(base_directory)
@@ -1072,6 +1074,73 @@ class Study:
 
         fig_best_components()
 
+    def fig_snp_heatmap(self, obj, annotations=None, maximal_filling=0.5):
+        """
+        Plot a heatmap based on the SNP dissimilarity data frame for each species
+
+        :param obj: (Object) with SNP dissimilarity data frame
+        :param annotations: (list of str) columns to annotate by
+        :param maximal_filling: (float) maximal percentage of samples with missing values to fill with median value
+        JUST for clustering, it will not appear in the heatmap!!
+
+        :return: None
+        """
+
+        # TODO: think what should be the maximal_filling value
+
+        if annotations is None:
+            annotations = ['group', 'time_point']
+
+        # create all the annotation data for the colored bars
+        annotations_df = obj.df
+        annotations_df = annotations_df.reset_index()[[s for s in annotations_df.index.names if '1' in s]] \
+            .set_index('SampleName1').drop_duplicates()  # take only sample1 metadata
+        annotations_df.columns = annotations_df.columns.str.rstrip('1')  # remove 1 suffix from the names
+        annotations_df = annotations_df[annotations]  # limit the annotation to these categories
+        annotations_labels = np.unique(annotations_df.values)
+        annotations_df = annotations_df.replace(self.params.colors)  # replace values with corresponding colors
+
+        # for each species
+        for species in obj.df.index.get_level_values('Species').unique():
+
+            # create a square data matrix (drop metadata)
+            df = obj.df.loc[species].reset_index().pivot_table(index='SampleName2',
+                                                               columns='SampleName1',
+                                                               values='dissimilarity')
+
+            # limit to samples that have at least maximal_filling percentage of existing dissimilarity measurements
+            samples_mask = df.columns[df.isna().sum() < df.shape[0] * maximal_filling].values
+            df = df.loc[samples_mask, samples_mask]
+
+            # find the dissimilarities that are still missing and just for the sake of clustering fill them with medians
+            na_mask = df.isna()
+            df = df.apply(lambda row: row.fillna(row.median()))  # TODO: think if should be median/average/else
+
+            # plotting
+            if df.shape[0] > 1:  # because otherwise you cannot cluster
+                g = sns.clustermap(df, mask=na_mask, linewidths=0,
+                                   xticklabels=False, yticklabels=False,
+                                   row_colors=annotations_df, col_colors=annotations_df,
+                                   cmap='copper', cbar_kws={'label': 'dissimilarity', 'orientation': 'horizontal'})
+
+                title = '{} species {}'.format(obj.type, species)
+                g.fig.suptitle(title)
+
+                # annotations legend
+                for label in annotations_labels:
+                    g.ax_col_dendrogram.bar(0, 0, color=self.params.colors[label], label=label, linewidth=0)
+
+                # position of annotations legend
+                g.ax_col_dendrogram.legend(ncol=1, frameon=False, bbox_to_anchor=(-0.035, 1))
+
+                # position of dissimilarity legend
+                g.cax.set_position([.35, .05, .5, .01])
+
+                if not os.path.exists(os.path.join(self.dirs.figs, obj.type)):
+                    os.makedirs(os.path.join(self.dirs.figs, obj.type))
+                plt.savefig(os.path.join(self.dirs.figs, obj.type, title))
+                plt.close()
+
     # data frame computations
     @staticmethod
     def get_diversity_df(abundance_df):
@@ -1302,13 +1371,15 @@ class _Directories:
 class _Parameters:
 
     # Initialization
-    def __init__(self, study=None, controls=None, colors=None, alpha=None, detection_threshold=None):
+    def __init__(self, study=None, controls=None, colors=None,
+                 alpha=None, detection_threshold=None, dissimilarity_threshold=None):
 
         self.study = study
         self.controls = controls
         self.colors = colors
         self.alpha = alpha
         self.detection_threshold = detection_threshold
+        self.dissimilarity_threshold = dissimilarity_threshold
 
 
 if __name__ == "__main__":
