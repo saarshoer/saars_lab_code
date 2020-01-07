@@ -1,3 +1,9 @@
+# needs to be run with the older version of python3
+# py3_old /home/saarsh/Develop/Git/mine/mid_pipeline_snp.py
+# maybe be removing the 3 from the following line in the LabMBPipeline.config_global
+# python3 = globals().get('python3', '/usr/wisdom/python3/bin/python3')
+# or something with the --use_general_python argument
+
 import os
 import pandas as pd
 
