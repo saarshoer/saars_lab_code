@@ -92,6 +92,7 @@ class Study:
             title = '{} reads count'.format(data.replace('MB', ''))
             plt.title(title)
             plt.ylabel('reads count')
+            # plt.ylim([0, 4*(10**7)])  # for resizing over PNP3 gut outliers
 
             plt.savefig(os.path.join(self.dirs.figs, title))
 
@@ -279,15 +280,31 @@ class Study:
                 (abundance_df > self.params.detection_threshold).sum(axis=1))
                                                 .stack()).reset_index().rename(columns={0: 'n_species'})
 
+            # hue='group'
             g = sns.FacetGrid(n_species_per_sample, col='time_point', hue='group', palette=self.params.colors,
                               sharex=True, sharey=True, margin_titles=True)
-            g = g.map(sns.distplot, 'n_species', hist=True, kde=False)
+            g = g.map(sns.distplot, 'n_species', hist=True, kde=False, bins=10)
             g.set_titles(col_template="{col_name}")
             for ax in g.axes.flatten():
                 ax.set_title(label=ax.get_title(), color=self.params.colors[ax.get_title()])
             g.add_legend()
             g.set_ylabels('n_samples')
-            title = '{}species distribution'.format(obj.type.replace('abundance', ''))
+            title = '{}species distribution colored by group'.format(obj.type.replace('abundance', ''))
+            plt.suptitle(title, horizontalalignment='left')
+            plt.subplots_adjust(top=0.8)
+
+            plt.savefig(os.path.join(self.dirs.figs, title))
+
+            # hue='time_point'
+            g = sns.FacetGrid(n_species_per_sample, col='group', hue='time_point', palette=self.params.colors,
+                              sharex=True, sharey=True, margin_titles=True)
+            g = g.map(sns.distplot, 'n_species', hist=True, kde=False, bins=10)
+            g.set_titles(col_template="{col_name}")
+            for ax in g.axes.flatten():
+                ax.set_title(label=ax.get_title(), color=self.params.colors[ax.get_title()])
+            g.add_legend()
+            g.set_ylabels('n_samples')
+            title = '{}species distribution colored by time_point'.format(obj.type.replace('abundance', ''))
             plt.suptitle(title, horizontalalignment='left')
             plt.subplots_adjust(top=0.8)
 
@@ -1074,7 +1091,7 @@ class Study:
 
         fig_best_components()
 
-    def fig_snp_heatmap(self, obj, annotations=None, maximal_filling=0.5):
+    def fig_snp_heatmap(self, obj, annotations=None, maximal_filling=0.5, minimal_samples=10, cmap=None):
         """
         Plot a heatmap based on the SNP dissimilarity data frame for each species
 
@@ -1082,11 +1099,14 @@ class Study:
         :param annotations: (list of str) columns to annotate by
         :param maximal_filling: (float) maximal percentage of samples with missing values to fill with median value
         JUST for clustering, it will not appear in the heatmap!!
+        :param minimal_samples: (int) minimal number of samples to have in order to draw
+        :param cmap: (str) dissimilarity color map name
 
         :return: None
         """
 
         # TODO: think what should be the maximal_filling value
+        # TODO: define the lineage before the clustermap and give it as the same input for x and y
 
         if annotations is None:
             annotations = ['group', 'time_point']
@@ -1112,34 +1132,37 @@ class Study:
             samples_mask = df.columns[df.isna().sum() < df.shape[0] * maximal_filling].values
             df = df.loc[samples_mask, samples_mask]
 
-            # find the dissimilarities that are still missing and just for the sake of clustering fill them with medians
-            na_mask = df.isna()
-            df = df.apply(lambda row: row.fillna(row.median()))  # TODO: think if should be median/average/else
+            if df.shape[0] >= minimal_samples:
 
-            # plotting
-            if df.shape[0] > 1:  # because otherwise you cannot cluster
-                g = sns.clustermap(df, mask=na_mask, linewidths=0,
-                                   xticklabels=False, yticklabels=False,
-                                   row_colors=annotations_df, col_colors=annotations_df,
-                                   cmap='copper', cbar_kws={'label': 'dissimilarity', 'orientation': 'horizontal'})
+                # find the dissimilarities that are still missing
+                # and just for the sake of clustering fill them with medians
+                na_mask = df.isna()
+                df = df.apply(lambda row: row.fillna(row.median()))  # TODO: think if should be median/average/else
 
-                title = '{} species {}'.format(obj.type, species)
-                g.fig.suptitle(title)
+                # plotting
+                if df.shape[0] > 1:  # because otherwise you cannot cluster
+                    g = sns.clustermap(df, mask=na_mask, linewidths=0,
+                                       xticklabels=False, yticklabels=False,
+                                       row_colors=annotations_df, col_colors=annotations_df,
+                                       cmap=cmap, cbar_kws={'label': 'dissimilarity', 'orientation': 'horizontal'})
 
-                # annotations legend
-                for label in annotations_labels:
-                    g.ax_col_dendrogram.bar(0, 0, color=self.params.colors[label], label=label, linewidth=0)
+                    title = '{} species {}'.format(obj.type, species)
+                    g.fig.suptitle(title)
 
-                # position of annotations legend
-                g.ax_col_dendrogram.legend(ncol=1, frameon=False, bbox_to_anchor=(-0.035, 1))
+                    # annotations legend
+                    for label in annotations_labels:
+                        g.ax_col_dendrogram.bar(0, 0, color=self.params.colors[label], label=label, linewidth=0)
 
-                # position of dissimilarity legend
-                g.cax.set_position([.35, .05, .5, .01])
+                    # position of annotations legend
+                    g.ax_col_dendrogram.legend(ncol=1, frameon=False, bbox_to_anchor=(-0.035, 1))
 
-                if not os.path.exists(os.path.join(self.dirs.figs, obj.type)):
-                    os.makedirs(os.path.join(self.dirs.figs, obj.type))
-                plt.savefig(os.path.join(self.dirs.figs, obj.type, title))
-                plt.close()
+                    # position of dissimilarity legend
+                    g.cax.set_position([.35, .05, .5, .01])
+
+                    if not os.path.exists(os.path.join(self.dirs.figs, obj.type)):
+                        os.makedirs(os.path.join(self.dirs.figs, obj.type))
+                    plt.savefig(os.path.join(self.dirs.figs, obj.type, title))
+                    plt.close()
 
     # data frame computations
     @staticmethod
