@@ -75,7 +75,8 @@ class Study:
         """
         Load a data frame and add columns from external sources
 
-        :param data: (str or pd.DataFrame) string of data type ('gutMB', 'oralMB', 'blood', 'body', 'cgm', 'diet') or a data frame
+        :param data: (str or pd.DataFrame) string of data type ('gutMB', 'oralMB', 'blood', 'body', 'cgm', 'diet')
+         or a data frame
         :param columns_from_metadata: (str, list or dict) to add from the LabDataLoader meta data data frame
         :param columns_from_file: (str, list or dict) to add from
         :param file: (str or pd.DataFrame) from which to add columns ('xlsx' or 'csv')
