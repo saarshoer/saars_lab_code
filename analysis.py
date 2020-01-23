@@ -23,6 +23,9 @@ from sklearn.linear_model import LinearRegression
 from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 
+# linkage
+from scipy.cluster.hierarchy import linkage
+
 # plots
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -32,6 +35,7 @@ from matplotlib import rcParams
 from LabData.DataLoaders import GutMBLoader, OralMBLoader, BloodTestsLoader, BodyMeasuresLoader, \
     CGMLoader, DietLoggingLoader
 
+rcParams['figure.autolayout'] = True
 rcParams['figure.figsize'] = (rcParams['figure.figsize'][0]*1.5, rcParams['figure.figsize'][1]*1.5)
 
 
@@ -1106,9 +1110,6 @@ class Study:
         :return: None
         """
 
-        # TODO: think what should be the maximal_filling value
-        # TODO: define the lineage before the clustermap and give it as the same input for x and y
-
         if annotations is None:
             annotations = ['group', 'time_point']
 
@@ -1138,12 +1139,17 @@ class Study:
                 # find the dissimilarities that are still missing
                 # and just for the sake of clustering fill them with medians
                 na_mask = df.isna()
-                df = df.apply(lambda row: row.fillna(row.median()))  # TODO: think if should be median/average/else
+                df = df.apply(lambda row: row.fillna(row.median()))
 
                 # plotting
                 if df.shape[0] > 1:  # because otherwise you cannot cluster
+
+                    df_linkage = linkage(df, method='average', metric='euclidean')
+                    # necessary to define explicitly otherwise there are differences between the rows and columns
+
                     g = sns.clustermap(df, mask=na_mask, linewidths=0,
                                        xticklabels=False, yticklabels=False,
+                                       row_linkage=df_linkage, col_linkage=df_linkage,
                                        row_colors=annotations_df, col_colors=annotations_df,
                                        cmap=cmap, cbar_kws={'label': 'dissimilarity', 'orientation': 'horizontal'})
 
@@ -1162,8 +1168,61 @@ class Study:
 
                     if not os.path.exists(os.path.join(self.dirs.figs, obj.type)):
                         os.makedirs(os.path.join(self.dirs.figs, obj.type))
-                    plt.savefig(os.path.join(self.dirs.figs, obj.type, title))
+                    plt.savefig(os.path.join(self.dirs.figs, obj.type, title), pad_inches=0.5)
                     plt.close()
+
+    def fig_snp_scatter_box(self, obj, n_species=20, height=7):
+        """
+        Plot a hte dissimilarity distribution between and within people based on the SNP dissimilarity data frame
+        for each species
+
+        :param obj: (Object) with SNP dissimilarity data frame
+        :param n_species: (int) number of species to plot in the the same figure
+        :param height: (int) sns.FacetGrid height argument
+
+        :return: None
+        """
+
+        def scatter_box_plot(**kwargs):
+            # retract the data
+            sub_data = kwargs.pop('data')
+
+            # plot
+            sns.boxplot('dissimilarity', 'Species', 'time_point1', data=sub_data.loc[~same_person & same_time_point],
+                        hue_order=np.unique(sub_data['time_point1']), width=0.5, fliersize=0, **kwargs)
+            sns.scatterplot('dissimilarity', 'Species', 'group1', data=sub_data.loc[same_person],
+                            hue_order=np.unique(sub_data['group1']), alpha=0.2, **kwargs)
+
+        # data manipulation
+        df = obj.df
+        df = df.reset_index()
+
+        same_person = df['person1'] == df['person2']
+        same_time_point = df['time_point1'] == df['time_point2']
+
+        df['label'] = np.minimum(df['group1'], df['group2']) + ', ' + np.maximum(df['group1'], df['group2'])
+
+        # removing the un-plotted data
+        df = df[df['Species'].isin(list(
+            set(df.loc[same_person, 'Species']).intersection(set(df.loc[~same_person & same_time_point, 'Species']))))]
+
+        # cutting the number of species by number of comparisons
+        df = df[df['Species'].isin(
+            pd.DataFrame(df.groupby('Species').apply(len)).sort_values(0, ascending=False).index[:n_species])]
+
+        # plotting
+        g = sns.FacetGrid(df, col='label', col_order=np.unique(df['label']), height=height)
+        g = g.map_dataframe(scatter_box_plot, palette=self.params.colors)
+
+        g.add_legend()
+        plt.xscale('log')
+
+        g.set_axis_labels(x_var='log dissimilarity', y_var='species')
+        g.set_titles(row_template='{row_name}', col_template='{col_name}')
+        title = '{} distribution'.format(obj.type)
+        # plt.suptitle(title)  #TODO: fix title bug
+
+        plt.savefig(os.path.join(self.dirs.figs, title))
 
     # data frame computations
     @staticmethod
@@ -1227,7 +1286,7 @@ class Study:
         idx = delta_df.xs(control_time_point, level='time_point', drop_level=False).index
         delta_df = delta_df.drop(idx)
 
-        # TODO: delete time column
+        # TODO: fix time column deletion
 
         return delta_df
 
