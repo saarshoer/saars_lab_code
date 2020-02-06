@@ -1,6 +1,7 @@
 # Imports
 # files
 import os
+import pickle
 import tarfile
 from glob import glob
 from ftplib import FTP
@@ -11,13 +12,12 @@ import pandas as pd
 
 # statistics
 from mne.stats.multi_comp import fdr_correction
-from sklearn.metrics import roc_auc_score, r2_score
-from scipy.stats import mannwhitneyu, ttest_ind, ttest_rel, ttest_1samp, binom_test, pearsonr, spearmanr
+from scipy.stats import mannwhitneyu, ttest_ind, ttest_rel, ttest_1samp, binom_test, spearmanr
 
 # models
-from sklearn.model_selection import KFold
 from xgboost import XGBClassifier, XGBRegressor
 from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import RepeatedKFold, train_test_split, GridSearchCV
 
 # dimensionality reduction
 from sklearn.manifold import TSNE
@@ -32,11 +32,10 @@ import matplotlib.pyplot as plt
 from matplotlib import rcParams
 
 # lab
+from LabQueue.qp import qp, fakeqp
+from LabUtils.addloglevels import sethandlers
 from LabData.DataLoaders import GutMBLoader, OralMBLoader, BloodTestsLoader, BodyMeasuresLoader, \
     CGMLoader, DietLoggingLoader
-
-rcParams['figure.autolayout'] = True
-rcParams['figure.figsize'] = (rcParams['figure.figsize'][0]*1.5, rcParams['figure.figsize'][1]*1.5)
 
 
 # Main class
@@ -61,6 +60,10 @@ class Study:
 
         # Objects
         self.objs = {}
+
+        # Figures
+        rcParams['figure.autolayout'] = True
+        rcParams['figure.figsize'] = (rcParams['figure.figsize'][0] * 1.5, rcParams['figure.figsize'][1] * 1.5)
 
     class Object:
 
@@ -691,9 +694,10 @@ class Study:
         excel_writer.close()
 
     def score_models(self, xobj, yobj, delta=True, minimal_samples=0.9,
-                     model_type='linear', n_iterations=10, n_splits=5, random_seed=None):
+                     model_type='linear', n_repeats=1, n_splits=5, random_state=None, hyper_parameters=None,
+                     send2queue=False):
         """
-        Calculate n_iterations prediction models for the yobj based on the xobj
+        Calculate n_iterations prediction models or grid search for the hyper parameters for the yobj based on the xobj
         and return the summary statistics on the models scores
 
         :param xobj: (object) the features object
@@ -702,12 +706,91 @@ class Study:
         :param minimal_samples: (percentage or int) that needs to be included in the models
         and therefore cannot be deleted in the missing values filtering process
         :param model_type: (str) 'linear' or 'xgb'
-        :param n_iterations: (int) number of models to be created for each target
+        :param n_repeats: (int) number of models to be created for each target
         :param n_splits: (int) number of time to split the data in the KFold
-        :param random_seed: (int) seed for the random process used for splitting the data
+        :param random_state: (int) seed for the random process used for splitting the data
+        :param hyper_parameters: (dict) dictionary with hyper parameters for the model {key: [value/s]}
+        if value is single will be set directly, if values are multiple will perform a grid search
+        :param send2queue: (bool) whether or not to send the jobs to the queue or to run locally
 
-        :return: (pd.DataFrame) summary_score_df
+        :return: (pd.DataFrame) scores_df
         """
+
+        def score_model(x, y):
+
+            # check if column is binary in order to know which model to use
+            if sorted(np.unique(y)) == [0, 1] or sorted(np.unique(y)) == [False, True]:
+                binary = True
+            else:
+                binary = False
+
+            # skip column in some cases
+            if model_type == 'linear' and binary:
+                # print('skipping binary column while model is linear - {}'.format(col))
+                return [np.nan, np.nan]
+            if any(np.unique(y) == np.nan):
+                # print('skipping column with {} missing values - {}'.format(y_df[col].isna().sum(), col))
+                return [np.nan, np.nan]
+            if np.unique(y).shape[0] == 1:
+                # print('skipping column with a single value ({}) - {}'.format(y_df[col].unique(), col))
+                return [np.nan, np.nan]
+
+            # a list to contain the iterations scores
+            scores = []
+
+            # empty array to hold all predictions in order to score them later together
+            # this will be overwritten in case of a grid search
+            y_pred = np.empty(y.shape)
+            y_pred.fill(np.nan)
+
+            # linear model
+            if model_type == 'linear':
+                model_instance = LinearRegression(**direct_hyper_params)
+                score = 'r2'
+
+            # xgb model
+            elif model_type == 'xgb' and binary:
+                model_instance = XGBClassifier(**direct_hyper_params)
+                score = 'roc_auc'
+            elif model_type == 'xgb' and not binary:
+                model_instance = XGBRegressor(objective='reg:squarederror', **direct_hyper_params)
+                # objective='reg:squarederror' is the default and is written explicitly just to avoid a warning
+                score = 'r2'
+            else:
+                raise Exception('model not valid')
+
+            # create K folds of the data and do for each fold
+            kf = RepeatedKFold(n_splits=n_splits, n_repeats=n_repeats, random_state=random_state)  # shuffle=True
+
+            # grid search mode
+            if len(search_hyper_params) != 0:
+
+                model = GridSearchCV(model_instance, search_hyper_params, scoring=score, cv=kf)
+
+                x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.5, random_state=random_state)
+
+                model.fit(x_train, y_train)
+
+                scores.append(model.score(x_test, y_test))
+
+            # not grid search mode
+            else:
+
+                model = model_instance
+
+                for train_index, test_index in kf.split(x):
+                    x_train, x_test = x[train_index], x[test_index]
+                    y_train, y_test = y[train_index], y[test_index]
+
+                    model.fit(x_train, y_train)
+
+                    scores.append(model.score(x_test, y_test))
+
+            # save/load the model
+            # pickle.dump(model, open('model.sav', 'wb'))
+            # model = pickle.load(open('model.sav', 'rb'))
+
+            return [np.mean(scores), np.std(scores)]
 
         # retrieving the data frames from the objects
         if type(xobj) == self.Object and type(yobj) == self.Object:
@@ -748,111 +831,61 @@ class Study:
         y_df = y_df[y_df.index.isin(combined_indices, level='person')]
 
         # conversion
-        x = np.array(x_df)
+        x_ = np.array(x_df)
 
-        # create a data frame to fill with results
-        params = ['R^2', 'r', 'p', 'roc_auc']
-        columns = pd.MultiIndex.from_product([np.arange(n_iterations), params], names=['iteration', 'statistic'])
-        score_df = pd.DataFrame(index=y_df.columns, columns=columns)
+        # split hyper parameters to those given and those that need to be optimized
+        if hyper_parameters is None:
+            hyper_parameters = {}
+        # split the hyper parameters to ones you can directly give the model instance and to ones you need to search for
+        direct_hyper_params = {key: value[0] for key, value in hyper_parameters.items() if len(value) == 1}
+        search_hyper_params = {key: value for key, value in hyper_parameters.items() if len(value) != 1}
 
         # random_state is used by the xgb model to split the data the same way in the KFold
-        if random_seed is not None:
-            np.random.seed(random_seed)
-        random_state = np.random.randint(100, size=n_iterations)  # the 100 is arbitrary
+        # if random_state is not None:
+        #     np.random.seed(random_state)
+        # random_state = np.random.randint(100, size=n_iterations)  # the 100 is arbitrary
 
-        # create a model for each target column
-        for col in y_df.columns:
+        # queue
+        os.chdir(os.path.join(self.dirs.excels, '..', 'models_jobs'))
+        # sethandlers(file_dir=os.path.join(self.dirs.excels, '..', 'models_jobs'))
+        queue = qp if send2queue else fakeqp
 
-            # check if column is binary in order to know which model to use
-            if sorted(y_df[col].unique()) == [0, 1] or sorted(y_df[col].unique()) == [False, True]:
-                binary = True
-            else:
-                binary = False
+        with queue(jobname='model', _delete_csh_withnoerr=True, q=['himem7.q']) as q:
 
-            # skip column in some cases
-            if model_type == 'linear' and binary:
-                print('skipping binary column while model is linear - {}'.format(col))
-                continue
-            if y_df[col].isna().sum() != 0:
-                print('skipping column with {} missing values - {}'.format(y_df[col].isna().sum(), col))
-                continue
-            if y_df[col].unique().shape[0] == 1:
-                print('skipping column with a single value ({}) - {}'.format(y_df[col].unique(), col))
-                continue
+            q.startpermanentrun()
+            tkttores = {}
 
-            # conversion
-            y = np.array(y_df[col])
+            # create a model for each target column
+            for col in y_df.columns:
 
-            # run iterations of the model for scoring statistics
-            for i in np.arange(n_iterations):
+                # conversion
+                y_ = np.array(y_df[col])
 
-                # empty array to hold all predictions in order to score them later together
-                y_pred = np.empty(y.shape)
-                y_pred.fill(np.nan)
+                # send job
+                tkttores[col] = q.method(score_model, (x_, y_))
 
-                # linear model
-                if model_type == 'linear':
-                    model = LinearRegression()
+            # summarize the scores using the iterations scores distribution if exist
+            scores_df = pd.DataFrame(index=y_df.columns, columns=['mean', 'std'])
 
-                # xgb model
-                elif model_type == 'xgb' and binary:
-                    model = XGBClassifier()
-                elif model_type == 'xgb' and not binary:
-                    model = XGBRegressor(objective='reg:squarederror')
-                    # objective='reg:squarederror' is the default and is written explicitly just to avoid a warning
-                # TODO: ask Eran about the parameters
-                else:
-                    raise Exception('model not valid')
+            for k, v in tkttores.items():
+                scores_df.loc[k, ['mean', 'std']] = q.waitforresult(v)
 
-                # create K folds of the data and do for each fold
-                kf = KFold(n_splits=n_splits, random_state=random_state[i], shuffle=True)
-                for train_index, test_index in kf.split(x):
+        # drop all the un-ran columns
+        scores_df = scores_df.dropna(axis=0, how='all')
 
-                    # define the subsets
-                    x_train, x_test = x[train_index], x[test_index]
-                    y_train, y_test = y[train_index], y[test_index]
-
-                    model = model.fit(x_train, y_train)
-
-                    # fill up y_pred in steps so can be analyzed in total later on
-                    y_pred[test_index] = model.predict(x_test)
-
-                # produce model evaluation
-                if binary:
-                    y_score = model.predict_proba(x)[:, 1]
-                    score_df.loc[col, (i, 'roc_auc')] = roc_auc_score(y, y_score)  # notice y_score and not y_pred
-                else:
-                    score_df.loc[col, (i, 'R^2')] = r2_score(y, y_pred)
-                    # R^2 (coefficient of determination) regression score function.
-                    # Best possible score is 1.0 and it can be negative (because the model can be arbitrarily worse).
-                    # A constant model that always predicts the expected value of y, disregarding the input features,
-                    # would get a R^2 score of 0.0.
-                    score_df.loc[col, (i, ['r', 'p'])] = pearsonr(y, y_pred)
-                    # The p-values are not entirely reliable but are probably reasonable for data sets larger than 500
-
-        # dropping all the un-ran columns
-        score_df = score_df.dropna(axis=0, how='all')
-
-        # summarize the scores using the iterations scores distribution
-        columns = pd.MultiIndex.from_product([params, ['mean', 'std']], names=['statistic', 'distribution'])
-        summary_score_df = pd.DataFrame(index=score_df.index, columns=columns)
-
-        for param in params:
-            summary_score_df.loc[:, (param, 'mean')] = score_df.xs(param, level='statistic', axis=1).mean(axis=1)
-            summary_score_df.loc[:, (param, 'std')] = score_df.xs(param, level='statistic', axis=1).std(axis=1)
-
-        summary_score_df = summary_score_df.sort_values((params[0], 'mean'), ascending=False)
+        # sort values by score
+        scores_df = scores_df.sort_values('mean', ascending=False)
 
         # save the data frame as excel
         # create excel writer to fill up
         excel_path = os.path.join(self.dirs.excels,
                                   'models {} {}{} {}.xlsx'.format(xobj.type, yobj.type, delta_str, model_type))
         excel_writer = pd.ExcelWriter(excel_path)
-        summary_score_df.to_excel(excel_writer, freeze_panes=(2, 1))
+        scores_df.to_excel(excel_writer, freeze_panes=(1, 1))
         excel_writer.save()
         excel_writer.close()
 
-        return summary_score_df
+        return scores_df
 
     def corr_datasets(self, xobj, yobj, delta=False, group_by=None, minimal_samples=0.1):
         """
@@ -1188,14 +1221,17 @@ class Study:
             sub_data = kwargs.pop('data')
 
             # plot
-            sns.boxplot('dissimilarity', 'Species', 'time_point1', data=sub_data.loc[~same_person & same_time_point],
+            sns.boxplot('dissimilarity', 'Species', 'time_point1',
+                        data=sub_data.loc[~same_person & same_time_point],
                         hue_order=np.unique(sub_data['time_point1']), width=0.5, fliersize=0, **kwargs)
-            sns.scatterplot('dissimilarity', 'Species', 'group1', data=sub_data.loc[same_person],
+            sns.scatterplot('dissimilarity', 'Species', 'group',
+                            data=sub_data.loc[same_person].rename(columns={'group1': 'group'}),
                             hue_order=np.unique(sub_data['group1']), alpha=0.2, **kwargs)
 
         # data manipulation
         df = obj.df
         df = df.reset_index()
+        df = df['SampleName1'] != df['SampleName2']
 
         same_person = df['person1'] == df['person2']
         same_time_point = df['time_point1'] == df['time_point2']
@@ -1466,5 +1502,31 @@ class _Parameters:
 
 
 if __name__ == "__main__":
+    PNP3 = Study(
+
+        study='PNP3',
+
+        controls={'time_point': '0months',
+                  'group': 'mediterranean'},
+
+        base_directory='/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3')
+
+    PNP3.objs['oral_abundance'] = PNP3.Object(obj_type='oral abundance', columns='bacteria')
+    PNP3.objs['oral_diversity'] = PNP3.Object(obj_type='oral diversity', columns='diversity')
+
+    PNP3.objs['oral_abundance'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'oral_abundance.df')).iloc[:20]
+    PNP3.objs['oral_diversity'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'oral_diversity.df')).iloc[:20]
+
+    hyper_parameters = {
+        'colsample_bylevel': [0.075],
+        'max_depth': [3, 4, 5],
+        'learning_rate': [0.001, 0.0015, 0.002, 0.0025],
+        'n_estimators': [1000, 1500, 2000],
+        'subsample': [0.7, 0.8, 0.9],
+        'min_child_weight': [5, 15, 10, 20]}
+
+    PNP3.score_models(PNP3.objs['oral_abundance'], PNP3.objs['oral_diversity'], delta=False,
+                      model_type='xgb', random_state=5, n_repeats=1, hyper_parameters=hyper_parameters,
+                      send2queue=True)
 
     print(help(Study))
