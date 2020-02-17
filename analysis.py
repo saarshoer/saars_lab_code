@@ -47,10 +47,10 @@ class Study:
                  # Default parameters
                  study=None, controls=None, colors=None,
                  alpha=0.05, detection_threshold=0.0001, dissimilarity_threshold=1/20000,
-                 base_directory=os.getcwd()):
+                 base_directory=os.getcwd(), figsize_factor=1.5):
 
         # Parameters
-        self.params = _Parameters(study=study, controls=controls, colors=colors,
+        self.params = _Parameters(study=study, controls=controls, colors=colors, figsize_factor=figsize_factor,
                                   alpha=alpha,
                                   detection_threshold=detection_threshold,
                                   dissimilarity_threshold=dissimilarity_threshold)
@@ -63,7 +63,8 @@ class Study:
 
         # Figures
         rcParams['figure.autolayout'] = True
-        rcParams['figure.figsize'] = (rcParams['figure.figsize'][0] * 1.5, rcParams['figure.figsize'][1] * 1.5)
+        rcParams['figure.figsize'] = (rcParams['figure.figsize'][0] * figsize_factor,
+                                      rcParams['figure.figsize'][1] * figsize_factor)
 
     class Object:
 
@@ -136,7 +137,7 @@ class Study:
 
         # loading from data frame
         elif type(data) == pd.DataFrame:
-            df = data
+            df = data.reset_index()
             metadata_df = None  # just to prevent a warning later on
 
         # unrecognizable data type
@@ -373,7 +374,10 @@ class Study:
             df = df.loc[:, (df != self.params.detection_threshold).any()]
 
             # declare missing values
-            df = df.groupby(['person']).apply(declare_missing_values)
+            if len(np.unique(df.index.get_level_values('time_point'))) > 1:
+                df = df.groupby(['person']).apply(declare_missing_values)
+            else:
+                df = df.replace(self.params.detection_threshold, np.nan)
 
             # figures
             fig_abundance_distribution(df)
@@ -1143,6 +1147,7 @@ class Study:
         :return: None
         """
 
+        # TODO: try to log the colors
         if annotations is None:
             annotations = ['group', 'time_point']
 
@@ -1261,6 +1266,7 @@ class Study:
         plt.savefig(os.path.join(self.dirs.figs, title))
 
     # data frame computations
+
     @staticmethod
     def get_diversity_df(abundance_df):
         """
@@ -1389,11 +1395,10 @@ class Study:
 
         return samples_df
 
-    # general file handling
-    @staticmethod
-    def ftp_download(address, username, password,
-                     directories, skip_files=None, destination=os.getcwd(),
-                     check_only=True):
+
+# general file handling
+
+def ftp_download(address, username, password, directories, skip_files=None, destination=os.getcwd(), check_only=True):
         """
         Download files from a FTP address not including those in skip_files to the destination directory
 
@@ -1436,8 +1441,8 @@ class Study:
 
         ftp.quit()
 
-    @staticmethod
-    def decompress_files(file_type, input_dir=os.getcwd(), output_dir=os.getcwd(), regex_name='*', delete=False):
+
+def decompress_files(file_type, input_dir=os.getcwd(), output_dir=os.getcwd(), regex_name='*', delete=False):
         """
         Decompress files of type file_type that matches the regex_name from the input_dir to the output_dir
         and delete the compressed files according to "delete"
@@ -1490,43 +1495,26 @@ class _Directories:
 class _Parameters:
 
     # Initialization
-    def __init__(self, study=None, controls=None, colors=None,
+    def __init__(self, study=None, controls=None, colors=None, figsize_factor=None,
                  alpha=None, detection_threshold=None, dissimilarity_threshold=None):
 
         self.study = study
         self.controls = controls
         self.colors = colors
+        self.figsize_factor = figsize_factor
         self.alpha = alpha
         self.detection_threshold = detection_threshold
         self.dissimilarity_threshold = dissimilarity_threshold
 
+        # in case some key parameters were not set define them with default values
+        defaults = ['group', 'time_point']
+        for param in defaults:
+            if param not in self.controls.keys():
+                self.controls[param] = 'fake_{}'.format(param)
+            if param not in self.colors.keys():
+                self.colors[param] = 'gray'
+        self.colors[''] = 'gray'  # necessary
+
 
 if __name__ == "__main__":
-    PNP3 = Study(
-
-        study='PNP3',
-
-        controls={'time_point': '0months',
-                  'group': 'mediterranean'},
-
-        base_directory='/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3')
-
-    PNP3.objs['oral_abundance'] = PNP3.Object(obj_type='oral abundance', columns='bacteria')
-    PNP3.objs['oral_diversity'] = PNP3.Object(obj_type='oral diversity', columns='diversity')
-
-    PNP3.objs['oral_abundance'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'oral_abundance.df')).iloc[:20]
-    PNP3.objs['oral_diversity'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'oral_diversity.df')).iloc[:20]
-
-    hyper_parameters = {
-        'colsample_bylevel': [0.075],
-        'max_depth': [3, 4, 5],
-        'learning_rate': [0.001, 0.0015, 0.002, 0.0025],
-        'n_estimators': [1000, 1500, 2000],
-        'subsample': [0.7, 0.8, 0.9],
-        'min_child_weight': [5, 15, 10, 20]}
-
-    PNP3.score_models(PNP3.objs['oral_abundance'], PNP3.objs['oral_diversity'], delta=False,
-                      model_type='xgb', random_state=5, n_repeats=1, hyper_parameters=hyper_parameters,
-                      send2queue=True)
-
     print(help(Study))
