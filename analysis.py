@@ -62,9 +62,12 @@ class Study:
         self.objs = {}
 
         # Figures
-        rcParams['figure.autolayout'] = True
+        # rcParams['figure.autolayout'] = True
         rcParams['figure.figsize'] = (rcParams['figure.figsize'][0] * figsize_factor,
                                       rcParams['figure.figsize'][1] * figsize_factor)
+
+        # Jobs
+        sethandlers(file_dir=self.dirs.jobs)
 
     class Object:
 
@@ -94,16 +97,23 @@ class Study:
         """
 
         def fig_abundance_reads(input_metadata_df):
-            columns = ['RawRC', 'PostQCRC', 'PostHGFRC', 'UnalignedRC']
+            columns = ['Raw', 'PostQC', 'PostHGF', 'Unaligned']  # column names without 'RC'
+
+            # remove 'RC' from column name because y-axis label is read length
+            input_metadata_df.columns = [col_.replace('RC', '') for col_ in input_metadata_df.columns]
 
             plt.figure()
             sns.boxplot(data=input_metadata_df[columns])
             title = '{} reads count'.format(data.replace('MB', ''))
             plt.title(title)
             plt.ylabel('reads count')
-            # plt.ylim([0, 4*(10**7)])  # for resizing over PNP3 gut outliers
 
             plt.savefig(os.path.join(self.dirs.figs, title))
+
+            # resizing over PNP3 gut outliers
+            if self.params.study == 'PNP3' and data == 'gutMB':
+                plt.ylim([0, 4*(10**7)])
+                plt.savefig(os.path.join(self.dirs.figs, '{} - limited to 40M'.format(title)))
 
         # default parameters to always act on
         default_indices_order = ['group', 'person', 'time_point', 'time', 'sample']
@@ -137,7 +147,7 @@ class Study:
 
         # loading from data frame
         elif type(data) == pd.DataFrame:
-            df = data.reset_index()
+            df = data
             metadata_df = None  # just to prevent a warning later on
 
         # unrecognizable data type
@@ -180,7 +190,7 @@ class Study:
 
             # loading from data frame
             elif type(file) is pd.DataFrame:
-                file_df = file
+                file_df = file.reset_index()
 
             # unrecognizable file type
             else:
@@ -190,13 +200,8 @@ class Study:
             if 'RegistrationCode' in file_df.columns:
                 file_df['RegistrationCode'] = file_df['RegistrationCode'].astype(str)
 
-            if 'MeetingDate' in file_df.columns:
-                file_df['MeetingDate'] = file_df['MeetingDate'] \
-                    .dt.tz_localize('Asia/Jerusalem').dt.tz_convert('UTC')
-
             if 'Timestamp' in file_df.columns:
-                file_df['Timestamp'] = pd.to_datetime(file_df['Timestamp'], errors='coerce') \
-                    .dt.tz_localize('Asia/Jerusalem').dt.tz_convert('UTC')
+                file_df['Timestamp'] = pd.to_datetime(file_df['Timestamp'], dayfirst=True, errors='coerce')
 
             # allow the user to enter columns_from_file as a list and as a
             # dictionary with column name replacement or str
@@ -259,17 +264,20 @@ class Study:
         def fig_abundance_distribution(abundance_df):
 
             df1 = pd.DataFrame(abundance_df.stack()).reset_index()
-            df1['log'] = False
             df2 = pd.DataFrame(np.log10(abundance_df).stack()).reset_index()
+            df1['log'] = False
             df2['log'] = True
-            df3 = pd.DataFrame(self.get_delta_df(abundance_df, self.params.controls['time_point']).stack())\
-                .reset_index()
-            df3['log'] = False
-            df4 = pd.DataFrame(self.get_delta_df(np.log10(abundance_df), self.params.controls['time_point']).stack())\
-                .reset_index()
-            df4['log'] = True
 
-            full_df = pd.concat([df1, df2, df3, df4]).rename(columns={0: 'abundance'})
+            # if there is no actual control time_point we have a problem
+            if self.params.controls['time_point'] != 'fake_time_point':
+                df3 = pd.DataFrame(self.get_delta_df(abundance_df, self.params.controls['time_point'])
+                                   .stack()).reset_index()
+                df4 = pd.DataFrame(self.get_delta_df(np.log10(abundance_df), self.params.controls['time_point'])
+                                   .stack()).reset_index()
+                full_df = pd.concat([df1, df2, df3, df4]).rename(columns={0: 'abundance'})
+            else:
+                full_df = pd.concat([df1, df2]).rename(columns={0: 'abundance'})
+                full_df['time_point'] = 'fake_time_point'
 
             g = sns.FacetGrid(full_df, row='log', col='time_point', hue='group', palette=self.params.colors,
                               sharex=False, sharey=False, margin_titles=True)
@@ -279,7 +287,7 @@ class Study:
                 ax.set_title(label=ax.get_title(), color=self.params.colors[ax.get_title()])
             g.add_legend()
             title = '{} distribution'.format(obj.type)
-            plt.suptitle(title, horizontalalignment='left')
+            plt.suptitle(title)
             plt.subplots_adjust(top=0.9)
 
             plt.savefig(os.path.join(self.dirs.figs, title))
@@ -288,6 +296,9 @@ class Study:
             n_species_per_sample = pd.DataFrame(pd.DataFrame(
                 (abundance_df > self.params.detection_threshold).sum(axis=1))
                                                 .stack()).reset_index().rename(columns={0: 'n_species'})
+
+            if self.params.controls['time_point'] == 'fake_time_point':
+                n_species_per_sample['time_point'] = 'fake_time_point'
 
             # hue='group'
             g = sns.FacetGrid(n_species_per_sample, col='time_point', hue='group', palette=self.params.colors,
@@ -299,7 +310,7 @@ class Study:
             g.add_legend()
             g.set_ylabels('n_samples')
             title = '{}species distribution colored by group'.format(obj.type.replace('abundance', ''))
-            plt.suptitle(title, horizontalalignment='left')
+            plt.suptitle(title)
             plt.subplots_adjust(top=0.8)
 
             plt.savefig(os.path.join(self.dirs.figs, title))
@@ -314,7 +325,7 @@ class Study:
             g.add_legend()
             g.set_ylabels('n_samples')
             title = '{}species distribution colored by time_point'.format(obj.type.replace('abundance', ''))
-            plt.suptitle(title, horizontalalignment='left')
+            plt.suptitle(title)
             plt.subplots_adjust(top=0.8)
 
             plt.savefig(os.path.join(self.dirs.figs, title))
@@ -421,7 +432,8 @@ class Study:
                 else:  # in case of multiple plots
                     figure_internal, axes_internal = \
                         plt.subplots(nrows=min(len(major_elements), len(minor_elements)),
-                                     ncols=max(len(major_elements), len(minor_elements)))
+                                     ncols=max(len(major_elements), len(minor_elements)),
+                                     sharey=True)  # sharex
 
                 plt.subplots_adjust(bottom=0.5, left=0.14)
                 plt.suptitle('{}\n{} - significant results'.format(obj.type, test))
@@ -452,12 +464,12 @@ class Study:
                     y_label = '{} values'.format(obj.columns)
 
                 # clean the blood test name
-                if obj.type == 'blood':
+                if 'blood' in obj.type:
                     curr_data_df['index'] = curr_data_df['index'].apply(
                         lambda row: row.replace('bt__', ''))
 
                 # clean the nutrient name
-                if obj.type == 'diet':
+                if 'diet' in obj.type:
                     curr_data_df['index'] = curr_data_df['index'].apply(
                         lambda row: row.replace('_g', ''))
 
@@ -465,11 +477,15 @@ class Study:
                 curr_data_df = curr_data_df.sort_values(by='index')
 
                 # plotting
-                sns.boxplot(x='index', y='value', hue=major, palette=self.params.colors, data=curr_data_df, ax=ax)
+                sns.boxplot(x='index', y='value', hue=major, hue_order=np.unique(curr_data_df[major]),
+                            palette=self.params.colors, data=curr_data_df, ax=ax)
                 ax.set_ylabel(y_label)
                 ax.set_xlabel('')
                 ax.set_xticklabels(labels=ax.get_xticklabels(), rotation=90)
                 ax.legend().set_visible(False)
+                if delta:
+                    xmin, xmax = ax.get_xlim()
+                    ax.hlines(y=0, xmin=xmin, xmax=xmax, colors='lightgray')
 
             else:
                 # texting
@@ -526,8 +542,8 @@ class Study:
         minor = between_options[abs(between_options.index(major) - 1)]  # the index of the not major element
 
         # list of elements
-        major_elements = df.index.get_level_values(major).unique().values.tolist()
-        minor_elements = df.index.get_level_values(minor).unique().values.tolist()
+        major_elements = np.unique(df.index.get_level_values(major)).tolist()
+        minor_elements = np.unique(df.index.get_level_values(minor)).tolist()
 
         # controls values
         if major == 'group':
@@ -571,7 +587,8 @@ class Study:
                 if test not in tests_without_control:
                     stats_df_list[-1].name = '{} {} vs. {} of {} {}'.format(major, major_control, major_e,
                                                                             minor, minor_e)
-                    excel_sheet = '{} {} {}'.format(major_control, major_e, minor_e).replace('mediterranean', 'med')
+                    excel_sheet = '{} {} {}'.format(major_control, major_e, minor_e)\
+                        .replace('mediterranean', 'med').replace('fake_time_point', '')
                     # mediterranean handling just to limit excel sheet name to the 31 character count limit
                 else:
                     stats_df_list[-1].name = '{} {} of {} {}'.format(major, major_e, minor, minor_e)
@@ -699,7 +716,7 @@ class Study:
 
     def score_models(self, xobj, yobj, delta=True, minimal_samples=0.9,
                      model_type='linear', n_repeats=1, n_splits=5, random_state=None, hyper_parameters=None,
-                     send2queue=False):
+                     send2queue=False, save=False):
         """
         Calculate n_iterations prediction models or grid search for the hyper parameters for the yobj based on the xobj
         and return the summary statistics on the models scores
@@ -716,21 +733,23 @@ class Study:
         :param hyper_parameters: (dict) dictionary with hyper parameters for the model {key: [value/s]}
         if value is single will be set directly, if values are multiple will perform a grid search
         :param send2queue: (bool) whether or not to send the jobs to the queue or to run locally
+        :param save: (bool) whether or not to save the models
 
         :return: (pd.DataFrame) scores_df
         """
 
         def score_model(x, y):
 
-            # check if column is binary in order to know which model to use
-            if sorted(np.unique(y)) == [0, 1] or sorted(np.unique(y)) == [False, True]:
-                binary = True
+            # check if column is classifiable in order to know which model to use
+            if sorted(np.unique(y)) == [0, 1] or sorted(np.unique(y)) == [False, True] \
+                    or not all(np.issubdtype(val, np.number) for val in y):
+                classifiable = True
             else:
-                binary = False
+                classifiable = False
 
             # skip column in some cases
-            if model_type == 'linear' and binary:
-                # print('skipping binary column while model is linear - {}'.format(col))
+            if model_type == 'linear' and classifiable:
+                # print('skipping classifiable column while model is linear - {}'.format(col))
                 return [np.nan, np.nan]
             if any(np.unique(y) == np.nan):
                 # print('skipping column with {} missing values - {}'.format(y_df[col].isna().sum(), col))
@@ -753,10 +772,10 @@ class Study:
                 score = 'r2'
 
             # xgb model
-            elif model_type == 'xgb' and binary:
+            elif model_type == 'xgb' and classifiable:
                 model_instance = XGBClassifier(**direct_hyper_params)
                 score = 'roc_auc'
-            elif model_type == 'xgb' and not binary:
+            elif model_type == 'xgb' and not classifiable:
                 model_instance = XGBRegressor(objective='reg:squarederror', **direct_hyper_params)
                 # objective='reg:squarederror' is the default and is written explicitly just to avoid a warning
                 score = 'r2'
@@ -791,8 +810,10 @@ class Study:
                     scores.append(model.score(x_test, y_test))
 
             # save/load the model
-            # pickle.dump(model, open('model.sav', 'wb'))
-            # model = pickle.load(open('model.sav', 'rb'))
+            if save:
+                pickle.dump(model, open(os.path.join(self.dirs.models,
+                            'model {} {} {}{} {}.sav'.format(xobj.type, yobj.type, col, delta_str, model_type)), 'wb'))
+                # model = pickle.load(open('model.sav', 'rb'))
 
             return [np.mean(scores), np.std(scores)]
 
@@ -850,8 +871,8 @@ class Study:
         # random_state = np.random.randint(100, size=n_iterations)  # the 100 is arbitrary
 
         # queue
-        os.chdir(os.path.join(self.dirs.excels, '..', 'models_jobs'))
-        # sethandlers(file_dir=os.path.join(self.dirs.excels, '..', 'models_jobs'))
+        original_dir = os.getcwd()
+        os.chdir(os.path.join(self.dirs.excels, '..', 'jobs'))
         queue = qp if send2queue else fakeqp
 
         with queue(jobname='model', _delete_csh_withnoerr=True, q=['himem7.q']) as q:
@@ -861,6 +882,13 @@ class Study:
 
             # create a model for each target column
             for col in y_df.columns:
+
+                if y_df[col].isna().sum() != 0:
+                    print('skipping column with {} missing values - {}'.format(y_df[col].isna().sum(), col))
+                    continue
+                if y_df[col].unique().shape[0] == 1:
+                    print('skipping column with a single value ({}) - {}'.format(y_df[col].unique(), col))
+                    continue
 
                 # conversion
                 y_ = np.array(y_df[col])
@@ -873,6 +901,8 @@ class Study:
 
             for k, v in tkttores.items():
                 scores_df.loc[k, ['mean', 'std']] = q.waitforresult(v)
+
+        os.chdir(original_dir)
 
         # drop all the un-ran columns
         scores_df = scores_df.dropna(axis=0, how='all')
@@ -939,8 +969,13 @@ class Study:
 
                         # group by
                         if group_by is not None:
-                            param_df = param_df.groupby(list(set([group_by, hue])))[param_values].mean().reset_index()
+                            size = param_df.groupby(list(set([group_by, hue])))[param_values]\
+                                .apply(lambda group: len(group.dropna())).tolist()
+                            param_df = param_df.groupby(list(set([group_by, hue])))[param_values] \
+                                .apply(lambda group: group.dropna().mean()).reset_index()
                             # list(set()) is necessary in case group_by == hue and then it cannot be grouped "twice"
+                        else:
+                            size = None
 
                         # palette
                         # if all hue values are in colors
@@ -953,13 +988,18 @@ class Study:
                         fig, ax = plt.subplots()
 
                         sns.scatterplot(x=param_values[0], y=param_values[1], hue=hue, data=param_df,
-                                        alpha=0.3, palette=palette, ax=ax)
+                                        alpha=0.3, size=size, sizes=(20, 200), palette=palette, ax=ax)
+
+                        # color x and y labels
+                        ax.set_xlabel(param_values[0], color=self.params.colors[param_values[0]])
+                        ax.set_ylabel(param_values[1], color=self.params.colors[param_values[1]])
 
                         # add spearman correlation to legend
                         handles, labels = ax.get_legend_handles_labels()
-                        for i in np.arange(len(labels))[1:]:  # [1:] so to skip the title
+                        for i in np.arange(len(param_df[hue].unique())+1)[1:]:
+                            # [1:] so to skip the title but still take all the hues - without the size
                             hue_df = param_df[param_df[hue] == labels[i]]
-                            r, p = spearmanr(hue_df[param_values[0]], hue_df[param_values[1]])
+                            r, p = spearmanr(hue_df[param_values[0]], hue_df[param_values[1]])#, nan_policy='omit')
                             labels[i] = '{}\nr={:.2f}, p={:.2f}'.format(labels[i], r, p)
                         ax.legend(handles, labels)
 
@@ -1209,13 +1249,13 @@ class Study:
                     plt.savefig(os.path.join(self.dirs.figs, obj.type, title), pad_inches=0.5)
                     plt.close()
 
-    def fig_snp_scatter_box(self, obj, n_species=20, height=7):
+    def fig_snp_scatter_box(self, obj, species=20, height=7):
         """
         Plot a hte dissimilarity distribution between and within people based on the SNP dissimilarity data frame
         for each species
 
         :param obj: (Object) with SNP dissimilarity data frame
-        :param n_species: (int) number of species to plot in the the same figure
+        :param species: (int or list) number of most abundant species to plot or a list of specific species
         :param height: (int) sns.FacetGrid height argument
 
         :return: None
@@ -1247,9 +1287,12 @@ class Study:
         df = df[df['Species'].isin(list(
             set(df.loc[same_person, 'Species']).intersection(set(df.loc[~same_person & same_time_point, 'Species']))))]
 
-        # cutting the number of species by number of comparisons
-        df = df[df['Species'].isin(
-            pd.DataFrame(df.groupby('Species').apply(len)).sort_values(0, ascending=False).index[:n_species])]
+        # cutting the number of species
+        if type(species) == int:  # by number of comparisons
+            df = df[df['Species'].isin(
+                pd.DataFrame(df.groupby('Species').apply(len)).sort_values(0, ascending=False).index[:species])]
+        elif type(species) == list:  # by specific species
+            df = df[df['Species'].isin(species)]
 
         # plotting
         g = sns.FacetGrid(df, col='label', col_order=np.unique(df['label']), height=height)
@@ -1327,8 +1370,6 @@ class Study:
         # delete the control time points
         idx = delta_df.xs(control_time_point, level='time_point', drop_level=False).index
         delta_df = delta_df.drop(idx)
-
-        # TODO: fix time column deletion
 
         return delta_df
 
@@ -1484,8 +1525,10 @@ class _Directories:
         self.figs = os.path.join(base_directory, 'figs')
         self.excels = os.path.join(base_directory, 'excels')
         self.data_frames = os.path.join(base_directory, 'data_frames')
+        self.models = os.path.join(base_directory, 'models')
+        self.jobs = os.path.join(base_directory, 'jobs')
 
-        directories = [self.figs, self.excels, self.data_frames]
+        directories = [self.figs, self.excels, self.data_frames, self.models, self.jobs]
 
         for Dir in directories:
             if not os.path.exists(Dir):
@@ -1512,9 +1555,10 @@ class _Parameters:
             if param not in self.controls.keys():
                 self.controls[param] = 'fake_{}'.format(param)
             if param not in self.colors.keys():
-                self.colors[param] = 'gray'
+                self.colors['fake_{}'.format(param)] = 'gray'
         self.colors[''] = 'gray'  # necessary
 
 
 if __name__ == "__main__":
+
     print(help(Study))
