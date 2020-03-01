@@ -54,7 +54,6 @@ class Study:
                                   alpha=alpha,
                                   detection_threshold=detection_threshold,
                                   dissimilarity_threshold=dissimilarity_threshold)
-        ## HIIIIII ######
 
         # Directories
         self.dirs = _Directories(base_directory)
@@ -1235,8 +1234,15 @@ class Study:
                 # plotting
                 if df.shape[0] > 1:  # because otherwise you cannot cluster
 
-                    df_linkage = linkage(df, method='average', metric='euclidean')
+                    df_linkage = linkage(df, method='average', metric='euclidean', optimal_ordering=True)
                     # necessary to define explicitly otherwise there are differences between the rows and columns
+
+                    # A (n-1) by 4 matrix Z is returned. At the i-th iteration,
+                    # clusters with indices Z[i, 0] and Z[i, 1] are combined to form cluster n + i.
+                    # A cluster with an index less than n corresponds to one of the original observations.
+                    # The distance between clusters Z[i, 0] and Z[i, 1] is given by Z[i, 2].
+                    # The fourth value Z[i, 3] represents the number of original observations in the newly
+                    # formed cluster.
 
                     g = sns.clustermap(df, mask=na_mask, linewidths=0,
                                        xticklabels=False, yticklabels=False,
