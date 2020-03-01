@@ -62,7 +62,6 @@ class Study:
         self.objs = {}
 
         # Figures
-        # rcParams['figure.autolayout'] = True
         rcParams['figure.figsize'] = (rcParams['figure.figsize'][0] * figsize_factor,
                                       rcParams['figure.figsize'][1] * figsize_factor)
 
@@ -404,7 +403,7 @@ class Study:
         return df
 
     # analysis
-    def comp_stats(self, obj, test, between, delta=False, minimal_samples=0.1):
+    def comp_stats(self, obj, test, between, delta=False, minimal_samples=0.1, internal_use=False):
         """
         Compute the statistical significance for the difference between elements
 
@@ -414,6 +413,7 @@ class Study:
         :param delta: (bool) whether or not to calculate the statistics based on the difference between
         time_point values
         :param minimal_samples: (percentage or int)
+        :param internal_use: (bool) whether an internal function is running it
 
         :return: None
         """
@@ -445,8 +445,13 @@ class Study:
             if curr_data_df.shape[0] != 0:
 
                 # transfer the columns to rows with identifiers
+                # reset index behaves differently for single level versus multilevel indices
+                if len(curr_data_df.index.names) == 1:
+                    name2replace = curr_data_df.index.names[0]
+                else:
+                    name2replace = 'level_0'
                 curr_data_df = pd.DataFrame(curr_data_df.stack()).reset_index() \
-                    .rename(columns={'level_0': 'index', 0: 'list'})
+                    .rename(columns={name2replace: 'index', 0: 'list'})
 
                 # split the lists to a row for each element in them
                 curr_data_df = curr_data_df \
@@ -456,7 +461,7 @@ class Study:
                     .dropna()
 
                 # clean the bacteria name
-                if obj.columns == 'bacteria':
+                if 'abundance' in obj.type and obj.columns == 'bacteria':
                     curr_data_df['index'] = curr_data_df['index'].apply(
                             lambda row: '{} ({})'.format(row.split('|')[6], row.split('|')[-1]).replace('s__', ''))
                     y_label = 'abundance'
@@ -584,15 +589,18 @@ class Study:
 
                 # add a data frame for this specific combination
                 stats_df_list.append(template_stats_df.copy())
-                if test not in tests_without_control:
-                    stats_df_list[-1].name = '{} {} vs. {} of {} {}'.format(major, major_control, major_e,
-                                                                            minor, minor_e)
-                    excel_sheet = '{} {} {}'.format(major_control, major_e, minor_e)\
-                        .replace('mediterranean', 'med').replace('fake_time_point', '')
-                    # mediterranean handling just to limit excel sheet name to the 31 character count limit
+                if not internal_use:
+                    if test not in tests_without_control:
+                        stats_df_list[-1].name = '{} {} vs. {} of {} {}'.format(major, major_control, major_e,
+                                                                                minor, minor_e)
+                        excel_sheet = '{} {} {}'.format(major_control, major_e, minor_e)\
+                            .replace('algorithm', 'alg').replace('mediterranean', 'med').replace('fake_time_point', '')
+                        # mediterranean handling just to limit excel sheet name to the 31 character count limit
+                    else:
+                        stats_df_list[-1].name = '{} {} of {} {}'.format(major, major_e, minor, minor_e)
+                        excel_sheet = '{} {}'.format(major_e, minor_e)
                 else:
-                    stats_df_list[-1].name = '{} {} of {} {}'.format(major, major_e, minor, minor_e)
-                    excel_sheet = '{} {}'.format(major_e, minor_e)
+                    stats_df_list[-1].name = '{}__{}'.format(major_e, minor_e)
 
                 # for each col (bacteria/test/measurement/...)
                 for col in df.columns:
@@ -641,7 +649,7 @@ class Study:
                             stats_df_list[-1].loc[col, ['s', 'p']] = \
                                 ttest_ind(control_data, test_data, axis=None, equal_var=True, nan_policy='raise')
 
-                        # this is only relevant when between is 'time'
+                        # this is only relevant when between is 'time_point'
 
                         # Calculates the T-test on TWO RELATED samples of scores, a and b
                         elif test == 'ttest_rel':
@@ -695,24 +703,28 @@ class Study:
                 print('{} {} were not analyzed because they do not have enough samples'
                       .format(df.shape[1] - stats_df_list[-1].shape[0], obj.columns))
 
-                # excel
-                stats_df_list[-1].to_excel(excel_writer, sheet_name=excel_sheet, freeze_panes=(1, 1))
+                if not internal_use:
+                    # excel
+                    stats_df_list[-1].to_excel(excel_writer, sheet_name=excel_sheet, freeze_panes=(1, 1))
 
-                # figure
-                if test not in tests_without_control:
-                    figure, axes = \
-                        fig_significant_stats(figure_internal=figure, axes_internal=axes,
-                                              curr_data_df=data_df[[major_control, major_e]]
-                                              .xs(minor_e, level=minor, axis=1))
-                else:
-                    figure, axes = \
-                        fig_significant_stats(figure_internal=figure, axes_internal=axes,
-                                              curr_data_df=data_df.xs(major_e, level=major, axis=1, drop_level=False)
-                                              .xs(minor_e, level=minor, axis=1))
+                    # figure
+                    if test not in tests_without_control:
+                        figure, axes = \
+                            fig_significant_stats(figure_internal=figure, axes_internal=axes,
+                                                  curr_data_df=data_df[[major_control, major_e]]
+                                                  .xs(minor_e, level=minor, axis=1))
+                    else:
+                        figure, axes = \
+                            fig_significant_stats(figure_internal=figure, axes_internal=axes,
+                                                  curr_data_df=data_df.xs(major_e, level=major, axis=1, drop_level=False)
+                                                  .xs(minor_e, level=minor, axis=1))
 
-        # excel finishes
-        excel_writer.save()
-        excel_writer.close()
+        if not internal_use:
+            # excel finishes
+            excel_writer.save()
+            excel_writer.close()
+        else:
+            return stats_df_list
 
     def score_models(self, xobj, yobj, delta=True, minimal_samples=0.9,
                      model_type='linear', n_repeats=1, n_splits=5, random_state=None, hyper_parameters=None,
@@ -1249,14 +1261,17 @@ class Study:
                     plt.savefig(os.path.join(self.dirs.figs, obj.type, title), pad_inches=0.5)
                     plt.close()
 
-    def fig_snp_scatter_box(self, obj, species=20, height=7):
+    def fig_snp_scatter_box(self, obj, subplot='group', minimal_comparisons=45, species=25, height=12, aspect=0.5):
         """
         Plot a hte dissimilarity distribution between and within people based on the SNP dissimilarity data frame
         for each species
 
         :param obj: (Object) with SNP dissimilarity data frame
-        :param species: (int or list) number of most abundant species to plot or a list of specific species
+        :param subplot: (str) group or time_point as subplots
+        :param minimal_comparisons: (int) minimal number of comparisons between people per specie within a subplot
+        :param species: (int or list) int of number of species per plot or a list of specific species to plot
         :param height: (int) sns.FacetGrid height argument
+        :param aspect: (float) sns.FacetGrid aspect argument
 
         :return: None
         """
@@ -1265,48 +1280,116 @@ class Study:
             # retract the data
             sub_data = kwargs.pop('data')
 
-            # plot
-            sns.boxplot('dissimilarity', 'Species', 'time_point1',
-                        data=sub_data.loc[~same_person & same_time_point],
-                        hue_order=np.unique(sub_data['time_point1']), width=0.5, fliersize=0, **kwargs)
-            sns.scatterplot('dissimilarity', 'Species', 'group',
-                            data=sub_data.loc[same_person].rename(columns={'group1': 'group'}),
-                            hue_order=np.unique(sub_data['group1']), alpha=0.2, **kwargs)
+            # within individuals
+            sns.scatterplot('dissimilarity', 'Species', major,
+                            data=sub_data.loc[same_person],
+                            hue_order=np.unique(sub_data.loc[same_person, major]), alpha=0.2, legend='brief', **kwargs)
+
+            # between individuals
+            sns.boxplot('dissimilarity', 'Species', minor,
+                        data=sub_data.loc[~same_person & same_minor],
+                        hue_order=np.unique(sub_data.loc[~same_person & same_minor, minor]),
+                        width=0.5, fliersize=0, **kwargs)
+
+            # between individuals - significance
+            sns.scatterplot(1/15, 'Species', minor,
+                            data=stats_df.loc[stats_df[major].isin(np.unique(sub_data[major])) &
+                                              stats_df['Species'].isin(np.unique(sub_data['Species']))],
+                            hue_order=np.unique(stats_df.loc[stats_df[major].isin(np.unique(sub_data[major])) &
+                                                stats_df['Species'].isin(np.unique(sub_data['Species'])), minor]),
+                            marker='*', s=120, legend=False, **kwargs)
 
         # data manipulation
         df = obj.df
         df = df.reset_index()
-        df = df['SampleName1'] != df['SampleName2']
+        df = df[df['SampleName1'] != df['SampleName2']]
 
+        # can subplot groups (control/test1/test2/...) or time points (0/1/2...)
+        subplot_options = ['group', 'time_point']  # this list has to be length 2
+        if subplot not in subplot_options:
+            raise Exception('between not valid')
+
+        # names of elements
+        major = subplot
+        minor = subplot_options[abs(subplot_options.index(major) - 1)]  # the index of the not major element
+
+        # it does not need to be redefined after filtering the data frame because it uses the indices
         same_person = df['person1'] == df['person2']
-        same_time_point = df['time_point1'] == df['time_point2']
+        same_major = df['{}1'.format(major)] == df['{}2'.format(major)]
+        same_minor = df['{}1'.format(minor)] == df['{}2'.format(minor)]
 
-        df['label'] = np.minimum(df['group1'], df['group2']) + ', ' + np.maximum(df['group1'], df['group2'])
+        df.loc[~same_major, major] = \
+            np.minimum(df['{}1'.format(major)], df['{}2'.format(major)]) + ' vs. ' + \
+            np.maximum(df['{}1'.format(major)], df['{}2'.format(major)])
+        df.loc[same_major, major] = df['{}1'.format(major)]
 
-        # removing the un-plotted data
-        df = df[df['Species'].isin(list(
-            set(df.loc[same_person, 'Species']).intersection(set(df.loc[~same_person & same_time_point, 'Species']))))]
+        df.loc[~same_minor, minor] = \
+            np.minimum(df['{}1'.format(minor)], df['{}2'.format(minor)]) + ' vs. ' + \
+            np.maximum(df['{}1'.format(minor)], df['{}2'.format(minor)])
+        df.loc[same_minor, minor] = df['{}1'.format(minor)]
 
-        # cutting the number of species
-        if type(species) == int:  # by number of comparisons
-            df = df[df['Species'].isin(
-                pd.DataFrame(df.groupby('Species').apply(len)).sort_values(0, ascending=False).index[:species])]
-        elif type(species) == list:  # by specific species
+        # species argument
+        if type(species) == list:  # by specific species
             df = df[df['Species'].isin(species)]
+            figures = [0]
+            species = len(species)
 
-        # plotting
-        g = sns.FacetGrid(df, col='label', col_order=np.unique(df['label']), height=height)
-        g = g.map_dataframe(scatter_box_plot, palette=self.params.colors)
+        # statistics
+        obj4stats = Study.Object(obj_type='{}_'.format(obj.type), columns='bacteria')
+        obj4stats.df = df.loc[~same_person & same_minor].set_index(['Species', major, minor], append=True)
+        obj4stats.df = obj4stats.df['dissimilarity'].unstack('Species')
 
-        g.add_legend()
-        plt.xscale('log')
+        stats_df = self.comp_stats(obj4stats, test='mannwhitneyu', between=minor,
+                                   minimal_samples=minimal_comparisons, internal_use=True)
 
-        g.set_axis_labels(x_var='log dissimilarity', y_var='species')
-        g.set_titles(row_template='{row_name}', col_template='{col_name}')
-        title = '{} distribution'.format(obj.type)
-        # plt.suptitle(title)  #TODO: fix title bug
+        for i in np.arange(len(stats_df)):
+            stats_df[i][major] = stats_df[i].name.split('__')[1]
+            stats_df[i][minor] = stats_df[i].name.split('__')[0]
+        stats_df = pd.concat(stats_df)
 
-        plt.savefig(os.path.join(self.dirs.figs, title))
+        stats_df = stats_df[stats_df['p_FDR'] < self.params.alpha].reset_index()
+
+        # removing species that lack inter or intra person data
+        df = df[df['Species'].isin(list(
+            set(df.loc[same_person, 'Species']).intersection(set(df.loc[~same_person & same_minor, 'Species']))))]
+
+        df = df[df['Species'].isin(list(
+            set(df['Species']).intersection(set(stats_df['Species']))))]
+        stats_df = stats_df[stats_df['Species'].isin(list(
+            set(df['Species']).intersection(set(stats_df['Species']))))]
+
+        # species argument
+        if type(species) == int:
+            figures = np.arange(0, len(np.unique(df['Species'])), species)
+
+        # split to multiple figures
+        for i_figure in figures:
+
+            sub_df = df[df['Species'].isin(list(df.groupby('Species').groups)[i_figure:i_figure+species])]
+
+            # plotting
+            g = sns.FacetGrid(sub_df, col=major, col_order=np.unique(df[major]), height=height, aspect=aspect)
+            g = g.map_dataframe(scatter_box_plot, palette=self.params.colors)
+
+            g.add_legend()
+            plt.xscale('log')
+            plt.xlim([self.params.detection_threshold/3, 10**-1])
+
+            g.set_axis_labels(x_var='dissimilarity', y_var='species')
+            g.set_titles(row_template='{row_name}', col_template='{col_name}')
+            for ax in g.axes.flatten():
+                if ax.get_title() in self.params.colors.keys():
+                    color = self.params.colors[ax.get_title()]
+                else:
+                    color = 'black'
+                ax.set_title(label=ax.get_title(), color=color)
+            title = '{} distribution by {}'.format(obj.type, subplot)
+            g.add_legend()
+            plt.suptitle(title)
+            plt.tight_layout()
+            plt.subplots_adjust(top=0.88)
+
+            plt.savefig(os.path.join(self.dirs.figs, '{} s{}-{}'.format(title, i_figure, i_figure+species)))
 
     # data frame computations
 
