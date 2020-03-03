@@ -23,8 +23,10 @@ from sklearn.model_selection import RepeatedKFold, train_test_split, GridSearchC
 from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 
-# linkage
+# clustering
 from scipy.cluster.hierarchy import linkage
+from scipy.cluster.hierarchy import fcluster
+from sklearn.metrics import adjusted_rand_score
 
 # plots
 import seaborn as sns
@@ -1250,8 +1252,18 @@ class Study:
                                        row_colors=annotations_df, col_colors=annotations_df,
                                        cmap=cmap, cbar_kws={'label': 'dissimilarity', 'orientation': 'horizontal'})
 
-                    title = '{} species {}'.format(obj.type, species)
-                    g.fig.suptitle(title)
+                    # rand index between the group and the clusters
+                    if 'group' in annotations:
+                        org_clusters = annotations_df.loc[df.index, 'group'].values.flatten()
+                        new_clusters = fcluster(df_linkage, t=len(np.unique(org_clusters)), criterion='maxclust')
+                        # TODO: think what is the best way to define the new clusters
+
+                        rand_index = adjusted_rand_score(org_clusters, new_clusters)
+                    else:
+                        rand_index = ''
+
+                    title = '{}\n{}'.format(obj.type, species)
+                    g.fig.suptitle('{}\nrand_index={}'.format(title, round(rand_index, 3)))
 
                     # annotations legend
                     for label in annotations_labels:
@@ -1265,7 +1277,7 @@ class Study:
 
                     if not os.path.exists(os.path.join(self.dirs.figs, obj.type)):
                         os.makedirs(os.path.join(self.dirs.figs, obj.type))
-                    plt.savefig(os.path.join(self.dirs.figs, obj.type, title), pad_inches=0.5)
+                    plt.savefig(os.path.join(self.dirs.figs, obj.type, title.replace('\n', ' ')), pad_inches=0.5)
                     plt.close()
 
     def fig_snp_scatter_box(self, obj, subplot='group', minimal_comparisons=45, species=25, height=12, aspect=0.5):
