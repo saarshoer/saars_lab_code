@@ -24,9 +24,10 @@ from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 
 # clustering
-from scipy.cluster.hierarchy import linkage
-from scipy.cluster.hierarchy import fcluster
+from scipy.spatial.distance import squareform
 from sklearn.metrics import adjusted_rand_score
+from scipy.cluster.hierarchy import linkage, fcluster
+
 
 # plots
 import seaborn as sns
@@ -1212,7 +1213,7 @@ class Study:
         annotations_df.columns = annotations_df.columns.str.rstrip('1')  # remove 1 suffix from the names
         annotations_df = annotations_df[annotations]  # limit the annotation to these categories
         annotations_labels = np.unique(annotations_df.values)
-        annotations_df = annotations_df.replace(self.params.colors)  # replace values with corresponding colors
+        colors_df = annotations_df.replace(self.params.colors)  # replace values with corresponding colors
 
         # for each species
         for species in obj.df.index.get_level_values('Species').unique():
@@ -1236,7 +1237,8 @@ class Study:
                 # plotting
                 if df.shape[0] > 1:  # because otherwise you cannot cluster
 
-                    df_linkage = linkage(df, method='average', metric='euclidean', optimal_ordering=True)
+                    df_linkage = linkage(squareform(df, force='tovector', checks=False),
+                                         method='average', optimal_ordering=True)
                     # necessary to define explicitly otherwise there are differences between the rows and columns
 
                     # A (n-1) by 4 matrix Z is returned. At the i-th iteration,
@@ -1249,21 +1251,49 @@ class Study:
                     g = sns.clustermap(df, mask=na_mask, linewidths=0,
                                        xticklabels=False, yticklabels=False,
                                        row_linkage=df_linkage, col_linkage=df_linkage,
-                                       row_colors=annotations_df, col_colors=annotations_df,
+                                       row_colors=colors_df, col_colors=colors_df,
                                        cmap=cmap, cbar_kws={'label': 'dissimilarity', 'orientation': 'horizontal'})
 
                     # rand index between the group and the clusters
                     if 'group' in annotations:
                         org_clusters = annotations_df.loc[df.index, 'group'].values.flatten()
                         new_clusters = fcluster(df_linkage, t=len(np.unique(org_clusters)), criterion='maxclust')
-                        # TODO: think what is the best way to define the new clusters
+                        new_clusters2 = fcluster(df_linkage, t=1, criterion='inconsistent')
+                        # TODO: TEMPORARY!!! should think what is the best way and what are the best t
 
                         rand_index = adjusted_rand_score(org_clusters, new_clusters)
+                        rand_index2 = adjusted_rand_score(org_clusters, new_clusters2)
                     else:
                         rand_index = ''
 
+                    rand_index_text = 'maxclust\n{} clusters, RI={}\ninconsistent\n{} clusters, RI={}'.format(
+                        len(np.unique(new_clusters)), round(rand_index, 3),
+                        len(np.unique(new_clusters2)), round(rand_index2, 3)
+                    )
+
+                    # statistical test
+                    stats_df = annotations_df.loc[df.iloc[g.dendrogram_col.reordered_ind].index]
+                    stats_df['rank'] = np.arange(stats_df.shape[0])
+
+                    stats_text = ''
+
+                    for anno in annotations:
+                        if len(np.unique(stats_df[anno])) == 2:
+                            s, p = mannwhitneyu(
+                                x=stats_df.loc[stats_df[anno] == np.unique(stats_df[anno])[0], 'rank'].values,
+                                y=stats_df.loc[stats_df[anno] == np.unique(stats_df[anno])[1], 'rank'].values,
+                                use_continuity=True, alternative='two-sided')  # TODO: think about use_continuity
+
+                            stats_text = '{}\n{} vs. {}\np={}'.format(stats_text,
+                                                                      np.unique(stats_df[anno])[0],
+                                                                      np.unique(stats_df[anno])[1],
+                                                                      round(p, 3))
+
+                    g.fig.text(0.775, 0.875, '{}\n{}'.format(rand_index_text, stats_text))
+                    # TODO: find a better way to position the text
+
                     title = '{}\n{}'.format(obj.type, species)
-                    g.fig.suptitle('{}\nrand_index={}'.format(title, round(rand_index, 3)))
+                    g.fig.suptitle(title)
 
                     # annotations legend
                     for label in annotations_labels:
