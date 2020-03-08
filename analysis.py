@@ -12,7 +12,7 @@ import pandas as pd
 
 # statistics
 from mne.stats.multi_comp import fdr_correction
-from scipy.stats import mannwhitneyu, ttest_ind, ttest_rel, ttest_1samp, binom_test, spearmanr
+from scipy.stats import mannwhitneyu, wilcoxon, ttest_ind, ttest_rel, ttest_1samp, binom_test, spearmanr
 
 # models
 from xgboost import XGBClassifier, XGBRegressor
@@ -411,7 +411,7 @@ class Study:
         Compute the statistical significance for the difference between elements
 
         :param obj: (object) object to calculate the statistics on
-        :param test: (str) mannwhitneyu, ttest_ind, ttest_rel, ttest_1samp, binom_test
+        :param test: (str) mannwhitneyu, wilcoxon, ttest_ind, ttest_rel, ttest_1samp, binom_test
         :param between: (str) group or time_point
         :param delta: (bool) whether or not to calculate the statistics based on the difference between
         time_point values
@@ -449,7 +449,7 @@ class Study:
 
                 # transfer the columns to rows with identifiers
                 # reset index behaves differently for single level versus multilevel indices
-                if len(curr_data_df.index.names) == 1:
+                if len(curr_data_df.index.names) == 1 and curr_data_df.index.names != [None]:
                     name2replace = curr_data_df.index.names[0]
                 else:
                     name2replace = 'level_0'
@@ -497,7 +497,8 @@ class Study:
 
             else:
                 # texting
-                ax.text(x=0.5, y=0.5, s='no significant results', horizontalalignment='center')
+                ax.text(x=(ax.get_xlim()[0]+ax.get_xlim()[1])/2, y=(ax.get_ylim()[0]+ax.get_ylim()[1])/2,
+                        s='no significant results', horizontalalignment='center')
                 ax.axis('off')
 
             ax.set_title(minor_e, color=self.params.colors[minor_e])
@@ -624,7 +625,7 @@ class Study:
                     data_df.loc[col, (major_e, minor_e)] = test_data.values
 
                     # handling cases where there is missing value in one time_point but not in the other
-                    if test == 'ttest_rel':
+                    if test in ['wilcoxon', 'ttest_rel']:
                         if between != 'time_point':
                             raise Exception('this test is only relevant when between is time_point')
                         # find the indices that exists in both the control_data and the test_data
@@ -653,6 +654,14 @@ class Study:
                                 ttest_ind(control_data, test_data, axis=None, equal_var=True, nan_policy='raise')
 
                         # this is only relevant when between is 'time_point'
+
+                        # Calculates the Wilcoxon signed-rank on TWO RELATED samples of scores, a and b
+                        # (non-parametric version of the paired T-test)
+                        elif test == 'wilcoxon':
+                            stats_df_list[-1].loc[col, ['s', 'p']] = \
+                                wilcoxon(control_data, test_data,
+                                         zero_method='wilcox', correction=False, alternative='two-sided')
+                            # TODO: think about use_continuity (correction) and zero_method
 
                         # Calculates the T-test on TWO RELATED samples of scores, a and b
                         elif test == 'ttest_rel':
@@ -753,6 +762,7 @@ class Study:
         :return: (pd.DataFrame) scores_df
         """
 
+        # TODO: add SHAP analysis
         def score_model(x, y):
 
             # check if column is classifiable in order to know which model to use
