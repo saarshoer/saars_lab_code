@@ -28,7 +28,6 @@ from scipy.spatial.distance import squareform
 from sklearn.metrics import adjusted_rand_score
 from scipy.cluster.hierarchy import linkage, fcluster
 
-
 # plots
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -276,9 +275,11 @@ class Study:
                                    .stack()).reset_index()
                 df4 = pd.DataFrame(self.get_delta_df(np.log10(abundance_df), self.params.controls['time_point'])
                                    .stack()).reset_index()
-                full_df = pd.concat([df1, df2, df3, df4]).rename(columns={0: 'abundance'})
+                df3['log'] = False
+                df4['log'] = True
+                full_df = pd.concat([df1, df2, df3, df4], sort=False).rename(columns={0: 'abundance'})
             else:
-                full_df = pd.concat([df1, df2]).rename(columns={0: 'abundance'})
+                full_df = pd.concat([df1, df2], sort=False).rename(columns={0: 'abundance'})
                 full_df['time_point'] = 'fake_time_point'
 
             g = sns.FacetGrid(full_df, row='log', col='time_point', hue='group', palette=self.params.colors,
@@ -302,7 +303,7 @@ class Study:
             if self.params.controls['time_point'] == 'fake_time_point':
                 n_species_per_sample['time_point'] = 'fake_time_point'
 
-            # hue='group'
+            # hue 'group'
             g = sns.FacetGrid(n_species_per_sample, col='time_point', hue='group', palette=self.params.colors,
                               sharex=True, sharey=True, margin_titles=True)
             g = g.map(sns.distplot, 'n_species', hist=True, kde=False, bins=10)
@@ -317,7 +318,7 @@ class Study:
 
             plt.savefig(os.path.join(self.dirs.figs, title))
 
-            # hue='time_point'
+            # hue 'time_point'
             g = sns.FacetGrid(n_species_per_sample, col='group', hue='time_point', palette=self.params.colors,
                               sharex=True, sharey=True, margin_titles=True)
             g = g.map(sns.distplot, 'n_species', hist=True, kde=False, bins=10)
@@ -421,6 +422,8 @@ class Study:
         :return: None
         """
 
+        # TODO: maybe in case of abundance remove detection threshold form comparisons that do not include delta or paired
+
         def fig_significant_stats(figure_internal, axes_internal, curr_data_df):
 
             # first run
@@ -499,6 +502,7 @@ class Study:
                 # texting
                 ax.text(x=(ax.get_xlim()[0]+ax.get_xlim()[1])/2, y=(ax.get_ylim()[0]+ax.get_ylim()[1])/2,
                         s='no significant results', horizontalalignment='center')
+                # TODO: fix bug that if this is the first ax then the middle of the graph is changed when plotting the second ax
                 ax.axis('off')
 
             ax.set_title(minor_e, color=self.params.colors[minor_e])
@@ -1213,6 +1217,7 @@ class Study:
         """
 
         # TODO: try to log the colors
+
         if annotations is None:
             annotations = ['group', 'time_point']
 
@@ -1322,7 +1327,7 @@ class Study:
 
     def fig_snp_scatter_box(self, obj, subplot='group', minimal_comparisons=45, species=25, height=12, aspect=0.5):
         """
-        Plot a hte dissimilarity distribution between and within people based on the SNP dissimilarity data frame
+        Plot a the dissimilarity distribution between and within people based on the SNP dissimilarity data frame
         for each species
 
         :param obj: (Object) with SNP dissimilarity data frame
@@ -1362,6 +1367,9 @@ class Study:
         df = obj.df
         df = df.reset_index()
         df = df[df['SampleName1'] != df['SampleName2']]
+        df['s1'] = np.minimum(df['SampleName1'], df['SampleName2'])
+        df['s2'] = np.maximum(df['SampleName1'], df['SampleName2'])
+        df = df.drop_duplicates(['Species', 's1', 's2'])
 
         # can subplot groups (control/test1/test2/...) or time points (0/1/2...)
         subplot_options = ['group', 'time_point']  # this list has to be length 2
@@ -1559,6 +1567,7 @@ class Study:
         :return: samples_df (pd.DataFrame)
         """
 
+        # TODO: consider the fact that different cgms have different baseline values
         samples_df['time_above{}'.format(glucose_threshold)] = np.nan
         for i, sample in samples_df.reset_index().iterrows():
 
