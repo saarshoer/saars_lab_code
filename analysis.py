@@ -1227,6 +1227,7 @@ class Study:
             .set_index('SampleName1').drop_duplicates()  # take only sample1 metadata
         annotations_df.columns = annotations_df.columns.str.rstrip('1')  # remove 1 suffix from the names
         annotations_df = annotations_df[annotations]  # limit the annotation to these categories
+        annotations_df = annotations_df.iloc[~annotations_df.index.duplicated()]  # drop duplicated samples
         annotations_labels = np.unique(annotations_df.values)
         colors_df = annotations_df.replace(self.params.colors)  # replace values with corresponding colors
 
