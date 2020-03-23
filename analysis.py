@@ -7,6 +7,7 @@ from glob import glob
 from ftplib import FTP
 
 # data
+import math
 import numpy as np
 import pandas as pd
 
@@ -32,6 +33,7 @@ from scipy.cluster.hierarchy import linkage, fcluster
 import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib import rcParams
+from matplotlib.colors import LogNorm
 
 # lab
 from LabQueue.qp import qp, fakeqp
@@ -39,6 +41,8 @@ from LabUtils.addloglevels import sethandlers
 from LabData.DataLoaders import GutMBLoader, OralMBLoader, BloodTestsLoader, BodyMeasuresLoader, \
     CGMLoader, DietLoggingLoader
 
+segata_df = pd.read_csv(
+            '/net/mraid08/export/jafar/Microbiome/Analyses/Unicorn/Segata/SupplementaryTable8-SGBsDescription.csv')
 
 # Main class
 class Study:
@@ -1202,21 +1206,21 @@ class Study:
 
         fig_best_components()
 
-    def fig_snp_heatmap(self, obj, annotations=None, maximal_filling=0.5, minimal_samples=10, cmap=None):
+    def fig_snp_heatmap(self, obj, maximal_filling=0.25, minimal_samples=20,
+                        annotations=None, cmap=None, log_colors=False):
         """
         Plot a heatmap based on the SNP dissimilarity data frame for each species
 
         :param obj: (Object) with SNP dissimilarity data frame
-        :param annotations: (list of str) columns to annotate by
         :param maximal_filling: (float) maximal percentage of samples with missing values to fill with median value
         JUST for clustering, it will not appear in the heatmap!!
         :param minimal_samples: (int) minimal number of samples to have in order to draw
+        :param annotations: (list of str) columns to annotate by
         :param cmap: (str) dissimilarity color map name
+        :param log_colors: (bool) whether to set the heatmap colors to log scale
 
         :return: None
         """
-
-        # TODO: try to log the colors
 
         if annotations is None:
             annotations = ['group', 'time_point']
@@ -1264,48 +1268,55 @@ class Study:
                     # The fourth value Z[i, 3] represents the number of original observations in the newly
                     # formed cluster.
 
-                    g = sns.clustermap(df, mask=na_mask, linewidths=0,
+                    # the clustermap and the heatmap are separated because the clustermap does not pass the norm
+                    # to the heatmap well as it should
+                    # https://github.com/mwaskom/seaborn/pull/1830/files
+                    g = sns.clustermap(df, mask=(df >= 0),  # the mask here is for everything
                                        xticklabels=False, yticklabels=False,
                                        row_linkage=df_linkage, col_linkage=df_linkage,
-                                       row_colors=colors_df, col_colors=colors_df,
-                                       cmap=cmap, cbar_kws={'label': 'dissimilarity', 'orientation': 'horizontal'})
+                                       row_colors=colors_df, col_colors=colors_df)
 
-                    # rand index between the group and the clusters
-                    if 'group' in annotations:
-                        org_clusters = annotations_df.loc[df.index, 'group'].values.flatten()
-                        new_clusters = fcluster(df_linkage, t=len(np.unique(org_clusters)), criterion='maxclust')
-                        new_clusters2 = fcluster(df_linkage, t=1, criterion='inconsistent')
-                        # TODO: TEMPORARY!!! should think what is the best way and what are the best t
+                    norm = LogNorm(g.data2d.min().min(), g.data2d.max().max(), clip=False) if log_colors else None
 
-                        rand_index = adjusted_rand_score(org_clusters, new_clusters)
-                        rand_index2 = adjusted_rand_score(org_clusters, new_clusters2)
-                    else:
-                        rand_index = ''
-
-                    rand_index_text = 'maxclust\n{} clusters, RI={}\ninconsistent\n{} clusters, RI={}'.format(
-                        len(np.unique(new_clusters)), round(rand_index, 3),
-                        len(np.unique(new_clusters2)), round(rand_index2, 3)
-                    )
+                    sns.heatmap(g.data2d, mask=na_mask.loc[g.data2d.index, g.data2d.columns],
+                                xticklabels=False, yticklabels=False,
+                                ax=g.ax_heatmap, cbar_ax=g.cax,
+                                cmap=cmap, norm=norm,
+                                cbar_kws={'label': 'dissimilarity', 'orientation': 'horizontal', 'ticks': None})
+                    # cbar ticks are None because otherwise in log scale there are no ticks
 
                     # statistical test
                     stats_df = annotations_df.loc[df.iloc[g.dendrogram_col.reordered_ind].index]
                     stats_df['rank'] = np.arange(stats_df.shape[0])
 
-                    stats_text = ''
+                    text = ''
 
                     for anno in annotations:
+
+                        # statistics
                         if len(np.unique(stats_df[anno])) == 2:
                             s, p = mannwhitneyu(
                                 x=stats_df.loc[stats_df[anno] == np.unique(stats_df[anno])[0], 'rank'].values,
                                 y=stats_df.loc[stats_df[anno] == np.unique(stats_df[anno])[1], 'rank'].values,
                                 use_continuity=True, alternative='two-sided')  # TODO: think about use_continuity
+                            p = round(p, 3)
+                        else:
+                            p = 'NA'
 
-                            stats_text = '{}\n{} vs. {}\np={}'.format(stats_text,
-                                                                      np.unique(stats_df[anno])[0],
-                                                                      np.unique(stats_df[anno])[1],
-                                                                      round(p, 3))
+                        # rand index between the annotation and the clusters
+                        org_clusters = annotations_df.loc[df.index, anno].values.flatten()
+                        new_clusters = fcluster(df_linkage, t=len(np.unique(org_clusters)),
+                                                criterion='maxclust')
 
-                    g.fig.text(0.775, 0.875, '{}\n{}'.format(rand_index_text, stats_text))
+                        RI = round(adjusted_rand_score(org_clusters, new_clusters), 3)
+
+                        # TODO: think what should be the t for inconsistent fcluster
+                        # new_clusters2 = fcluster(df_linkage, t=1, criterion='inconsistent')
+                        # rand_index2 = adjusted_rand_score(org_clusters, new_clusters2)
+
+                        text = '{}\n{}\np={}, RI={}'.format(text, anno, p, RI)
+
+                    g.fig.text(0.775, 0.875, text)
                     # TODO: find a better way to position the text
 
                     title = '{}\n{}'.format(obj.type, species)
@@ -1665,6 +1676,22 @@ def decompress_files(file_type, input_dir=os.getcwd(), output_dir=os.getcwd(), r
             # deleting the compressed files
             if delete:
                 os.remove(file_name)
+
+
+def bac_full_name(SGB_ID):
+    """
+    Get bacterias full name from SGB ID
+    
+    :param SGB_ID: (string or int) bacterias SGB ID, 'SGB_123' or 123
+    
+    :return: (string) bacterias full name, 'k__?|p__?|c__?|o__?|f__?|g__?|s__?'
+    """
+    
+    SGB_ID = int(str(SGB_ID).replace('SGB_', ''))
+
+    full_name = segata_df.loc[segata_df['SGB ID'] == SGB_ID, 'Estimated taxonomy'].iloc[0]
+
+    return 'SGB_{} {}'.format(SGB_ID, full_name)
 
 
 # Helper classes
