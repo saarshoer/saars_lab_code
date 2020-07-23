@@ -7,11 +7,12 @@ from glob import glob
 from ftplib import FTP
 
 # data
-import math
 import numpy as np
 import pandas as pd
 
 # statistics
+from skbio.stats.distance import mantel
+from scipy.spatial import distance_matrix
 from mne.stats.multi_comp import fdr_correction
 from scipy.stats import mannwhitneyu, wilcoxon, ttest_ind, ttest_rel, ttest_1samp, binom_test, spearmanr
 
@@ -25,6 +26,7 @@ from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 
 # clustering
+from scipy.signal import find_peaks
 from scipy.spatial.distance import squareform
 from sklearn.metrics import adjusted_rand_score
 from scipy.cluster.hierarchy import linkage, fcluster
@@ -34,6 +36,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib import rcParams
 from matplotlib.colors import LogNorm
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 # lab
 from LabQueue.qp import qp, fakeqp
@@ -41,8 +44,9 @@ from LabUtils.addloglevels import sethandlers
 from LabData.DataLoaders import GutMBLoader, OralMBLoader, BloodTestsLoader, BodyMeasuresLoader, \
     CGMLoader, DietLoggingLoader
 
-segata_df = pd.read_csv(
-            '/net/mraid08/export/jafar/Microbiome/Analyses/Unicorn/Segata/SupplementaryTable8-SGBsDescription.csv')
+segata_df = pd.read_csv('/net/mraid08/export/jafar/Microbiome/Analyses/Unicorn/Segata/'
+                        'SupplementaryTable8-SGBsDescription.csv')
+
 
 # Main class
 class Study:
@@ -94,7 +98,7 @@ class Study:
         :param data: (str or pd.DataFrame) string of data type ('gutMB', 'oralMB', 'blood', 'body', 'cgm', 'diet')
          or a data frame
         :param columns_from_metadata: (str, list or dict) to add from the LabDataLoader meta data data frame
-        :param columns_from_file: (str, list or dict) to add from
+        :param columns_from_file: (str, list or dict) to add from a file
         :param file: (str or pd.DataFrame) from which to add columns ('xlsx' or 'csv')
         :param file_index: (str, list or dict) index in file to join by
 
@@ -125,7 +129,7 @@ class Study:
         default_name_changes = {'SampleName': 'sample', 'RegistrationCode': 'person', 'Date': 'time', 'alloc': 'group'}
 
         # loading from Lab Data
-        if type(data) == str:
+        if type(data) == str:  # TODO: can be modified to get a loader and its params as arguments
             if data == 'gutMB':
                 lab_data = GutMBLoader.GutMBLoader().get_data('segata_species', study_ids=self.params.study)
                 fig_abundance_reads(lab_data.df_metadata)
@@ -184,7 +188,7 @@ class Study:
         if columns_from_file is not None and file is not None:
 
             if type(file) is str:
-                # read file to df according to the file's type
+                # read file to data frame according to the file's type
                 file_extension = os.path.splitext(file)[1]
                 if file_extension == '.xlsx':
                     file_df = pd.read_excel(file)
@@ -238,6 +242,8 @@ class Study:
             # add file columns to each entry, if is missing leave out
             for col in columns_from_file:
                 df = df.join(file_df[col].dropna(), on=file_df.index.names, how='inner')
+
+            # TODO: metadata and file handling can be moved to functions
 
         # index manipulations
         df = df.set_index(added_columns, append=True)
@@ -307,6 +313,7 @@ class Study:
             if self.params.controls['time_point'] == 'fake_time_point':
                 n_species_per_sample['time_point'] = 'fake_time_point'
 
+            # TODO: replace repeating code for 'group' and for 'time_point' by major and minor
             # hue 'group'
             g = sns.FacetGrid(n_species_per_sample, col='time_point', hue='group', palette=self.params.colors,
                               sharex=True, sharey=True, margin_titles=True)
@@ -355,7 +362,7 @@ class Study:
         df = obj.df
 
         # add time_point by the time of the points, for example: 03/05, 01/04 will become 1, 0
-        if 'time_point' not in df.index.names:
+        if 'time_point' not in df.index.names and 'time' in df.index.names:
             df = df.groupby(['person']).apply(time2time_point)
             indices_order = list(df.index.names)
             df = df.set_index('time_point', append=True)
@@ -372,7 +379,7 @@ class Study:
             indices.remove('time')
             df = df.reset_index().groupby(['person', 'time_point']).mean().reset_index()
             df = df.set_index(indices)
-            # this obliviates time index because the mean function can not handel datetime values
+            # obliviating time index because the mean function can not handel datetime values
 
         # filter out cases where a person has the wrong number of samples
         if n_entries is not None:
@@ -411,7 +418,8 @@ class Study:
         return df
 
     # analysis
-    def comp_stats(self, obj, test, between, delta=False, minimal_samples=0.1, internal_use=False):
+    def comp_stats(self, obj, test, between, delta=False, minimal_samples=0.1, normalize_figure=False,
+                   internal_use=False):
         """
         Compute the statistical significance for the difference between elements
 
@@ -420,13 +428,15 @@ class Study:
         :param between: (str) group or time_point
         :param delta: (bool) whether or not to calculate the statistics based on the difference between
         time_point values
-        :param minimal_samples: (percentage or int)
-        :param internal_use: (bool) whether an internal function is running it
+        :param minimal_samples: (percentage or int) to have in order to compute
+        :param normalize_figure: (bool) whether to normalizes values scale in figure
+        :param internal_use: (bool) whether an internal function is running it or not
 
         :return: None
         """
 
-        # TODO: maybe in case of abundance remove detection threshold form comparisons that do not include delta or paired
+        # TODO: maybe in case of abundance, remove detection threshold form comparisons
+        #  that do not include delta or paired
 
         def fig_significant_stats(figure_internal, axes_internal, curr_data_df):
 
@@ -443,7 +453,7 @@ class Study:
                     figure_internal, axes_internal = \
                         plt.subplots(nrows=min(len(major_elements), len(minor_elements)),
                                      ncols=max(len(major_elements), len(minor_elements)),
-                                     sharey=True)  # sharex
+                                     sharey=True)
 
                 plt.subplots_adjust(bottom=0.5, left=0.14)
                 plt.suptitle('{}\n{} - significant results'.format(obj.type, test))
@@ -470,6 +480,12 @@ class Study:
                     .drop(['list', 'variable'], axis=1) \
                     .dropna()
 
+                # normalize in case measurements are in different scales
+                if normalize_figure:
+                    curr_data_df['value'] = curr_data_df.groupby('index').transform(
+                        lambda x: (x-x.min()) / (x.max()-x.min()))
+                    # TODO: fix cases where delta is True
+
                 # clean the bacteria name
                 if 'abundance' in obj.type and obj.columns == 'bacteria':
                     curr_data_df['index'] = curr_data_df['index'].apply(
@@ -494,7 +510,7 @@ class Study:
                 # plotting
                 sns.boxplot(x='index', y='value', hue=major, hue_order=np.unique(curr_data_df[major]),
                             palette=self.params.colors, data=curr_data_df, ax=ax)
-                ax.set_ylabel(y_label)
+                ax.set_ylabel('normalized {}'.format(y_label)) if normalize_figure else ax.set_ylabel(y_label)
                 ax.set_xlabel('')
                 ax.set_xticklabels(labels=ax.get_xticklabels(), rotation=90)
                 ax.legend().set_visible(False)
@@ -506,7 +522,8 @@ class Study:
                 # texting
                 ax.text(x=(ax.get_xlim()[0]+ax.get_xlim()[1])/2, y=(ax.get_ylim()[0]+ax.get_ylim()[1])/2,
                         s='no significant results', horizontalalignment='center')
-                # TODO: fix bug that if this is the first ax then the middle of the graph is changed when plotting the second ax
+                # TODO: fix bug that if this is the first ax then the middle of the graph is changed
+                #  when plotting the second ax
                 ax.axis('off')
 
             ax.set_title(minor_e, color=self.params.colors[minor_e])
@@ -563,12 +580,7 @@ class Study:
         minor_elements = np.unique(df.index.get_level_values(minor)).tolist()
 
         # controls values
-        if major == 'group':
-            major_control = self.params.controls['group']
-        elif major == 'time_point':
-            major_control = self.params.controls['time_point']
-        else:  # just to prevent a warning later on
-            major_control = None
+        major_control = self.params.controls[major]
 
         # tests without control data
         tests_without_control = ['ttest_1samp', 'binom_test']
@@ -581,7 +593,7 @@ class Study:
 
         # remove control from the list of elements
         if test not in tests_without_control:
-            if len(major_elements) < 2:
+            if len(major_elements) < 2:  # todo: write why it is necessary
                 raise Exception('you can not perform this statistical test on one group')
             major_elements.remove(major_control)
         # needs to be after data_df creation so the data frame can have the control as a column
@@ -607,7 +619,7 @@ class Study:
                                                                                 minor, minor_e)
                         excel_sheet = '{} {} {}'.format(major_control, major_e, minor_e)\
                             .replace('algorithm', 'alg').replace('mediterranean', 'med').replace('fake_time_point', '')
-                        # mediterranean handling just to limit excel sheet name to the 31 character count limit
+                        # name changes just to limit excel sheet name to the 31 character count limit
                     else:
                         stats_df_list[-1].name = '{} {} of {} {}'.format(major, major_e, minor, minor_e)
                         excel_sheet = '{} {}'.format(major_e, minor_e)
@@ -626,13 +638,13 @@ class Study:
                     else:
                         control_data = None  # just to prevent a warning later on
 
-                    # define the test data not matter the test
+                    # define the test data no matter the test
                     test_data = df[col] \
                         .xs(major_e, level=major, drop_level=False) \
                         .xs(minor_e, level=minor, drop_level=False).dropna()
                     data_df.loc[col, (major_e, minor_e)] = test_data.values
 
-                    # handling cases where there is missing value in one time_point but not in the other
+                    # handling cases where there is missing values in one time_point but not in the other
                     if test in ['wilcoxon', 'ttest_rel']:
                         if between != 'time_point':
                             raise Exception('this test is only relevant when between is time_point')
@@ -736,7 +748,8 @@ class Study:
                     else:
                         figure, axes = \
                             fig_significant_stats(figure_internal=figure, axes_internal=axes,
-                                                  curr_data_df=data_df.xs(major_e, level=major, axis=1, drop_level=False)
+                                                  curr_data_df=data_df
+                                                  .xs(major_e, level=major, axis=1, drop_level=False)
                                                   .xs(minor_e, level=minor, axis=1))
 
         if not internal_use:
@@ -754,7 +767,7 @@ class Study:
         and return the summary statistics on the models scores
 
         :param xobj: (object) the features object
-        :param yobj: (object) the target object
+        :param yobj: (object) the label object
         :param delta: (bool) whether or not to calculate the models based on the difference between time_point values
         :param minimal_samples: (percentage or int) that needs to be included in the models
         and therefore cannot be deleted in the missing values filtering process
@@ -764,12 +777,13 @@ class Study:
         :param random_state: (int) seed for the random process used for splitting the data
         :param hyper_parameters: (dict) dictionary with hyper parameters for the model {key: [value/s]}
         if value is single will be set directly, if values are multiple will perform a grid search
-        :param send2queue: (bool) whether or not to send the jobs to the queue or to run locally
+        :param send2queue: (bool) whether to send the jobs to the queue or run locally
         :param save: (bool) whether or not to save the models
 
         :return: (pd.DataFrame) scores_df
         """
 
+        # TODO: add model evaluation (ROC, PR, calibration)
         # TODO: add SHAP analysis
         def score_model(x, y):
 
@@ -803,6 +817,8 @@ class Study:
             if model_type == 'linear':
                 model_instance = LinearRegression(**direct_hyper_params)
                 score = 'r2'
+
+            # TODO: add logistic model
 
             # xgb model
             elif model_type == 'xgb' and classifiable:
@@ -871,7 +887,7 @@ class Study:
             minimal_samples = round(minimal_samples * x_df.shape[0])
             # needs to be after the delta because delta effects the shape
 
-        # deal with missing values
+        # deal with missing values # TODO: make more general
         if 'abundance' in xobj.type:  # only for abundance otherwise the min min might not be the best solution
             x_df = x_df.fillna(x_df.min().min())
         # drop samples with missing values as long as it does not go over the minimal_samples
@@ -957,7 +973,7 @@ class Study:
     def corr_datasets(self, xobj, yobj, delta=False, group_by=None, minimal_samples=0.1):
         """
         Correlates between the xobj and the yobj overlapping categories.
-        The resulting excel is filtering while the figures are not
+        The resulting excel is filtered while the figures are not
 
         :param xobj: (object) some object
         :param yobj: (object) another object
@@ -997,7 +1013,7 @@ class Study:
                     param_df = df.pivot_table(index=indices, columns=param, values='value').dropna().reset_index()
                     # defined here and not outside the loop in order to be renewed in case group by changed it
 
-                    # len 2 to be plottable, shape > 0 to have values, param different than hue for hue to make sense
+                    # len 2 to be able to plot, shape > 0 to have values, param different than hue for hue to make sense
                     if len(param_values) == 2 and param_df.shape[0] > 0 and param != hue:
 
                         # group by
@@ -1128,15 +1144,14 @@ class Study:
 
     def dim_reduction(self, obj, n_pca_comp=50, n_tsne_comp=2):
         """
-        Reduces the dimensionality of a features X samples data frame
+        Reduces the dimensionality of a samples X features data frame
         and save the best 2 components as figures, colored by each index
 
-        :param obj: (Object) with data frame containing features X samples,
+        :param obj: (Object) with data frame containing samples X features,
         index levels are used to color and create different figures
         :param n_pca_comp: (None, 0 or int) number of desired components out of the pca
-        :param n_tsne_comp: (None, 0 or int) number of desired components out of the pca
+        :param n_tsne_comp: (None, 0 or int) number of desired components out of the tsne
 
-        ** not filling either of the n_*_comp will use the dim_reduction default arguments
         ** filling either of the n_comp with 'None' will use pca/tsne default arguments
         ** filling either of the n_comp with '0' will cause the function to skip the method (pca/tsne)
 
@@ -1144,7 +1159,7 @@ class Study:
         """
 
         # the default n_pca_comp is 50 because that is the maximal number of features recommend to the tsne function
-        # the default n_tsne_comp is 2 because this is plotable
+        # the default n_tsne_comp is 2 because this is can be plotted
 
         def fig_best_components():
 
@@ -1207,7 +1222,7 @@ class Study:
         fig_best_components()
 
     def fig_snp_heatmap(self, obj, maximal_filling=0.25, minimal_samples=20,
-                        annotations=None, cmap=None, log_colors=False):
+                        annotations=None, cmap=None, log_colors=False, add_hist=True):
         """
         Plot a heatmap based on the SNP dissimilarity data frame for each species
 
@@ -1218,6 +1233,7 @@ class Study:
         :param annotations: (list of str) columns to annotate by
         :param cmap: (str) dissimilarity color map name
         :param log_colors: (bool) whether to set the heatmap colors to log scale
+        :param add_hist: (bool) whether to add dissimilarity histograms with colored peaks
 
         :return: None
         """
@@ -1289,7 +1305,7 @@ class Study:
                     stats_df = annotations_df.loc[df.iloc[g.dendrogram_col.reordered_ind].index]
                     stats_df['rank'] = np.arange(stats_df.shape[0])
 
-                    text = ''
+                    expanded_labels = []
 
                     for anno in annotations:
 
@@ -1314,11 +1330,11 @@ class Study:
                         # new_clusters2 = fcluster(df_linkage, t=1, criterion='inconsistent')
                         # rand_index2 = adjusted_rand_score(org_clusters, new_clusters2)
 
-                        text = '{}\n{}\np={}, RI={}'.format(text, anno, p, RI)
+                        expanded_labels.append('{} (p={}, RI={})'.format(anno, p, RI))
 
-                    g.fig.text(0.775, 0.875, text)
-                    # TODO: find a better way to position the text
+                    g.ax_col_colors.set_yticklabels(expanded_labels)
 
+                    # title
                     title = '{}\n{}'.format(obj.type, species)
                     g.fig.suptitle(title)
 
@@ -1326,11 +1342,27 @@ class Study:
                     for label in annotations_labels:
                         g.ax_col_dendrogram.bar(0, 0, color=self.params.colors[label], label=label, linewidth=0)
 
+                    # position of plot
+                    plt.subplots_adjust(left=0.02, right=0.76, bottom=0.11, top=0.85)
+
                     # position of annotations legend
                     g.ax_col_dendrogram.legend(ncol=1, frameon=False, bbox_to_anchor=(-0.035, 1))
 
                     # position of dissimilarity legend
-                    g.cax.set_position([.35, .05, .5, .01])
+                    g.cax.set_position([.23, .06, .5, .01])
+
+                    # dissimilarity histograms with colored peaks
+                    if add_hist:
+                        diss_tril = g.data2d[~na_mask.loc[g.data2d.index, g.data2d.columns]].values
+                        diss_tril = diss_tril[np.tril_indices(n=diss_tril.shape[0], k=-1)]
+
+                        special_ax = inset_axes(g.ax_heatmap, width="40%", height=1.0, loc='lower left')
+                        bins_freq, _, patches = special_ax.hist(diss_tril, bins='auto')
+                        peaks_bin, _ = find_peaks(bins_freq)
+                        [patches[bin].set_color('orange') for bin in peaks_bin]
+                        special_ax.set_title('dissimilarity distribution', color='white')
+                        special_ax.set_xticklabels([])
+                        special_ax.set_yticklabels([])
 
                     if not os.path.exists(os.path.join(self.dirs.figs, obj.type)):
                         os.makedirs(os.path.join(self.dirs.figs, obj.type))
@@ -1386,7 +1418,7 @@ class Study:
         # can subplot groups (control/test1/test2/...) or time points (0/1/2...)
         subplot_options = ['group', 'time_point']  # this list has to be length 2
         if subplot not in subplot_options:
-            raise Exception('between not valid')
+            raise Exception('invalid between')
 
         # names of elements
         major = subplot
@@ -1417,6 +1449,7 @@ class Study:
         obj4stats = Study.Object(obj_type='{}_'.format(obj.type), columns='bacteria')
         obj4stats.df = df.loc[~same_person & same_minor].set_index(['Species', major, minor], append=True)
         obj4stats.df = obj4stats.df['dissimilarity'].unstack('Species')
+        # TODO: remember why this is only of different individuals
 
         stats_df = self.comp_stats(obj4stats, test='mannwhitneyu', between=minor,
                                    minimal_samples=minimal_comparisons, internal_use=True)
@@ -1678,6 +1711,8 @@ def decompress_files(file_type, input_dir=os.getcwd(), output_dir=os.getcwd(), r
                 os.remove(file_name)
 
 
+# others
+
 def bac_full_name(SGB_ID):
     """
     Get bacterias full name from SGB ID
@@ -1692,6 +1727,64 @@ def bac_full_name(SGB_ID):
     full_name = segata_df.loc[segata_df['SGB ID'] == SGB_ID, 'Estimated taxonomy'].iloc[0]
 
     return 'SGB_{} {}'.format(SGB_ID, full_name)
+
+
+def mantel_test(s1, s2, s1_dis=True, s2_dis=False, maximal_filling=0.25, minimal_samples=20, method='pearson'):
+    """
+    Calculates the mantel test between two dissimilarity matrices
+
+    :param s1: (pd.Series) first series values
+    :param s2: (pd.Series) second series values
+    :param s1_dis: (bool) whether the first series col values are already dissimilarity values
+    :param s2_dis: (bool) whether the second series col values are already dissimilarity values
+    :param maximal_filling: (float) maximal percentage of samples with missing values to fill with median value
+    :param minimal_samples: (int) minimal number of samples to have in order to calculate mantel
+    :param method: (str) correlation method 'pearson' or 'spearman'
+    :return: 
+    """
+
+    def prep_series(s, s_dis):
+
+        if s_dis:  # has dissimilarity values in a series form
+            df = s.reset_index().pivot_table(index=[ind + '2' for ind in combined_indices],
+                                             columns=[ind + '1' for ind in combined_indices], values='dissimilarity')
+            np.fill_diagonal(df.values, 0)
+        else:  # calculate dissimilarity values from regular values
+            ind2drop = list(set(s.index.names) - set(combined_indices))
+            s.index = s.index.droplevel(ind2drop)
+            df = pd.DataFrame(distance_matrix(x=np.reshape(s.values, (-1, 1)), y=np.reshape(s.values, (-1, 1))),
+                              index=s.index, columns=s.index)
+
+        # limit to samples that have at least maximal_filling percentage of existing dissimilarity measurements
+        samples_mask = df.columns[df.isna().sum() < df.shape[0] * maximal_filling].values
+        df = df.loc[samples_mask, samples_mask]
+
+        # find the dissimilarities that are still missing and fill them with medians
+        df = df.apply(lambda row: row.fillna(row.median()))
+
+        return df
+
+    # sync indices names
+    s1_ind = [ind[:-1] for ind in s1.index.names] if s1_dis else s1.index.names
+    s2_ind = [ind[:-1] for ind in s2.index.names] if s2_dis else s2.index.names
+    combined_indices = list(set(s1_ind) & set(s2_ind))
+
+    # prep series to be a full dissimilarity series
+    df1 = prep_series(s1, s1_dis)
+    df2 = prep_series(s2, s2_dis)
+
+    # sync indices values
+    combined_indices = df1.index.intersection(df2.index)
+    df1 = df1.loc[combined_indices, combined_indices]
+    df2 = df2.loc[combined_indices, combined_indices]
+
+    # mantel test
+    if len(combined_indices) > minimal_samples:
+        r, p, n = mantel(df1, df2, method=method, permutations=999, alternative='two-sided')
+    else:
+        r, p, n = None, None, None
+
+    return r, p, n
 
 
 # Helper classes
