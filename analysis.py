@@ -432,8 +432,10 @@ class Study:
         :param normalize_figure: (bool) whether to normalizes values scale in figure
         :param internal_use: (bool) whether an internal function is running it or not
 
-        :return: None
+        :return: None or pd.DataFrame
         """
+
+        # TODO: remove internal use
 
         # TODO: maybe in case of abundance, remove detection threshold form comparisons
         #  that do not include delta or paired
@@ -1369,14 +1371,15 @@ class Study:
                     plt.savefig(os.path.join(self.dirs.figs, obj.type, title.replace('\n', ' ')), pad_inches=0.5)
                     plt.close()
 
-    def fig_snp_scatter_box(self, obj, subplot='group', minimal_comparisons=45, species=25, height=12, aspect=0.5):
+    def fig_snp_scatter_box(self, obj, subplot='group', minimal_between_comparisons=45, minimal_within_comparisons=10, species=25, height=12, aspect=0.5):
         """
         Plot a the dissimilarity distribution between and within people based on the SNP dissimilarity data frame
         for each species
 
         :param obj: (Object) with SNP dissimilarity data frame
         :param subplot: (str) group or time_point as subplots
-        :param minimal_comparisons: (int) minimal number of comparisons between people per specie within a subplot
+        :param minimal_between_comparisons: (int) minimal number of comparisons between people per specie
+        :param minimal_within_comparisons: (int) minimal number of comparisons within people per specie
         :param species: (int or list) int of number of species per plot or a list of specific species to plot
         :param height: (int) sns.FacetGrid height argument
         :param aspect: (float) sns.FacetGrid aspect argument
@@ -1388,23 +1391,35 @@ class Study:
             # retract the data
             sub_data = kwargs.pop('data')
 
-            # within individuals
-            sns.scatterplot('dissimilarity', 'Species', major,
-                            data=sub_data.loc[same_person],
-                            hue_order=np.unique(sub_data.loc[same_person, major]), alpha=0.2, legend='brief', **kwargs)
-
             # between individuals
             sns.boxplot('dissimilarity', 'Species', minor,
                         data=sub_data.loc[~same_person & same_minor],
                         hue_order=np.unique(sub_data.loc[~same_person & same_minor, minor]),
                         width=0.5, fliersize=0, **kwargs)
 
+            # within individuals
+            sns.scatterplot('dissimilarity', 'Species', major,
+                            data=sub_data.loc[same_person],
+                            hue_order=np.unique(sub_data.loc[same_person, major]), alpha=0.2, legend='brief', **kwargs)
+
             # between individuals - significance
             sns.scatterplot(1/15, 'Species', minor,
-                            data=stats_df.loc[stats_df[major].isin(np.unique(sub_data[major])) &
-                                              stats_df['Species'].isin(np.unique(sub_data['Species']))],
-                            hue_order=np.unique(stats_df.loc[stats_df[major].isin(np.unique(sub_data[major])) &
-                                                stats_df['Species'].isin(np.unique(sub_data['Species'])), minor]),
+                            data=stats_between_df.loc[stats_between_df[major].isin(np.unique(sub_data[major])) &
+                                                      stats_between_df['Species'].isin(np.unique(sub_data['Species']))],
+                            hue_order=np.unique(stats_between_df.loc[
+                                                    stats_between_df[major].isin(np.unique(sub_data[major])) &
+                                                    stats_between_df['Species'].isin(np.unique(sub_data['Species'])),
+                                                    minor]),
+                            marker='*', s=120, legend=False, **kwargs)
+
+            # within individuals - significance
+            sns.scatterplot(1/20, 'Species', major,
+                            data=stats_within_df.loc[stats_within_df[major].isin(np.unique(sub_data[major])) &
+                                                     stats_within_df['Species'].isin(np.unique(sub_data['Species']))],
+                            hue_order=np.unique(stats_within_df.loc[
+                                                    stats_within_df[major].isin(np.unique(sub_data[major])) &
+                                                    stats_within_df['Species'].isin(np.unique(sub_data['Species'])),
+                                                    major]),
                             marker='*', s=120, legend=False, **kwargs)
 
         # data manipulation
@@ -1446,29 +1461,54 @@ class Study:
             species = len(species)
 
         # statistics
-        obj4stats = Study.Object(obj_type='{}_'.format(obj.type), columns='bacteria')
-        obj4stats.df = df.loc[~same_person & same_minor].set_index(['Species', major, minor], append=True)
-        obj4stats.df = obj4stats.df['dissimilarity'].unstack('Species')
-        # TODO: remember why this is only of different individuals
 
-        stats_df = self.comp_stats(obj4stats, test='mannwhitneyu', between=minor,
-                                   minimal_samples=minimal_comparisons, internal_use=True)
+        # between individuals
+        obj4stats_between = Study.Object(obj_type='{}_'.format(obj.type), columns='bacteria')
+        obj4stats_between.df = df.loc[~same_person & same_minor].set_index(['Species', major, minor], append=True)
+        obj4stats_between.df = obj4stats_between.df['dissimilarity'].unstack('Species')
 
-        for i in np.arange(len(stats_df)):
-            stats_df[i][major] = stats_df[i].name.split('__')[1]
-            stats_df[i][minor] = stats_df[i].name.split('__')[0]
-        stats_df = pd.concat(stats_df)
+        if len(obj4stats_between.df.index.get_level_values(minor).unique()) > 1:
+            stats_between_df = self.comp_stats(obj4stats_between, test='mannwhitneyu', between=minor,
+                                               minimal_samples=minimal_between_comparisons, internal_use=True)
 
-        stats_df = stats_df[stats_df['p_FDR'] < self.params.alpha].reset_index()
+            for i in np.arange(len(stats_between_df)):
+                stats_between_df[i][major] = stats_between_df[i].name.split('__')[1]
+                stats_between_df[i][minor] = stats_between_df[i].name.split('__')[0]
+            stats_between_df = pd.concat(stats_between_df)
+
+            stats_between_df = stats_between_df[stats_between_df['p_FDR'] < self.params.alpha].reset_index()
+
+        else:
+            stats_between_df = pd.DataFrame(columns=['Species', major, minor])
+
+        # within individuals
+        obj4stats_within = Study.Object(obj_type='{}_'.format(obj.type), columns='bacteria')
+        obj4stats_within.df = df.loc[same_person].set_index(['Species', major, minor], append=True)
+        obj4stats_within.df = obj4stats_within.df['dissimilarity'].unstack('Species')
+
+        if len(obj4stats_within.df.index.get_level_values(major).unique()) > 1:
+            stats_within_df = self.comp_stats(obj4stats_within, test='mannwhitneyu', between=major,
+                                              minimal_samples=minimal_within_comparisons, internal_use=True)
+
+            for i in np.arange(len(stats_within_df)):
+                stats_within_df[i][major] = stats_within_df[i].name.split('__')[0]
+                stats_within_df[i][minor] = stats_within_df[i].name.split('__')[1]
+            stats_within_df = pd.concat(stats_within_df)
+
+            stats_within_df = stats_within_df[stats_within_df['p_FDR'] < self.params.alpha].reset_index()
+
+        else:
+            stats_within_df = pd.DataFrame(columns=['Species', major, minor])
 
         # removing species that lack inter or intra person data
         df = df[df['Species'].isin(list(
             set(df.loc[same_person, 'Species']).intersection(set(df.loc[~same_person & same_minor, 'Species']))))]
 
-        df = df[df['Species'].isin(list(
-            set(df['Species']).intersection(set(stats_df['Species']))))]
-        stats_df = stats_df[stats_df['Species'].isin(list(
-            set(df['Species']).intersection(set(stats_df['Species']))))]
+        combined_species = set(stats_between_df['Species']).union(set(stats_within_df['Species']))  # significant
+        combined_species = combined_species.intersection(set(df['Species']))
+        df = df[df['Species'].isin(combined_species)]
+        stats_between_df = stats_between_df[stats_between_df['Species'].isin(combined_species)]
+        stats_within_df = stats_within_df[stats_within_df['Species'].isin(combined_species)]
 
         # species argument
         if type(species) == int:
