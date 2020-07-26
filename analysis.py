@@ -1748,6 +1748,8 @@ def mantel_test(s1, s2, s1_dis=True, s2_dis=False, maximal_filling=0.25, minimal
         if s_dis:  # has dissimilarity values in a series form
             df = s.reset_index().pivot_table(index=[ind + '2' for ind in combined_indices],
                                              columns=[ind + '1' for ind in combined_indices], values='dissimilarity')
+            df.index.names = combined_indices
+            df.columns.names = combined_indices
             np.fill_diagonal(df.values, 0)
         else:  # calculate dissimilarity values from regular values
             ind2drop = list(set(s.index.names) - set(combined_indices))
@@ -1755,12 +1757,16 @@ def mantel_test(s1, s2, s1_dis=True, s2_dis=False, maximal_filling=0.25, minimal
             df = pd.DataFrame(distance_matrix(x=np.reshape(s.values, (-1, 1)), y=np.reshape(s.values, (-1, 1))),
                               index=s.index, columns=s.index)
 
+        df.index = df.index.reorder_levels(combined_indices)
+        df.columns = df.columns.reorder_levels(combined_indices)
+
         # limit to samples that have at least maximal_filling percentage of existing dissimilarity measurements
         samples_mask = df.columns[df.isna().sum() < df.shape[0] * maximal_filling].values
         df = df.loc[samples_mask, samples_mask]
 
         # find the dissimilarities that are still missing and fill them with medians
-        df = df.apply(lambda row: row.fillna(row.median()))
+        if df.isna().sum().sum() != 0:  # the condition is just for speed
+            df = df.apply(lambda row: row.fillna(row.median()))
 
         return df
 
