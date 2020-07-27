@@ -7,6 +7,8 @@ from glob import glob
 from ftplib import FTP
 
 # data
+import copy
+import random
 import numpy as np
 import pandas as pd
 
@@ -674,6 +676,10 @@ class Study:
                         elif test == 'ttest_ind':
                             stats_df_list[-1].loc[col, ['s', 'p']] = \
                                 ttest_ind(control_data, test_data, axis=None, equal_var=True, nan_policy='raise')
+
+                        elif test == 'permutation_test':
+                            stats_df_list[-1].loc[col, 'p'] = \
+                                permutation_test(control_data, test_data, metric=np.average, n_permutations=100)
 
                         # this is only relevant when between is 'time_point'
 
@@ -1468,7 +1474,7 @@ class Study:
         obj4stats_between.df = obj4stats_between.df['dissimilarity'].unstack('Species')
 
         if len(obj4stats_between.df.index.get_level_values(minor).unique()) > 1:
-            stats_between_df = self.comp_stats(obj4stats_between, test='mannwhitneyu', between=minor,
+            stats_between_df = self.comp_stats(obj4stats_between, test='permutation_test', between=minor,
                                                minimal_samples=minimal_between_comparisons, internal_use=True)
 
             for i in np.arange(len(stats_between_df)):
@@ -1831,6 +1837,47 @@ def mantel_test(s1, s2, s1_dis=True, s2_dis=False, maximal_filling=0.25, minimal
         r, p, n = None, None, None
 
     return r, p, n
+
+
+def permutation_test(x1, x2, metric=np.average, n_permutations=100):
+    """
+    Calculate permutation test p_value for any metric
+
+    :param x1: (any type of array) first data group
+    :param x2: (any type of array) second data group
+    :param metric: (func) any distribution metric like mean, median, kurtosis, etc. that returns a single value
+    :param n_permutations: (int) number of permutations to perform
+
+    :return: (float) p_val
+    """
+
+    # based on -
+    # https://towardsdatascience.com/how-to-assess-statistical-significance-in-your-data-with-permutation-tests-8bb925b2113d
+    # it also has correlation implementationon if needed
+
+    x1 = np.array(x1)  # just to prevent problems
+    x2 = np.array(x2)  # just to prevent problems
+
+    # Bootstrapping - randomly sample without replacement two distributions with the size equal to the original
+    # distributions from this pooled distribution to compute the absolute difference of the metric between the
+    # two permuted samples. Repeated n_permutations times
+
+    # Ground truth absolute difference between the labels from the two variables
+    ground_truth = np.abs(metric(x1) - metric(x2))
+
+    pooled_variables = list(x1) + list(x2)  # Pooled variables distribution
+    pooled_shuffle = copy.copy(pooled_variables)  # Copy of the pooled variables distribution
+
+    pooled_distribution = []  # Initialize permutation
+    for i in np.arange(n_permutations):  # Permutation
+        random.shuffle(pooled_shuffle)  # Shuffle the data
+        # Permuted absolute difference of the two sampled distributions
+        pooled_distribution.append(np.abs(metric(pooled_shuffle[:len(x1)]) - metric(pooled_shuffle[-len(x2):])))
+
+    # the proportion of permuted differences higher than the ground truth difference is the significance value
+    p_val = len(np.where(pooled_distribution >= ground_truth)[0]) / n_permutations
+
+    return p_val
 
 
 # Helper classes
