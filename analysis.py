@@ -7,6 +7,8 @@ from glob import glob
 from ftplib import FTP
 
 # data
+import copy
+import random
 import numpy as np
 import pandas as pd
 
@@ -432,8 +434,10 @@ class Study:
         :param normalize_figure: (bool) whether to normalizes values scale in figure
         :param internal_use: (bool) whether an internal function is running it or not
 
-        :return: None
+        :return: None or pd.DataFrame
         """
+
+        # TODO: remove internal use
 
         # TODO: maybe in case of abundance, remove detection threshold form comparisons
         #  that do not include delta or paired
@@ -672,6 +676,10 @@ class Study:
                         elif test == 'ttest_ind':
                             stats_df_list[-1].loc[col, ['s', 'p']] = \
                                 ttest_ind(control_data, test_data, axis=None, equal_var=True, nan_policy='raise')
+
+                        elif test == 'permutation_test':
+                            stats_df_list[-1].loc[col, 'p'] = \
+                                permutation_test(control_data, test_data, metric=np.average, n_permutations=100)
 
                         # this is only relevant when between is 'time_point'
 
@@ -1369,14 +1377,15 @@ class Study:
                     plt.savefig(os.path.join(self.dirs.figs, obj.type, title.replace('\n', ' ')), pad_inches=0.5)
                     plt.close()
 
-    def fig_snp_scatter_box(self, obj, subplot='group', minimal_comparisons=45, species=25, height=12, aspect=0.5):
+    def fig_snp_scatter_box(self, obj, subplot='group', minimal_between_comparisons=45, minimal_within_comparisons=10, species=25, height=12, aspect=0.5):
         """
         Plot a the dissimilarity distribution between and within people based on the SNP dissimilarity data frame
         for each species
 
         :param obj: (Object) with SNP dissimilarity data frame
         :param subplot: (str) group or time_point as subplots
-        :param minimal_comparisons: (int) minimal number of comparisons between people per specie within a subplot
+        :param minimal_between_comparisons: (int) minimal number of comparisons between people per specie
+        :param minimal_within_comparisons: (int) minimal number of comparisons within people per specie
         :param species: (int or list) int of number of species per plot or a list of specific species to plot
         :param height: (int) sns.FacetGrid height argument
         :param aspect: (float) sns.FacetGrid aspect argument
@@ -1388,23 +1397,35 @@ class Study:
             # retract the data
             sub_data = kwargs.pop('data')
 
-            # within individuals
-            sns.scatterplot('dissimilarity', 'Species', major,
-                            data=sub_data.loc[same_person],
-                            hue_order=np.unique(sub_data.loc[same_person, major]), alpha=0.2, legend='brief', **kwargs)
-
             # between individuals
             sns.boxplot('dissimilarity', 'Species', minor,
                         data=sub_data.loc[~same_person & same_minor],
                         hue_order=np.unique(sub_data.loc[~same_person & same_minor, minor]),
                         width=0.5, fliersize=0, **kwargs)
 
+            # within individuals
+            sns.scatterplot('dissimilarity', 'Species', major,
+                            data=sub_data.loc[same_person],
+                            hue_order=np.unique(sub_data.loc[same_person, major]), alpha=0.2, legend='brief', **kwargs)
+
             # between individuals - significance
             sns.scatterplot(1/15, 'Species', minor,
-                            data=stats_df.loc[stats_df[major].isin(np.unique(sub_data[major])) &
-                                              stats_df['Species'].isin(np.unique(sub_data['Species']))],
-                            hue_order=np.unique(stats_df.loc[stats_df[major].isin(np.unique(sub_data[major])) &
-                                                stats_df['Species'].isin(np.unique(sub_data['Species'])), minor]),
+                            data=stats_between_df.loc[stats_between_df[major].isin(np.unique(sub_data[major])) &
+                                                      stats_between_df['Species'].isin(np.unique(sub_data['Species']))],
+                            hue_order=np.unique(stats_between_df.loc[
+                                                    stats_between_df[major].isin(np.unique(sub_data[major])) &
+                                                    stats_between_df['Species'].isin(np.unique(sub_data['Species'])),
+                                                    minor]),
+                            marker='*', s=120, legend=False, **kwargs)
+
+            # within individuals - significance
+            sns.scatterplot(1/20, 'Species', major,
+                            data=stats_within_df.loc[stats_within_df[major].isin(np.unique(sub_data[major])) &
+                                                     stats_within_df['Species'].isin(np.unique(sub_data['Species']))],
+                            hue_order=np.unique(stats_within_df.loc[
+                                                    stats_within_df[major].isin(np.unique(sub_data[major])) &
+                                                    stats_within_df['Species'].isin(np.unique(sub_data['Species'])),
+                                                    major]),
                             marker='*', s=120, legend=False, **kwargs)
 
         # data manipulation
@@ -1446,29 +1467,54 @@ class Study:
             species = len(species)
 
         # statistics
-        obj4stats = Study.Object(obj_type='{}_'.format(obj.type), columns='bacteria')
-        obj4stats.df = df.loc[~same_person & same_minor].set_index(['Species', major, minor], append=True)
-        obj4stats.df = obj4stats.df['dissimilarity'].unstack('Species')
-        # TODO: remember why this is only of different individuals
 
-        stats_df = self.comp_stats(obj4stats, test='mannwhitneyu', between=minor,
-                                   minimal_samples=minimal_comparisons, internal_use=True)
+        # between individuals
+        obj4stats_between = Study.Object(obj_type='{}_'.format(obj.type), columns='bacteria')
+        obj4stats_between.df = df.loc[~same_person & same_minor].set_index(['Species', major, minor], append=True)
+        obj4stats_between.df = obj4stats_between.df['dissimilarity'].unstack('Species')
 
-        for i in np.arange(len(stats_df)):
-            stats_df[i][major] = stats_df[i].name.split('__')[1]
-            stats_df[i][minor] = stats_df[i].name.split('__')[0]
-        stats_df = pd.concat(stats_df)
+        if len(obj4stats_between.df.index.get_level_values(minor).unique()) > 1:
+            stats_between_df = self.comp_stats(obj4stats_between, test='mannwhitneyu', between=minor,
+                                               minimal_samples=minimal_between_comparisons, internal_use=True)
 
-        stats_df = stats_df[stats_df['p_FDR'] < self.params.alpha].reset_index()
+            for i in np.arange(len(stats_between_df)):
+                stats_between_df[i][major] = stats_between_df[i].name.split('__')[1]
+                stats_between_df[i][minor] = stats_between_df[i].name.split('__')[0]
+            stats_between_df = pd.concat(stats_between_df)
+
+            stats_between_df = stats_between_df[stats_between_df['p_FDR'] < self.params.alpha].reset_index()
+
+        else:
+            stats_between_df = pd.DataFrame(columns=['Species', major, minor])
+
+        # within individuals
+        obj4stats_within = Study.Object(obj_type='{}_'.format(obj.type), columns='bacteria')
+        obj4stats_within.df = df.loc[same_person].set_index(['Species', major, minor], append=True)
+        obj4stats_within.df = obj4stats_within.df['dissimilarity'].unstack('Species')
+
+        if len(obj4stats_within.df.index.get_level_values(major).unique()) > 1:
+            stats_within_df = self.comp_stats(obj4stats_within, test='mannwhitneyu', between=major,
+                                              minimal_samples=minimal_within_comparisons, internal_use=True)
+
+            for i in np.arange(len(stats_within_df)):
+                stats_within_df[i][major] = stats_within_df[i].name.split('__')[0]
+                stats_within_df[i][minor] = stats_within_df[i].name.split('__')[1]
+            stats_within_df = pd.concat(stats_within_df)
+
+            stats_within_df = stats_within_df[stats_within_df['p_FDR'] < self.params.alpha].reset_index()
+
+        else:
+            stats_within_df = pd.DataFrame(columns=['Species', major, minor])
 
         # removing species that lack inter or intra person data
         df = df[df['Species'].isin(list(
             set(df.loc[same_person, 'Species']).intersection(set(df.loc[~same_person & same_minor, 'Species']))))]
 
-        df = df[df['Species'].isin(list(
-            set(df['Species']).intersection(set(stats_df['Species']))))]
-        stats_df = stats_df[stats_df['Species'].isin(list(
-            set(df['Species']).intersection(set(stats_df['Species']))))]
+        combined_species = set(stats_between_df['Species']).union(set(stats_within_df['Species']))  # significant
+        combined_species = combined_species.intersection(set(df['Species']))
+        df = df[df['Species'].isin(combined_species)]
+        stats_between_df = stats_between_df[stats_between_df['Species'].isin(combined_species)]
+        stats_within_df = stats_within_df[stats_within_df['Species'].isin(combined_species)]
 
         # species argument
         if type(species) == int:
@@ -1748,6 +1794,8 @@ def mantel_test(s1, s2, s1_dis=True, s2_dis=False, maximal_filling=0.25, minimal
         if s_dis:  # has dissimilarity values in a series form
             df = s.reset_index().pivot_table(index=[ind + '2' for ind in combined_indices],
                                              columns=[ind + '1' for ind in combined_indices], values='dissimilarity')
+            df.index.names = combined_indices
+            df.columns.names = combined_indices
             np.fill_diagonal(df.values, 0)
         else:  # calculate dissimilarity values from regular values
             ind2drop = list(set(s.index.names) - set(combined_indices))
@@ -1755,12 +1803,16 @@ def mantel_test(s1, s2, s1_dis=True, s2_dis=False, maximal_filling=0.25, minimal
             df = pd.DataFrame(distance_matrix(x=np.reshape(s.values, (-1, 1)), y=np.reshape(s.values, (-1, 1))),
                               index=s.index, columns=s.index)
 
+        df.index = df.index.reorder_levels(combined_indices)
+        df.columns = df.columns.reorder_levels(combined_indices)
+
         # limit to samples that have at least maximal_filling percentage of existing dissimilarity measurements
         samples_mask = df.columns[df.isna().sum() < df.shape[0] * maximal_filling].values
         df = df.loc[samples_mask, samples_mask]
 
         # find the dissimilarities that are still missing and fill them with medians
-        df = df.apply(lambda row: row.fillna(row.median()))
+        if df.isna().sum().sum() != 0:  # the condition is just for speed
+            df = df.apply(lambda row: row.fillna(row.median()))
 
         return df
 
@@ -1785,6 +1837,47 @@ def mantel_test(s1, s2, s1_dis=True, s2_dis=False, maximal_filling=0.25, minimal
         r, p, n = None, None, None
 
     return r, p, n
+
+
+def permutation_test(x1, x2, metric=np.average, n_permutations=100):
+    """
+    Calculate permutation test p_value for any metric
+
+    :param x1: (any type of array) first data group
+    :param x2: (any type of array) second data group
+    :param metric: (func) any distribution metric like mean, median, kurtosis, etc. that returns a single value
+    :param n_permutations: (int) number of permutations to perform
+
+    :return: (float) p_val
+    """
+
+    # based on -
+    # https://towardsdatascience.com/how-to-assess-statistical-significance-in-your-data-with-permutation-tests-8bb925b2113d
+    # it also has correlation implementationon if needed
+
+    x1 = np.array(x1)  # just to prevent problems
+    x2 = np.array(x2)  # just to prevent problems
+
+    # Bootstrapping - randomly sample without replacement two distributions with the size equal to the original
+    # distributions from this pooled distribution to compute the absolute difference of the metric between the
+    # two permuted samples. Repeated n_permutations times
+
+    # Ground truth absolute difference between the labels from the two variables
+    ground_truth = np.abs(metric(x1) - metric(x2))
+
+    pooled_variables = list(x1) + list(x2)  # Pooled variables distribution
+    pooled_shuffle = copy.copy(pooled_variables)  # Copy of the pooled variables distribution
+
+    pooled_distribution = []  # Initialize permutation
+    for i in np.arange(n_permutations):  # Permutation
+        random.shuffle(pooled_shuffle)  # Shuffle the data
+        # Permuted absolute difference of the two sampled distributions
+        pooled_distribution.append(np.abs(metric(pooled_shuffle[:len(x1)]) - metric(pooled_shuffle[-len(x2):])))
+
+    # the proportion of permuted differences higher than the ground truth difference is the significance value
+    p_val = len(np.where(pooled_distribution >= ground_truth)[0]) / n_permutations
+
+    return p_val
 
 
 # Helper classes
