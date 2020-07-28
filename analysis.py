@@ -1474,7 +1474,7 @@ class Study:
         obj4stats_between.df = obj4stats_between.df['dissimilarity'].unstack('Species')
 
         if len(obj4stats_between.df.index.get_level_values(minor).unique()) > 1:
-            stats_between_df = self.comp_stats(obj4stats_between, test='permutation_test', between=minor,
+            stats_between_df = self.comp_stats(obj4stats_between, test='mannwhitneyu', between=minor,
                                                minimal_samples=minimal_between_comparisons, internal_use=True)
 
             for i in np.arange(len(stats_between_df)):
