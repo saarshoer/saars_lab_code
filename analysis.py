@@ -19,6 +19,7 @@ from mne.stats.multi_comp import fdr_correction
 from scipy.stats import mannwhitneyu, wilcoxon, ttest_ind, ttest_rel, ttest_1samp, binom_test, spearmanr
 
 # models
+from sklearn.preprocessing import LabelEncoder
 from xgboost import XGBClassifier, XGBRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import RepeatedKFold, train_test_split, GridSearchCV
@@ -1773,6 +1774,14 @@ def bac_full_name(SGB_ID):
     full_name = segata_df.loc[segata_df['SGB ID'] == SGB_ID, 'Estimated taxonomy'].iloc[0]
 
     return 'SGB_{} {}'.format(SGB_ID, full_name)
+
+
+def cat2binary(y):
+
+    le = LabelEncoder()
+    y = le.fit_transform(y)
+    dict = {l: i for i, l in enumerate(le.classes_)}
+    return y, dict
 
 
 def mantel_test(s1, s2, s1_dis=True, s2_dis=False, maximal_filling=0.25, minimal_samples=20, method='pearson'):
