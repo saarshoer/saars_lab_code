@@ -13,17 +13,20 @@ from LabData.DataAnalyses.MBSNPs.MWASInterpreter import MWASInterpreter
 
 class P:
     # general
-    body_site = 'Gut'
+    body_site = 'Oral'
     study_ids = ['PNP3']
     countries = None
+
+    time_point = '0months'
+    label = 'group'
 
     # \\math17-lx\saarsh\Genie\LabData\Analyses\saarsh\PNP3_{oral/gut}_mwas_{0/6}months_group
     df = pd.read_pickle(os.path.join(
         '/net/mraid08/export/jafar/Microbiome/Analyses/saar/{}/data_frames'.format(study_ids[0]),
         '{}_abundance.df'.format(body_site.lower())))
-    df = df.xs('6months', level='time_point')
+    df = df.xs(time_point, level='time_point')
     x = list(df.index.get_level_values('sample').unique())
-    y = df.reset_index().rename(columns={'person': 'RegistrationCode'}).set_index('RegistrationCode')['group']
+    y = df.reset_index().rename(columns={'person': 'RegistrationCode'}).set_index('RegistrationCode')[label]
     y = y.replace('mediterranean', 0).replace('algorithm', 1)
 
     # queue
@@ -45,7 +48,7 @@ class P:
 
     # SNPs
     min_reads_per_snp = 1  # in maf file name
-    min_subjects_per_snp_cached = 500  # in maf file name
+    min_subjects_per_snp_cached = 500 if body_site == 'Gut' else 100  # in maf file name
     max_on_fraq_major_per_snp = 0.98  # (Liron 0.99) Max fraction of major allele frequency in analyzed samples
     min_on_minor_per_snp = 10  # (Liron 50) Min number of analyzed samples with a minor allele
     min_subjects_per_snp = 10  # (Liron 400)
@@ -78,7 +81,7 @@ if __name__ == '__main__':
     # m = MWAS(P)
     # work_dir = m.gen_mwas()
 
-    folder = 'PNP3_gut_mwas_6months_group'
+    folder = '{}_{}_mwas_{}_{}'.format(P.study_ids[0], P.body_site.lower(), P.time_point, P.label)
     M = MWASInterpreter(params=P, mwas_fname='mb_gwas.h5',
                         work_dir=os.path.join('/net/mraid08/export/genie/LabData/Analyses/saarsh/', folder),
                         out_dir=os.path.join('/net/mraid08/export/jafar/Microbiome/Analyses/saar/{}/figs/'
@@ -88,10 +91,11 @@ if __name__ == '__main__':
                         SNPs_to_plot_dct={},
 
                         do_manhattan_plot=True,
-                        do_mafs_plot=False,
+                        do_mafs_plot=False,  # broken
                         do_qq_plot=True,
                         do_volcano_plot=True,
 
+                        #### fails for me
                         do_snp_annotations=False,
                         annotate_all_snps=False,
                         do_annotated_manhattan=False,
