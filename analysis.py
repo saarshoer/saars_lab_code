@@ -1821,7 +1821,10 @@ def mantel_test(s1, s2, s1_dis=True, s2_dis=False, maximal_filling=0.25, minimal
 
         # find the dissimilarities that are still missing and fill them with medians
         if df.isna().sum().sum() != 0:  # the condition is just for speed
-            df = df.apply(lambda row: row.fillna(row.median()))
+            row_med = df.median(axis=0)
+            col_med = df.median(axis=1)
+            mean_medians = row_med.apply(lambda r_m: (r_m + col_med) / 2)
+            df = df.mask(df.isna(), mean_medians)
 
         return df
 
