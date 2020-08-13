@@ -21,11 +21,12 @@ class P:
     work_dir_suffix = jobname
 
     # species
-    species_set = 'SGB_4866'#None#['SGB_2318', 'SGB_1815']
+    species_set = ['SGB_4866']#None#['SGB_2318', 'SGB_1815']#SGB_4866-5GB, SGB_1815-50GB
     ignore_species = None
     species_blocks = 1
 
     # samples
+    samples_set = None
     largest_sample_per_user = True
     min_positions_per_sample = 0
 
