@@ -19,6 +19,7 @@ from mne.stats.multi_comp import fdr_correction
 from scipy.stats import mannwhitneyu, wilcoxon, ttest_ind, ttest_rel, ttest_1samp, binom_test, spearmanr
 
 # models
+from sklearn.preprocessing import LabelEncoder
 from xgboost import XGBClassifier, XGBRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import RepeatedKFold, train_test_split, GridSearchCV
@@ -1775,6 +1776,14 @@ def bac_full_name(SGB_ID):
     return 'SGB_{} {}'.format(SGB_ID, full_name)
 
 
+def cat2binary(y):
+
+    le = LabelEncoder()
+    y = le.fit_transform(y)
+    dict = {l: i for i, l in enumerate(le.classes_)}
+    return y, dict
+
+
 def mantel_test(s1, s2, s1_dis=True, s2_dis=False, maximal_filling=0.25, minimal_samples=20, method='pearson'):
     """
     Calculates the mantel test between two dissimilarity matrices
@@ -1812,7 +1821,10 @@ def mantel_test(s1, s2, s1_dis=True, s2_dis=False, maximal_filling=0.25, minimal
 
         # find the dissimilarities that are still missing and fill them with medians
         if df.isna().sum().sum() != 0:  # the condition is just for speed
-            df = df.apply(lambda row: row.fillna(row.median()))
+            row_med = df.median(axis=0)
+            col_med = df.median(axis=1)
+            mean_medians = row_med.apply(lambda r_m: (r_m + col_med) / 2)
+            df = df.mask(df.isna(), mean_medians)
 
         return df
 

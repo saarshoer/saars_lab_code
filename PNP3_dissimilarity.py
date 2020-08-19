@@ -4,7 +4,7 @@ from LabUtils.addloglevels import sethandlers
 from LabUtils.Utils import date2_dir, write_members, to_list
 
 study_ids = ['PNP3']
-species_set = None#['SGB_1877']
+species_set = None#gut['SGB_1877']#oral['SGB_13165']
 
 subjects_loaders = ['SubjectLoader']
 subjects_get_data_args = {'study_ids': study_ids, 'groupby_reg': 'first'}
@@ -12,7 +12,7 @@ subjects_get_data_args = {'study_ids': study_ids, 'groupby_reg': 'first'}
 
 class P:
 
-    body_site = 'Gut'
+    body_site = 'Gut'#
     send_to_queue = True#False
     largest_sample_per_user = False
 
