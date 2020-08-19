@@ -14,14 +14,14 @@ class P:
     countries = ['IL']
 
     # queue
-    max_jobs = 50
+    max_jobs = 850  # so to take no more than half the cluster's memory
     jobname = 'anti_mwas'
     send_to_queue = True#False
     work_dir = os.path.join(config.analyses_dir, date2_dir())
     work_dir_suffix = jobname
 
     # species
-    species_set = ['SGB_4866']#None#['SGB_2318', 'SGB_1815']#SGB_4866-5GB, SGB_1815-50GB
+    species_set = ['SGB_4866']#None#SGB_14399-1.61GB(smallest), SGB_4866-4.54GB, SGB_1815-50GB
     ignore_species = None
     species_blocks = 1
 
@@ -63,26 +63,28 @@ class P:
 
 
 if __name__ == '__main__':
-    sethandlers(file_dir=config.log_dir)
-    m = MWAS(P)
-    work_dir = m.gen_mwas()
+    # sethandlers(file_dir=config.log_dir)
+    # m = MWAS(P)
+    # work_dir = m.gen_mwas()
 
-    # M = MWASInterpreter(params=P, mwas_fname='mb_gwas.h5',
-    #                     work_dir='/net/mraid08/export/genie/LabData/Analyses/saarsh/antibiotics_mwas_test',
-    #                     out_dir='/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics',
-    #                     mbsnp_loader=get_mbsnp_loader_class(P.body_site),
-    #                     pval_col='Global_FDR', pval_cutoff=0.05,
-    #                     SNPs_to_plot_dct={},
-    #
-    #                     do_manhattan_plot=True,
-    #                     do_mafs_plot=False,
-    #                     do_qq_plot=True,
-    #                     do_volcano_plot=True,
-    #
-    #                     do_snp_annotations=False,
-    #                     annotate_all_snps=False,
-    #                     do_annotated_manhattan=False,
-    #
-    #                     get_extra_gene_info=False,
-    #                     do_test_nonsynonymous_enrichment=False,
-    #                     ).run()
+    folder = '{}_{}_MAF'.format(P.jobname, '5GB' if P.species_set[0] is 'SGB_4866' else 'smallest')
+    M = MWASInterpreter(params=P, mwas_fname='mb_gwas.h5',
+                        work_dir=os.path.join('/net/mraid08/export/genie/LabData/Analyses/saarsh/', folder),
+                        out_dir=os.path.join('/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/figs/'
+                                             .format(P.study_ids[0]), folder),
+                        mbsnp_loader=get_mbsnp_loader_class(P.body_site),
+                        pval_col='Global_FDR', pval_cutoff=0.05,
+                        SNPs_to_plot_dct={},
+
+                        do_manhattan_plot=False,
+                        do_mafs_plot=False,  # broken
+                        do_qq_plot=False,
+                        do_volcano_plot=True,
+
+                        do_snp_annotations=False,
+                        annotate_all_snps=False,
+                        do_annotated_manhattan=True,
+
+                        get_extra_gene_info=True,
+                        do_test_nonsynonymous_enrichment=True,
+                        ).run()
