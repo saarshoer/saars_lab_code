@@ -1378,7 +1378,8 @@ class Study:
                     plt.savefig(os.path.join(self.dirs.figs, obj.type, title.replace('\n', ' ')), pad_inches=0.5)
                     plt.close()
 
-    def fig_snp_scatter_box(self, obj, subplot='group', minimal_between_comparisons=45, minimal_within_comparisons=10, species=25, height=12, aspect=0.5):
+    def fig_snp_scatter_box(self, obj, subplot='group', minimal_between_comparisons=45, minimal_within_comparisons=10,
+                            species=25, height=12, aspect=0.5):
         """
         Plot a the dissimilarity distribution between and within people based on the SNP dissimilarity data frame
         for each species
