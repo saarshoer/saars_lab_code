@@ -17,7 +17,7 @@ class P:
     study_ids = ['PNP3']
     countries = None
 
-    time_point = '6months'
+    time_point = '0months'
     label = 'group'
 
     # \\math17-lx\saarsh\Genie\LabData\Analyses\saarsh\PNP3_{oral/gut}_mwas_{0/6}months_group
@@ -95,11 +95,10 @@ if __name__ == '__main__':
                         do_qq_plot=True,
                         do_volcano_plot=True,
 
-                        # there is currently no annotations for oral
-                        do_snp_annotations=True if P.body_site is 'Gut' else False,
-                        annotate_all_snps=True if P.body_site is 'Gut' else False,
-                        do_annotated_manhattan=True if P.body_site is 'Gut' else False,
+                        do_snp_annotations=True,
+                        annotate_all_snps=True,
+                        do_annotated_manhattan=True,
 
                         get_extra_gene_info=True,
-                        do_test_nonsynonymous_enrichment=True if P.body_site is 'Gut' else False,
+                        do_test_nonsynonymous_enrichment=True,
                         ).run()
