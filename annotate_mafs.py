@@ -6,8 +6,11 @@ from LabData.DataLoaders.MBSNPLoader import OralMBSNPLoader
 
 
 def func():
-    species = glob.glob('/home/saarsh/Genie/LabData/Data/MBPipeline/Analyses/MBSNP/Oral/MAF/mb_snp_maf_SGB_*_R1_S100.h5')
-    species = ['SGB_' + s.split('_')[-3] for s in species]
+    potential_species = glob.glob('/home/saarsh/Genie/LabData/Data/MBPipeline/Analyses/MBSNP/Oral/MAF/mb_snp_maf_SGB_*_R1_S100.h5')
+    potential_species = ['SGB_' + s.split('_')[-3] for s in potential_species]
+    done_species = glob.glob('/home/saarsh/Genie/LabData/Data/MBPipeline/Analyses/MBSNP/Oral/MAF/mb_snp_annot_maf_SGB_*_R1_S100.h5')
+    done_species = ['SGB_' + s.split('_')[-3] for s in done_species]
+    species = list(set(potential_species) - set(done_species))
 
     ld = OralMBSNPLoader()
     ld._gen_species_set_maf_annot_data(species, min_reads_per_snp=1, min_samples_per_snp_cached=100)
