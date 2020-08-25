@@ -13,10 +13,11 @@ import numpy as np
 import pandas as pd
 
 # statistics
-from skbio.stats.distance import mantel
+from skbio import DistanceMatrix
 from scipy.spatial import distance_matrix
 from mne.stats.multi_comp import fdr_correction
-from scipy.stats import mannwhitneyu, wilcoxon, ttest_ind, ttest_rel, ttest_1samp, binom_test, spearmanr
+from scipy.stats import mannwhitneyu, wilcoxon, ttest_ind, ttest_rel, ttest_1samp, binom_test, \
+    pearsonr, spearmanr, kendalltau
 
 # models
 from sklearn.preprocessing import LabelEncoder
@@ -1476,6 +1477,12 @@ class Study:
         obj4stats_between.df = obj4stats_between.df['dissimilarity'].unstack('Species')
 
         if len(obj4stats_between.df.index.get_level_values(minor).unique()) > 1:
+            # this is a test to check if we randomize the labels we still get so many significant results
+            # obj4stats_between.df = obj4stats_between.df.reset_index(minor)
+            # for curr_major in np.unique(obj4stats_between.df.index.get_level_values(major)):
+            #     obj4stats_between.df.loc[obj4stats_between.df.index.get_level_values(major) == curr_major, minor] = \
+            #         shuffle(obj4stats_between.df.loc[obj4stats_between.df.index.get_level_values(major) == curr_major, minor].values)  # from sklearn.utils import shuffle
+            # obj4stats_between.df = obj4stats_between.df.set_index(minor, append=True)
             stats_between_df = self.comp_stats(obj4stats_between, test='mannwhitneyu', between=minor,
                                                minimal_samples=minimal_between_comparisons, internal_use=True)
 
@@ -1785,7 +1792,8 @@ def cat2binary(y):
     return y, dict
 
 
-def mantel_test(s1, s2, s1_dis=True, s2_dis=False, maximal_filling=0.25, minimal_samples=20, method='pearson'):
+def mantel_test(s1, s2, s1_dis=True, s2_dis=False, maximal_filling=0.25, minimal_samples=20,
+                method='pearson', permutations=100, alternative='two-sided'):
     """
     Calculates the mantel test between two dissimilarity matrices
 
@@ -1796,8 +1804,308 @@ def mantel_test(s1, s2, s1_dis=True, s2_dis=False, maximal_filling=0.25, minimal
     :param maximal_filling: (float) maximal percentage of samples with missing values to fill with median value
     :param minimal_samples: (int) minimal number of samples to have in order to calculate mantel
     :param method: (str) correlation method 'pearson' or 'spearman'
-    :return: 
+    :param permutations: (int) number of permutations to do for the p_value
+    :param alternative: (str) alternative hypothesis to use when calculating statistical significance:
+    'two-sided', 'greater' or 'less'
+
+    :return: r, p, n
     """
+
+    def mantel_with_nans(x, y, method, permutations, alternative):
+
+        """Compute correlation between distance matrices using the Mantel test.
+
+        The Mantel test compares two distance matrices by computing the correlation
+        between the distances in the lower (or upper) triangular portions of the
+        symmetric distance matrices. Correlation can be computed using Pearson's
+        product-moment correlation coefficient or Spearman's rank correlation
+        coefficient.
+
+        As defined in [1]_, the Mantel test computes a test statistic :math:`r_M`
+        given two symmetric distance matrices :math:`D_X` and :math:`D_Y`.
+        :math:`r_M` is defined as
+
+        .. math::
+
+           r_M=\\frac{1}{d-1}\\sum_{i=1}^{n-1}\\sum_{j=i+1}^{n}
+           stand(D_X)_{ij}stand(D_Y)_{ij}
+
+        where
+
+        .. math::
+
+           d=\\frac{n(n-1)}{2}
+
+        and :math:`n` is the number of rows/columns in each of the distance
+        matrices. :math:`stand(D_X)` and :math:`stand(D_Y)` are distance matrices
+        with their upper triangles containing standardized distances. Note that
+        since :math:`D_X` and :math:`D_Y` are symmetric, the lower triangular
+        portions of the matrices could equivalently have been used instead of the
+        upper triangular portions (the current function behaves in this manner).
+
+        If ``method='spearman'``, the above equation operates on ranked distances
+        instead of the original distances.
+
+        Statistical significance is assessed via a permutation test. The rows and
+        columns of the first distance matrix (`x`) are randomly permuted a
+        number of times (controlled via `permutations`). A correlation coefficient
+        is computed for each permutation and the p-value is the proportion of
+        permuted correlation coefficients that are equal to or more extreme
+        than the original (unpermuted) correlation coefficient. Whether a permuted
+        correlation coefficient is "more extreme" than the original correlation
+        coefficient depends on the alternative hypothesis (controlled via
+        `alternative`).
+
+        Parameters
+        ----------
+        x, y : DistanceMatrix or array_like
+            Input distance matrices to compare. If `x` and `y` are both
+            ``DistanceMatrix`` instances, they will be reordered based on matching
+            IDs (see `strict` and `lookup` below for handling matching/mismatching
+            IDs); thus they are not required to be in the same ID order. If `x` and
+            `y` are ``array_like``, no reordering is applied and both matrices must
+            have the same shape. In either case, `x` and `y` must be at least 3x3
+            in size *after* reordering and matching of IDs.
+        method : {'pearson', 'spearman','kendalltau'}
+            Method used to compute the correlation between distance matrices.
+        permutations : int, optional
+            Number of times to randomly permute `x` when assessing statistical
+            significance. Must be greater than or equal to zero. If zero,
+            statistical significance calculations will be skipped and the p-value
+            will be ``np.nan``.
+        alternative : {'two-sided', 'greater', 'less'}
+            Alternative hypothesis to use when calculating statistical
+            significance. The default ``'two-sided'`` alternative hypothesis
+            calculates the proportion of permuted correlation coefficients whose
+            magnitude (i.e. after taking the absolute value) is greater than or
+            equal to the absolute value of the original correlation coefficient.
+            ``'greater'`` calculates the proportion of permuted coefficients that
+            are greater than or equal to the original coefficient. ``'less'``
+            calculates the proportion of permuted coefficients that are less than
+            or equal to the original coefficient.
+        strict : bool, optional
+            If ``True``, raises a ``ValueError`` if IDs are found that do not exist
+            in both distance matrices. If ``False``, any nonmatching IDs are
+            discarded before running the test. See `n` (in Returns section below)
+            for the number of matching IDs that were used in the test. This
+            parameter is ignored if `x` and `y` are ``array_like``.
+        lookup : dict, optional
+            Maps each ID in the distance matrices to a new ID. Used to match up IDs
+            across distance matrices prior to running the Mantel test. If the IDs
+            already match between the distance matrices, this parameter is not
+            necessary. This parameter is disallowed if `x` and `y` are
+            ``array_like``.
+
+        Returns
+        -------
+        corr_coeff : float
+            Correlation coefficient of the test (depends on `method`).
+        p_value : float
+            p-value of the test.
+        n : int
+            Number of rows/columns in each of the distance matrices, after any
+            reordering/matching of IDs. If ``strict=False``, nonmatching IDs may
+            have been discarded from one or both of the distance matrices prior to
+            running the Mantel test, so this value may be important as it indicates
+            the *actual* size of the matrices that were compared.
+
+        Raises
+        ------
+        ValueError
+            If `x` and `y` are not at least 3x3 in size after reordering/matching
+            of IDs, or an invalid `method`, number of `permutations`, or
+            `alternative` are provided.
+        TypeError
+            If `x` and `y` are not both ``DistanceMatrix`` instances or
+            ``array_like``.
+
+        See Also
+        --------
+        DistanceMatrix
+        scipy.stats.pearsonr
+        scipy.stats.spearmanr
+        pwmantel
+
+        Notes
+        -----
+        The Mantel test was first described in [2]_. The general algorithm and
+        interface are similar to ``vegan::mantel``, available in R's vegan
+        package [3]_.
+
+        ``np.nan`` will be returned for the p-value if `permutations` is zero or if
+        the correlation coefficient is ``np.nan``. The correlation coefficient will
+        be ``np.nan`` if one or both of the inputs does not have any variation
+        (i.e. the distances are all constant) and ``method='spearman'``.
+
+        References
+        ----------
+        .. [1] Legendre, P. and Legendre, L. (2012) Numerical Ecology. 3rd English
+           Edition. Elsevier.
+
+        .. [2] Mantel, N. (1967). "The detection of disease clustering and a
+           generalized regression approach". Cancer Research 27 (2): 209-220. PMID
+           6018555.
+
+        .. [3] http://cran.r-project.org/web/packages/vegan/index.html
+
+        Examples
+        --------
+        Import the functionality we'll use in the following examples:
+
+        >>> from skbio import DistanceMatrix
+        >>> from skbio.stats.distance import mantel
+
+        Define two 3x3 distance matrices:
+
+        >>> x = DistanceMatrix([[0, 1, 2],
+        ...                     [1, 0, 3],
+        ...                     [2, 3, 0]])
+        >>> y = DistanceMatrix([[0, 2, 7],
+        ...                     [2, 0, 6],
+        ...                     [7, 6, 0]])
+
+        Compute the Pearson correlation between them and assess significance using
+        a two-sided test with 999 permutations:
+
+        >>> coeff, p_value, n = mantel(x, y)
+        >>> print(round(coeff, 4))
+        0.7559
+
+        Thus, we see a moderate-to-strong positive correlation (:math:`r_M=0.7559`)
+        between the two matrices.
+
+        In the previous example, the distance matrices (``x`` and ``y``) have the
+        same IDs, in the same order:
+
+        >>> x.ids
+        ('0', '1', '2')
+        >>> y.ids
+        ('0', '1', '2')
+
+        If necessary, ``mantel`` will reorder the distance matrices prior to
+        running the test. The function also supports a ``lookup`` dictionary that
+        maps distance matrix IDs to new IDs, providing a way to match IDs between
+        distance matrices prior to running the Mantel test.
+
+        For example, let's reassign the distance matrices' IDs so that there are no
+        matching IDs between them:
+
+        >>> x.ids = ('a', 'b', 'c')
+        >>> y.ids = ('d', 'e', 'f')
+
+        If we rerun ``mantel``, we get the following error notifying us that there
+        are nonmatching IDs (this is the default behavior with ``strict=True``):
+
+        >>> mantel(x, y)
+        Traceback (most recent call last):
+            ...
+        ValueError: IDs exist that are not in both distance matrices.
+
+        If we pass ``strict=False`` to ignore/discard nonmatching IDs, we see that
+        no matches exist between `x` and `y`, so the Mantel test still cannot be
+        run:
+
+        >>> mantel(x, y, strict=False)
+        Traceback (most recent call last):
+            ...
+        ValueError: No matching IDs exist between the distance matrices.
+
+        To work around this, we can define a ``lookup`` dictionary to specify how
+        the IDs should be matched between distance matrices:
+
+        >>> lookup = {'a': 'A', 'b': 'B', 'c': 'C',
+        ...           'd': 'A', 'e': 'B', 'f': 'C'}
+
+        ``lookup`` maps each ID to ``'A'``, ``'B'``, or ``'C'``. If we rerun
+        ``mantel`` with ``lookup``, we get the same results as the original
+        example where all distance matrix IDs matched:
+
+        >>> coeff, p_value, n = mantel(x, y, lookup=lookup)
+        >>> print(round(coeff, 4))
+        0.7559
+
+        ``mantel`` also accepts input that is ``array_like``. For example, if we
+        redefine `x` and `y` as nested Python lists instead of ``DistanceMatrix``
+        instances, we obtain the same result:
+
+        >>> x = [[0, 1, 2],
+        ...      [1, 0, 3],
+        ...      [2, 3, 0]]
+        >>> y = [[0, 2, 7],
+        ...      [2, 0, 6],
+        ...      [7, 6, 0]]
+        >>> coeff, p_value, n = mantel(x, y)
+        >>> print(round(coeff, 4))
+        0.7559
+
+        It is import to note that reordering/matching of IDs (and hence the
+        ``strict`` and ``lookup`` parameters) do not apply when input is
+        ``array_like`` because there is no notion of IDs.
+
+        """
+
+        # This is the skbio.stats.distance.mantel function with variations to accommodate missing values
+
+        if method == 'pearson':
+            corr_func = pearsonr
+        elif method == 'spearman':
+            corr_func = spearmanr
+        elif method == 'kendalltau':
+            corr_func = kendalltau
+        else:
+            raise ValueError("Invalid correlation method '%s'." % method)
+
+        if permutations < 0:
+            raise ValueError("Number of permutations must be greater than or "
+                             "equal to zero.")
+        if alternative not in ('two-sided', 'greater', 'less'):
+            raise ValueError("Invalid alternative hypothesis '%s'." % alternative)
+
+        # x, y = _order_dms(x, y, strict=strict, lookup=lookup)
+
+        n = x.shape[0]
+        if n < 3:
+            raise ValueError("Distance matrices must have at least 3 matching IDs "
+                             "between them (i.e., minimum 3x3 in size).")
+
+        x = DistanceMatrix(x.fillna(999))
+        y = DistanceMatrix(y.fillna(999))
+        x._data[x._data == 999] = np.nan
+        y._data[y._data == 999] = np.nan
+
+        x_flat = x.condensed_form()
+        y_flat = y.condensed_form()
+
+        na_loc = (np.isnan(x_flat)) | (np.isnan(y_flat))
+        x_flat_no_na = x_flat[~na_loc]
+        y_flat_no_na = y_flat[~na_loc]
+
+        orig_stat = corr_func(x_flat_no_na, y_flat_no_na)[0]
+
+        if permutations == 0 or np.isnan(orig_stat):
+            p_value = np.nan
+        else:
+            permuted_stats = []
+            for _ in range(permutations):
+                # since the missing values shift relative places between the matrices,
+                # different values will be dropped each time
+                x_perm = x.permute(condensed=True)
+                na_loc = (np.isnan(x_perm)) | (np.isnan(y_flat))
+                x_flat_no_na = x_perm[~na_loc]
+                y_flat_no_na = y_flat[~na_loc]
+                permuted_stats.append(corr_func(x_flat_no_na, y_flat_no_na)[0])
+
+            if alternative == 'two-sided':
+                count_better = (np.absolute(permuted_stats) >=
+                                np.absolute(orig_stat)).sum()
+            elif alternative == 'greater':
+                count_better = (permuted_stats >= orig_stat).sum()
+            else:
+                count_better = (permuted_stats <= orig_stat).sum()
+
+            p_value = (count_better + 1) / (permutations + 1)
+
+        return orig_stat, p_value, n
 
     def prep_series(s, s_dis):
 
@@ -1820,12 +2128,12 @@ def mantel_test(s1, s2, s1_dis=True, s2_dis=False, maximal_filling=0.25, minimal
         samples_mask = df.columns[df.isna().sum() < df.shape[0] * maximal_filling].values
         df = df.loc[samples_mask, samples_mask]
 
-        # find the dissimilarities that are still missing and fill them with medians
-        if df.isna().sum().sum() != 0:  # the condition is just for speed
-            row_med = df.median(axis=0)
-            col_med = df.median(axis=1)
-            mean_medians = row_med.apply(lambda r_m: (r_m + col_med) / 2)
-            df = df.mask(df.isna(), mean_medians)
+        # # find the dissimilarities that are still missing and fill them with medians
+        # if df.isna().sum().sum() != 0:  # the condition is just for speed
+        #     row_med = df.median(axis=0)
+        #     col_med = df.median(axis=1)
+        #     mean_medians = row_med.apply(lambda r_m: (r_m + col_med) / 2)
+        #     df = df.mask(df.isna(), mean_medians)
 
         return df
 
@@ -1845,7 +2153,7 @@ def mantel_test(s1, s2, s1_dis=True, s2_dis=False, maximal_filling=0.25, minimal
 
     # mantel test
     if len(combined_indices) > minimal_samples:
-        r, p, n = mantel(df1, df2, method=method, permutations=999, alternative='two-sided')
+        r, p, n = mantel_with_nans(df1, df2, method, permutations, alternative)
     else:
         r, p, n = None, None, None
 
@@ -1938,5 +2246,67 @@ class _Parameters:
 
 
 if __name__ == "__main__":
+    PNP3 = Study(
+
+        study='PNP3',
+
+        controls={'time_point': '0months',
+                  'group': 'mediterranean'},
+
+        colors={  # time_points
+            '0months': 'orchid',
+            '6months': 'darkorchid',
+            '6months-0months': 'deeppink',
+            '0months vs. 6months': 'deeppink',
+            # groups
+            'mediterranean': 'mediumblue',
+            'algorithm': 'orange',
+            # body sites
+            'gut abundance': 'brown',
+            'oral abundance': 'green',
+            # batches
+            0.0: 'yellow',
+            1.0: 'cyan',
+            2.0: 'pink',
+            # diet
+            'mostly carbohydrates': 'purple',
+            'mostly lipids': 'yellow',
+            # hba1c
+            'increased': 'red',
+            'decreased': 'green'
+        },
+
+        base_directory='/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3')
+
+    ###
+
+    PNP3.objs['gut_abundance'] = PNP3.Object(obj_type='gut abundance', columns='bacteria')
+    PNP3.objs['gut_diversity'] = PNP3.Object(obj_type='gut diversity', columns='diversity')
+    PNP3.objs['gut_snp_diss'] = PNP3.Object(obj_type='gut snp dissimilarity', columns='dissimilarity')
+
+    PNP3.objs['oral_abundance'] = PNP3.Object(obj_type='oral abundance', columns='bacteria')
+    PNP3.objs['oral_diversity'] = PNP3.Object(obj_type='oral diversity', columns='diversity')
+    PNP3.objs['oral_snp_diss'] = PNP3.Object(obj_type='oral snp dissimilarity', columns='dissimilarity')
+
+    PNP3.objs['combined_abundance'] = PNP3.Object(obj_type='combined abundance', columns='bacteria')
+
+    PNP3.objs['blood'] = PNP3.Object(obj_type='blood', columns='measurements')
+    PNP3.objs['body'] = PNP3.Object(obj_type='body', columns='measurements')
+    PNP3.objs['diet'] = PNP3.Object(obj_type='diet', columns='nutrients')
+
+    ###
+
+    PNP3.objs['gut_abundance'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'gut_abundance.df'))
+    PNP3.objs['gut_diversity'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'gut_diversity.df'))
+    PNP3.objs['gut_snp_diss'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'gut_snp_diss.df'))
+    PNP3.objs['oral_abundance'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'oral_abundance.df'))
+    PNP3.objs['oral_diversity'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'oral_diversity.df'))
+    PNP3.objs['oral_snp_diss'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'oral_snp_diss.df'))
+    PNP3.objs['combined_abundance'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'combined_abundance.df'))
+    PNP3.objs['blood'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'blood.df'))
+    PNP3.objs['body'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'body.df'))
+    PNP3.objs['diet'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'diet.df'))
+
+    ###
 
     print(help(Study))
