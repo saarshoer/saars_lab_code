@@ -1,7 +1,11 @@
 import os
+import numpy as np
+import pandas as pd
 from LabData import config_global as config
 from LabUtils.addloglevels import sethandlers
+from LabData.DataLoaders.Loader import LoaderData
 from LabData.DataAnalyses.MBSNPs.MWAS import MWAS
+from LabUtils.pandas_utils import filter_dataframe
 from LabUtils.Utils import date2_dir, write_members
 from LabData.DataLoaders.MBSNPLoader import get_mbsnp_loader_class
 from LabData.DataAnalyses.MBSNPs.MWASInterpreter import MWASInterpreter
@@ -21,9 +25,14 @@ class P:
     work_dir_suffix = jobname
 
     # species
-    species_set = None#SGB_14399-1.61GB(smallest), SGB_4866-4.54GB, SGB_1815-50GB
+    species_set = ['SGB_14399', 'SGB_4866', 'SGB_1815']#None#SGB_14399-1.61GB(smallest), SGB_4866-4.54GB, SGB_1815-50GB
     ignore_species = None
     species_blocks = 1
+
+    # y
+    y = pd.read_pickle('/home/saarsh/Analysis/antibiotics/URA/dl.df')
+    y_gen_f = lambda subjects_df: y_gen_f_inner(subjects_df, P.y)
+    is_y_valid_f = None  # Function that checks whether the analyzed y is valid
 
     # samples
     samples_set = None
@@ -36,6 +45,7 @@ class P:
     max_on_fraq_major_per_snp = 0.98  # (Liron 0.99) Max fraction of major allele frequency in analyzed samples
     min_on_minor_per_snp = 100  # (Liron 50) Min number of analyzed samples with a minor allele
     min_subjects_per_snp = 1000  # (Liron 400)
+    max_samples_per_snp = 10000
     snp_set = None
 
     # covariates
@@ -47,20 +57,13 @@ class P:
     subjects_loaders = ['SubjectLoader']
     subjects_get_data_args = {'study_ids': study_ids, 'countries': countries, 'groupby_reg': 'first'}
 
-    # y
-    y_loaders = [body_site + 'MBLoader']
-    y_get_data_args = {**{'df': 'segata_species', 'study_ids': study_ids, 'genotek_vals': None, 'min_hgf_fraction': None,
-                          'min_reads': None, 'nextera': None, 'reg_ids': None, #'subjects_df': None,
-                          'largest_sample_per_user': largest_sample_per_user, 'min_col_val': -4, 'min_col_present': None,
-                          'min_col_present_frac': None, 'top_frac_present_col': None, 'take_log': True,
-                          'convert_to_binary': False, 'groupby_reg': None}}
-                          # eliminate in full run
-                          # 'cols': [
-                          #     'k__Bacteria|p__Actinobacteria|c__Coriobacteriia|o__Coriobacteriales|f__Coriobacteriaceae|g__Collinsella|s__unknown|fSGB__2991|gSGB__9395|sSGB__14399',
-                          #     'k__Bacteria|p__Firmicutes|c__Clostridia|o__Clostridiales|f__Lachnospiraceae|g__unknown|s__unknown|fSGB__1449|gSGB__3603|sSGB__4866']}
-    is_y_valid_f = None  # Function that checks whether the analyzed y is valid
-
     output_cols = None
+
+
+def y_gen_f_inner(subjects_df, y):
+    # if subjects_df is not None:
+    #     y = filter_dataframe(y, subjects_df)
+    return LoaderData(pd.DataFrame(y), None)
 
 
 if __name__ == '__main__':
@@ -68,7 +71,7 @@ if __name__ == '__main__':
     m = MWAS(P)
     work_dir = m.gen_mwas()
 
-    # folder = '{}_{}_MAF_new'.format(P.jobname, '5GB' if P.species_set[0] is 'SGB_4866' else 'smallest')
+    # folder = 'anti_mwas_with_detection_threshold_10k_max_limit'#'{}_{}_MAF_new'.format(P.jobname, '5GB' if P.species_set[0] is 'SGB_4866' else 'smallest')
     # M = MWASInterpreter(params=P, mwas_fname='mb_gwas.h5',
     #                     work_dir=os.path.join('/net/mraid08/export/genie/LabData/Analyses/saarsh/', folder),
     #                     out_dir=os.path.join('/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/figs/'
