@@ -1,5 +1,6 @@
 import os
-import numpy as np
+# os.environ['OMP_NUM_THREADS'] = '2'  # Keep OMP from taking many CPUs.
+
 import pandas as pd
 from LabData import config_global as config
 from LabUtils.addloglevels import sethandlers
@@ -18,14 +19,14 @@ class P:
     countries = ['IL']
 
     # queue
-    max_jobs = 300  # so to take no more than half the cluster's memory
-    jobname = 'anti_mwas'
+    max_jobs = 30  # so to take no more than half the cluster's memory
+    jobname = 'anti_mwas_fast'
     send_to_queue = True#False
     work_dir = os.path.join(config.analyses_dir, date2_dir())
     work_dir_suffix = jobname
 
     # species
-    species_set = ['SGB_14399', 'SGB_4866', 'SGB_1815']#None#SGB_14399-1.61GB(smallest), SGB_4866-4.54GB, SGB_1815-50GB
+    species_set = None#SGB_14399-1.61GB(smallest), SGB_4866-4.54GB, SGB_1815-50GB
     ignore_species = None
     species_blocks = 1
 
@@ -35,7 +36,7 @@ class P:
     is_y_valid_f = None  # Function that checks whether the analyzed y is valid
 
     # samples
-    samples_set = None
+    samples_set = y.index.tolist()
     largest_sample_per_user = True
     min_positions_per_sample = 0
 
