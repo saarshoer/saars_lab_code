@@ -1565,6 +1565,41 @@ class Study:
 
             plt.savefig(os.path.join(self.dirs.figs, '{} s{}-{}'.format(title, i_figure, i_figure+species)))
 
+    def fig_strain_replacements(self, obj, category='person1'):
+        """
+        Count and plot (histogram) the number of replacements per category
+
+        :param df: (pd.DataFrame) dissimilarity df
+        :param category: (str) index level name to count by
+
+        :return: n_replacements (pd.DataFrame)
+        """
+
+        df = obj.df
+        df = df.dropna(subset=['replacement'])
+        df = df[list(~df.reset_index().duplicated(['Species', 'person1', 'person2']))]
+
+        n_replacements = df['replacement'].groupby(category).sum().sort_values(ascending=False)
+        if category[-1] in ['1', '2']:
+            category = category[:-1]
+        category = category.lower()
+        n_replacements.index.name = category
+
+        # histogram
+        obj_type = obj.type.split(' ')[0].lower()
+        obj_type = obj_type + ' ' if obj_type in ['oral', 'gut'] else ''
+
+        color = self.params.colors[obj.type] if obj.type in self.params.colors.keys() else None
+
+        n_replacements.hist(bins=20, color=color)
+        plt.title('{}strain replacements per {} histogram'.format(obj_type, category))
+        plt.xlabel('number of replacements')
+        plt.ylabel('number of {}'.format(category))
+
+        plt.savefig(os.path.join(self.dirs.figs, 'replacements per {}{}'.format(obj_type, category)))
+
+        return n_replacements
+
     # data frame computations
 
     @staticmethod
