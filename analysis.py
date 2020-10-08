@@ -1407,9 +1407,15 @@ class Study:
                         width=0.5, fliersize=0, **kwargs)
 
             # within individuals
-            sns.scatterplot('dissimilarity', 'Species', major,
+            p = sns.scatterplot('dissimilarity', 'Species', major,
                             data=sub_data.loc[same_person],
                             hue_order=np.unique(sub_data.loc[same_person, major]), alpha=0.2, legend='brief', **kwargs)
+
+            # within individuals - replacements
+            if 'replacement' in sub_data.columns:
+                n_replacements = sub_data.loc[same_person].groupby('Species')['replacement'].sum()
+                for s in n_replacements.index:
+                    p.text(1/18, s, n_replacements.loc[s])
 
             # between individuals - significance
             sns.scatterplot(1/15, 'Species', minor,
@@ -1535,7 +1541,8 @@ class Study:
             sub_df = df[df['Species'].isin(list(df.groupby('Species').groups)[i_figure:i_figure+species])]
 
             # plotting
-            g = sns.FacetGrid(sub_df, col=major, col_order=np.unique(df[major]), height=height, aspect=aspect)
+            g = sns.FacetGrid(sub_df, col=major, col_order=np.unique(df[major]),
+                              height=height, aspect=aspect, dropna=False)
             g = g.map_dataframe(scatter_box_plot, palette=self.params.colors)
 
             g.add_legend()
@@ -1686,6 +1693,61 @@ class Study:
                     # assuming the last column is the column added
 
         return samples_df
+
+    @staticmethod
+    def add_strain_replacement(test, control=None, quantile=0.05):
+        """
+        Adds "replacement column that represents strain replacement to a dissimilarity data frame
+
+        :param test: (pd.DataFrame) dissimilarity data frame with 'SampleName1/2' and 'dissimilarity' columns to which
+        replacement column will be add to comparisons within individual
+        :param control: (pd.DataFrame) dissimilarity data frame with 'SampleName1/2' and 'dissimilarity' columns from
+        which strain replacement threshold will be calculated based on comparisons between individuals
+        if not defined will use test data frame between individuals dissimilarity
+        :param quantile: between individuals dissimilarity threshold from which replacement will be defined
+
+        :return: test (pd.DataFrame)
+        """
+
+        # control data
+        if control is None:
+            control = test
+
+        # otherwise changes inplace
+        test = test.copy()
+        control = control.copy()
+
+        # remove duplicate comparisons and comparisons to the same sample
+        control = control.reset_index()
+        control = control[control['SampleName1'] != control['SampleName2']]
+        control['s1'] = np.minimum(control['SampleName1'], control['SampleName2'])
+        control['s2'] = np.maximum(control['SampleName1'], control['SampleName2'])
+        control = control.drop_duplicates(['Species', 's1', 's2'])
+
+        # remove within person comparisons
+        if 'person1' in control.columns and 'person2' in control.columns:
+            control = control[control['person1'] != control['person2']]
+        else:
+            print('the control samples are not identified by person, assuming all are between individuals comparisons')
+
+        # get quantile
+        control = control.groupby('Species')['dissimilarity'].quantile(quantile)
+
+        # test data
+        # remove comparisons to the same sample
+        condition = (test.index.get_level_values('SampleName1') != test.index.get_level_values('SampleName2'))
+
+        # remove between person comparisons
+        if 'person1' in test.index.names and 'person2' in test.index.names:
+            condition = condition & (test.index.get_level_values('person1') == test.index.get_level_values('person2'))
+        else:
+            print('the test samples are not identified by person, assuming all are within individual comparisons')
+
+        test.loc[condition, 'replacement'] = test[condition].loc[control.index].groupby('Species')[
+            'dissimilarity'].apply(lambda specie_data: specie_data > control.loc[specie_data.name])
+        # control.index are control species
+
+        return test
 
 
 # general file handling
