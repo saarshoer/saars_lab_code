@@ -2361,6 +2361,9 @@ if __name__ == "__main__":
             # body sites
             'gut abundance': 'brown',
             'oral abundance': 'green',
+            # body sites
+            'gut snp dissimilarity': 'brown',
+            'oral snp dissimilarity': 'green',
             # batches
             0.0: 'yellow',
             1.0: 'cyan',
