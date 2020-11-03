@@ -1380,7 +1380,7 @@ class Study:
                     plt.close()
 
     def fig_snp_scatter_box(self, obj, subplot='group', minimal_between_comparisons=45, minimal_within_comparisons=10,
-                            species=25, height=12, aspect=0.5):
+                            species=25, height=12, aspect=0.5, whis=[5, 95]):
         """
         Plot a the dissimilarity distribution between and within people based on the SNP dissimilarity data frame
         for each species
@@ -1392,6 +1392,7 @@ class Study:
         :param species: (int or list) int of number of species per plot or a list of specific species to plot
         :param height: (int) sns.FacetGrid height argument
         :param aspect: (float) sns.FacetGrid aspect argument
+        :param whis: () sns.bosxplot whis argument
 
         :return: None
         """
@@ -1404,7 +1405,7 @@ class Study:
             sns.boxplot('dissimilarity', 'Species', minor,
                         data=sub_data.loc[~same_person & same_minor],
                         hue_order=np.unique(sub_data.loc[~same_person & same_minor, minor]),
-                        width=0.5, fliersize=0, **kwargs)
+                        width=0.5, whis=whis, fliersize=0, **kwargs)
 
             # within individuals
             p = sns.scatterplot('dissimilarity', 'Species', major,
@@ -1415,7 +1416,7 @@ class Study:
             if 'replacement' in sub_data.columns:
                 n_replacements = sub_data.loc[same_person].groupby('Species')['replacement'].sum()
                 for s in n_replacements.index:
-                    p.text(1/18, s, n_replacements.loc[s])
+                    p.text(1/20, s, n_replacements.loc[s])
 
             # between individuals - significance
             sns.scatterplot(1/15, 'Species', minor,
@@ -1535,10 +1536,18 @@ class Study:
         if type(species) == int:
             figures = np.arange(0, len(np.unique(df['Species'])), species)
 
+        # sorts species in df by their number of replacements
+        species_by_replacements = list(df.loc[same_person].groupby('Species')['replacement'].sum()
+                                       .sort_values(ascending=False).index)
+        df['Species'] = df['Species'].astype('category').cat.set_categories(species_by_replacements)
+        df = df.sort_values(['Species'])
+        df['Species'] = df['Species'].astype(str)
+        # for unexplainable reason this effects the replacements decimal point in the figure
+
         # split to multiple figures
         for i_figure in figures:
 
-            sub_df = df[df['Species'].isin(list(df.groupby('Species').groups)[i_figure:i_figure+species])]
+            sub_df = df[df['Species'].isin(species_by_replacements[i_figure:i_figure+species])]
 
             # plotting
             g = sns.FacetGrid(sub_df, col=major, col_order=np.unique(df[major]),
@@ -1574,12 +1583,15 @@ class Study:
 
         :return: n_replacements (pd.DataFrame)
         """
-
         df = obj.df
+        df = df.reset_index()
+        df = df[df['SampleName1'] != df['SampleName2']]
+        df['s1'] = np.minimum(df['SampleName1'], df['SampleName2'])
+        df['s2'] = np.maximum(df['SampleName1'], df['SampleName2'])
+        df = df.drop_duplicates(['Species', 's1', 's2'])
         df = df.dropna(subset=['replacement'])
-        df = df[list(~df.reset_index().duplicated(['Species', 'person1', 'person2']))]
 
-        n_replacements = df['replacement'].groupby(category).sum().sort_values(ascending=False)
+        n_replacements = df.groupby(category)['replacement'].sum().sort_values(ascending=False)
         if category[-1] in ['1', '2']:
             category = category[:-1]
         category = category.lower()
@@ -1605,7 +1617,7 @@ class Study:
     @staticmethod
     def get_diversity_df(abundance_df):
         """
-        Compute the Shanon's alpha diversity index (using log10) based on an "abundance_df"
+        Compute the Shanon's alpha diversity index (using log2) based on an "abundance_df"
 
         :param abundance_df: (pd.DataFrame) data frame to compute on, if not given takes the self.objs.abundance.df
 
