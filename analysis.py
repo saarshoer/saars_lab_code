@@ -1574,12 +1574,13 @@ class Study:
 
             plt.savefig(os.path.join(self.dirs.figs, '{} s{}-{}'.format(title, i_figure, i_figure+species)))
 
-    def fig_strain_replacements(self, obj, category='person1'):
+    def fig_strain_replacements(self, obj, category='person1', hue='group1'):
         """
         Count and plot (histogram) the number of replacements per category
 
         :param df: (pd.DataFrame) dissimilarity df
         :param category: (str) index level name to count by
+        :param hue: (str) index level name to color by
 
         :return: n_replacements (pd.DataFrame)
         """
@@ -1591,19 +1592,27 @@ class Study:
         df = df.drop_duplicates(['Species', 's1', 's2'])
         df = df.dropna(subset=['replacement'])
 
-        n_replacements = df.groupby(category)['replacement'].sum().sort_values(ascending=False)
+        groups = [category, hue] if hue is not None else [category]
+        n_replacements = df.groupby(groups)['replacement'].sum().sort_values(ascending=False)
         if category[-1] in ['1', '2']:
             category = category[:-1]
         category = category.lower()
-        n_replacements.index.name = category
+        if hue is not None:
+            if hue[-1] in ['1', '2']:
+                hue = hue[:-1]
+            hue = hue.lower()
+            n_replacements.index.names = [category, hue]
+        else:
+            n_replacements.index.name = category
 
         # histogram
+        g = sns.FacetGrid(n_replacements.reset_index(), hue=hue, palette=self.params.colors,
+                          sharex=False, sharey=False, margin_titles=True)
+        g = g.map(sns.distplot, 'replacement', hist=True, kde=False)  # norm_hist=False does not work as expected
+        g = g.add_legend()
+
         obj_type = obj.type.split(' ')[0].lower()
         obj_type = obj_type + ' ' if obj_type in ['oral', 'gut'] else ''
-
-        color = self.params.colors[obj.type] if obj.type in self.params.colors.keys() else None
-
-        n_replacements.hist(bins=20, color=color)
         plt.title('{}strain replacements per {} histogram'.format(obj_type, category))
         plt.xlabel('number of replacements')
         plt.ylabel('number of {}'.format(category))
