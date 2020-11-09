@@ -78,6 +78,7 @@ class Study:
         # Figures
         rcParams['figure.figsize'] = (rcParams['figure.figsize'][0] * figsize_factor,
                                       rcParams['figure.figsize'][1] * figsize_factor)
+        # TODO: go over all rcParams https://matplotlib.org/3.2.1/tutorials/introductory/customizing.html
 
         # Jobs
         sethandlers(file_dir=self.dirs.jobs)
@@ -1620,6 +1621,84 @@ class Study:
         plt.savefig(os.path.join(self.dirs.figs, 'replacements per {}{}'.format(obj_type, category)))
 
         return n_replacements
+
+    def fig_correlation_heatmap(self, xobj, yobj, minimal_samples=20):
+        """
+        Correlate all columns between xobj and yobj and plot the results in a heatmap
+
+        :param xobj: (Object) to plot on the x-axis
+        :param yobj: (Object) to plot on the y-axis
+        :param minimal_samples: (int) to have in order to check correlations
+
+        :return: None
+        """
+
+        x_df = xobj.df
+        y_df = yobj.df
+
+        # clean abundance species names
+        if 'abundance' in xobj.type:
+            x_df.columns = [col.split('|')[-1].replace('sSGB_', 'SGB') for col in x_df.columns]
+
+        # manipulate dissimilarity data frame
+        if 'dissimilarity' in x_df.columns:
+            # to only contain self comparison
+            x_df = x_df[x_df.index.get_level_values('person1') == x_df.index.get_level_values('person2')]
+            # to match non-dissimilarity data frames
+            x_df['person'] = x_df.index.get_level_values('person1')
+            x_df = x_df.set_index('person', append=True)
+            # transform data frame so Species would be columns
+            x_df = x_df.pivot_table(index='person', columns='Species', values='dissimilarity')
+
+        # sync data frames
+        combined_indices_levels = set(x_df.index.names) & set(y_df.index.names)
+        x_df.index = x_df.index.droplevel(list(set(x_df.index.names) - combined_indices_levels))
+        y_df.index = y_df.index.droplevel(list(set(y_df.index.names) - combined_indices_levels))
+
+        combined_indices_values = x_df.index.intersection(y_df.index)
+        x_df = x_df.loc[combined_indices_values]
+        y_df = y_df.loc[combined_indices_values]
+
+        # calculate correlations
+        corr_df = pd.DataFrame(index=x_df.columns, columns=y_df.columns)
+        pval_df = pd.DataFrame(index=x_df.columns, columns=y_df.columns)
+
+        for x_col in x_df.columns:
+            for y_col in y_df.columns:
+
+                # sync columns
+                x = x_df[x_col].dropna()
+                y = y_df[y_col].dropna()
+                combined_indices = x.index.intersection(y.index)
+                x = x.loc[combined_indices]
+                y = y.loc[combined_indices]
+
+                if x.shape[0] > minimal_samples:
+                    corr_df.loc[x_col, y_col], pval_df.loc[x_col, y_col] = pearsonr(x, y)
+                    # TODO: think if should be spearman
+        # TODO: multiple comparisons correction
+
+        # excel
+        results_df = pd.DataFrame()
+        results_df['r'] = corr_df.values.flatten().dropna(how='all')
+        results_df['p'] = pval_df.values.flatten().dropna(how='all')
+        results_df.to_csv(os.path.join(self.dirs.excels, 'correlation {} {}.csv'
+                                       .format(xobj.type.replace('_', ' '), yobj.type.replace('_', ' '))))
+        # TODO: us excel writer like everywhere else
+
+        # plot
+        pval_df = pval_df.dropna(how='all', axis=0)
+        corr_df = corr_df.loc[pval_df.index, pval_df.columns]
+        fig, ax = plt.subplots(figsize=(rcParams['figure.figsize'][0]*2, rcParams['figure.figsize'][1]))
+        ax = sns.heatmap(corr_df.T.astype(float), mask=(pval_df.T < self.params.alpha), cmap='coolwarm')
+        # TODO: replace with clustermap
+        plt.title('Correlation between {} and {} {}'.format(xobj.type.replace('_', ' '),
+                                                            yobj.type.replace('_', ' '), yobj.columns))
+        plt.xlabel(xobj.type.replace('_', ' '))
+        plt.ylabel(yobj.type.replace('_', ' '))
+
+        plt.savefig(os.path.join(self.dirs.figs, 'correlation {} {}'
+                                 .format(xobj.type.replace('_', ' '), yobj.type.replace('_', ' '))))
 
     # data frame computations
 
