@@ -9,9 +9,10 @@ from LabUtils.pandas_utils import filter_dataframe
 from LabUtils.Utils import date2_dir, write_members
 from LabData.DataLoaders.MBSNPLoader import get_mbsnp_loader_class
 from LabData.DataAnalyses.MBSNPs.MWASInterpreter import MWASInterpreter
+from LabData.DataAnalyses.MBSNPs.MBSNPSpeciesSeparation import get_species_covariate, get_contig_covariate
 
 
-def get_data(study_ids, body_site, time_point, idx_cols, blood_cols, body_cols, diet_cols, cov_cols):
+def get_data(study_ids, body_site, time_point, y_cols, cov_cols):
 
     # blood
     # ['bt__neutrophils_%', 'bt__hdl_cholesterol', 'bt__potassium',
@@ -35,74 +36,78 @@ def get_data(study_ids, body_site, time_point, idx_cols, blood_cols, body_cols, 
 
     df_dir = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/{}/data_frames'.format(study_ids[0])
 
-    # data data frames
-    abundance = pd.read_pickle(os.path.join(df_dir, '{}_abundance.df'.format(body_site.lower())))
-    abundance = abundance.xs(time_point, level='time_point')  # if time_point is not None else abundance
-    abundance.index = abundance.index.set_names('RegistrationCode', level='person')
+    def get_df(df_name):
+        df = pd.read_pickle(os.path.join(df_dir, df_name))
+        df = df.xs(time_point, level='time_point') if time_point is not None else df
 
-    blood = pd.read_pickle(os.path.join(df_dir, 'blood.df'))
-    blood = blood.xs(time_point, level='time_point')  # if time_point is not None else blood
-    blood.index = blood.index.set_names('RegistrationCode', level='person')
+        return df
 
-    body = pd.read_pickle(os.path.join(df_dir, 'body.df'))
-    body = body.xs(time_point, level='time_point')  # if time_point is not None else body
-    body.index = body.index.set_names('RegistrationCode', level='person')
+    def prep_df(df):
+        for col in df.columns:
+            labels = df[col].unique()
+            if len(labels) == 2:
+                df[col] = df[col].replace(labels[0], 0).replace(labels[1], 1)
+                print('column {} labels {} are now [0,1]'.format(col, labels))
 
-    diet = pd.read_pickle(os.path.join(df_dir, 'diet.df'))
-    diet = diet.xs(time_point, level='time_point')  # if time_point is not None else diet
-    diet.index = diet.index.set_names('RegistrationCode', level='person')
+        return df
+
+    # raw data frames  # TODO: add the option of getting delta data
+    idx = get_df('{}_abundance.df'.format(body_site.lower()))
+    idx = idx[[]].reset_index(list(set(idx.index.names) - set(['person', 'time_point', 'group'])))
+    blood = get_df('blood.df')
+    body = get_df('body.df')
+    diet = get_df('diet.df')
 
     # mwas data frames
-    idx_ = abundance[[]].reset_index(list(set(abundance.index.names)-set(['RegistrationCode'])))[idx_cols]
-    blood_ = blood[blood_cols]
-    body_ = body[body_cols]
-    diet_ = diet[diet_cols]
+    joined_df = idx.join(blood, how='outer').join(body, how='outer').join(diet, how='outer')
+    joined_df = joined_df.reset_index().rename(columns={'person': 'RegistrationCode', 'time': 'Date'})\
+        .set_index(['RegistrationCode', 'Date'])
 
-    cov_ = body[cov_cols]
-
-    x = list(abundance.index.get_level_values('sample').unique())
-
-    y = idx_.join(blood_, how='outer').join(body_, how='outer').join(diet_, how='outer')
-    y.index = y.index.droplevel(list(set(y.index.names) - set(['RegistrationCode'])))
-    for col in y.columns:
-        labels = y[col].unique()
-        if len(labels) == 2:
-            y[col] = y[col].replace(labels[0], 0).replace(labels[1], 1)
-            print('column {} labels {} are now [0,1]'.format(col, labels))
-
-    c = cov_
-    cov_.index = cov_.index.droplevel(list(set(cov_.index.names) - set(['RegistrationCode'])))
+    x = list(idx['sample'])
+    y = prep_df(joined_df[y_cols])
+    c = prep_df(joined_df[cov_cols])
 
     return x, y, c
 
 
 class P:
-    # general
-    body_site = 'Oral'#
-    time_point = '0months'#
+    # dependent mwas
+    body_site = 'Gut'
+    time_point = None
 
-    study_ids = ['PNP3']
-
-    idx_columns = []
-    blood_cols = ['bt__hba1c']#maybe separately
-    body_cols = ['bmi']#maybe separately
-    diet_cols = []
-
+    y_cols = ['bt__hba1c']#'bmi' - they were not suppose to change weight
     cov_cols = ['age', 'gender']
 
-    x, y, c = get_data(study_ids, body_site, time_point,
-                       idx_columns, blood_cols, body_cols, diet_cols,
-                       cov_cols)
+    species_specific_cov_f = get_species_covariate
+    contig_specific_cov_f = get_contig_covariate
+
+    output_cols = ['N', 'Coef', 'Pval', 'Coef_025', 'Coef_975',
+                   'av_sample_score_Pval', 'av_sample_score_Coef',
+                   'contig_av_sample_score_Pval', 'contig_av_sample_score_Coef']
+
+    # independent mwas
+    # body_site = 'Gut'
+    # time_point = '0months'#None
+    #
+    # y_cols = ['%carbohydrates']
+    # cov_cols = ['age', 'gender']#diet?
+    #
+    # output_cols = None?
+
+    # general
+    study_ids = ['PNP3']
+
+    x, y, c = get_data(study_ids, body_site, time_point, y_cols, cov_cols)
 
     # queue
-    max_jobs = 300
+    max_jobs = 100
     jobname = '{}_{}_mwas'.format('_'.join(study_ids), body_site.lower())
     send_to_queue = False#True
     work_dir = os.path.join(config.analyses_dir, date2_dir())
     work_dir_suffix = jobname
 
     # species
-    species_set = None
+    species_set = ['SGB_15342']#None
     ignore_species = None
     species_blocks = 1
 
@@ -132,8 +137,6 @@ class P:
     y_gen_f = lambda subjects_df: gen_f(subjects_df, P.y)
     is_y_valid_f = None  # Function that checks whether the analyzed y is valid
 
-    output_cols = None
-
 
 def gen_f(subjects_df, df):
     if subjects_df is not None:
@@ -143,14 +146,10 @@ def gen_f(subjects_df, df):
 
 if __name__ == '__main__':
 
-    # def _build_covariate_gen_f(self):
-        # return self._params.covariate_gen_f if not hasattr(self._params, 'covariate_gen_f') else \
-        #     lambda subjects_df: \
-        #         self._data_gen(self._params.covariate_loaders, subjects_df=subjects_df, **self._params.covariate_get_data_args)
-
     sethandlers(file_dir=config.log_dir)
     m = MWAS(P)
     work_dir = m.gen_mwas()
+    # TODO: implement SNP sample match not just by registration code - already has by sample name
 
     # folder = '{}_{}_mwas_{}_{}'.format(P.study_ids[0], P.body_site.lower(), P.time_point, P.label)
     # M = MWASInterpreter(params=P, mwas_fname='mb_gwas.h5',
