@@ -151,6 +151,7 @@ if __name__ == '__main__':
     work_dir = m.gen_mwas()
 
     # TODO: separate file by y and re-compute corrected p_value separately
+    # TODO: filter by Liron's significant results
 
     # folder = '{}_{}_mwas_{}_{}'.format(P.study_ids[0], P.body_site.lower(), P.time_point, P.label)
     # M = MWASInterpreter(params=P, mwas_fname='mb_gwas.h5',
