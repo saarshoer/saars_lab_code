@@ -75,7 +75,7 @@ class P:
     body_site = 'Gut'
     time_point = None
 
-    y_cols = ['bt__hba1c']#'bmi' - they were not suppose to change weight
+    y_cols = ['bt__hba1c', 'bmi']  # 'bmi' - they were not suppose to change weight
     cov_cols = ['age', 'gender']
 
     species_specific_cov_f = get_species_covariate
@@ -102,12 +102,12 @@ class P:
     # queue
     max_jobs = 100
     jobname = '{}_{}_mwas'.format('_'.join(study_ids), body_site.lower())
-    send_to_queue = False#True
+    send_to_queue = True
     work_dir = os.path.join(config.analyses_dir, date2_dir())
     work_dir_suffix = jobname
 
     # species
-    species_set = ['SGB_15342']#None
+    species_set = None
     ignore_species = None
     species_blocks = 1
 
@@ -149,7 +149,8 @@ if __name__ == '__main__':
     sethandlers(file_dir=config.log_dir)
     m = MWAS(P)
     work_dir = m.gen_mwas()
-    # TODO: implement SNP sample match not just by registration code - already has by sample name
+
+    # TODO: separate file by y and re-compute corrected p_value separately
 
     # folder = '{}_{}_mwas_{}_{}'.format(P.study_ids[0], P.body_site.lower(), P.time_point, P.label)
     # M = MWASInterpreter(params=P, mwas_fname='mb_gwas.h5',

@@ -3,6 +3,7 @@ import os
 
 import glob
 import pandas as pd
+from LabQueue.qp import qp
 from LabData import config_global as config
 from LabUtils.addloglevels import sethandlers
 from LabData.DataLoaders.Loader import LoaderData
@@ -72,28 +73,52 @@ def y_gen_f_inner(subjects_df, y):
 
 
 if __name__ == '__main__':
+    # # creating the raw files
     # sethandlers(file_dir=config.log_dir)
     # m = MWAS(P)
     # work_dir = m.gen_mwas()
 
-    folder = 'anti_mwas_raw'
-    M = MWASInterpreter(params=P, mwas_fname='mb_gwas.h5',
-                        work_dir=os.path.join('/net/mraid08/export/genie/LabData/Analyses/saarsh/', folder),
-                        out_dir=os.path.join('/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/figs/'
-                                             .format(P.study_ids[0]), folder),
-                        mbsnp_loader=get_mbsnp_loader_class(P.body_site),
-                        pval_col='Global_FDR', pval_cutoff=0.05,
-                        SNPs_to_plot_dct={},
+    # running the interpreter
+    # TODO: perhaps change directories structure so to be one folder per species with within and between inside it
+    run_type = 'between_species'
 
-                        do_manhattan_plot=True,
-                        do_mafs_plot=False,  # broken
-                        do_qq_plot=True,
-                        do_volcano_plot=True,
+    input_path = os.path.join('/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/anti_mwas_processed', run_type)
+    output_path = os.path.join('/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/figs', run_type)
+    jobs_path = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/jobs/'
 
-                        do_snp_annotations=False,
-                        annotate_all_snps=False,
-                        do_annotated_manhattan=False,
+    def do(file_path):
 
-                        get_extra_gene_info=False,
-                        do_test_nonsynonymous_enrichment=False,
-                        ).run()
+        M = MWASInterpreter(params=P, mwas_fname=os.path.basename(file_path), work_dir=input_path, out_dir=output_path,
+                            mbsnp_loader=get_mbsnp_loader_class(P.body_site),
+                            pval_col='Global_Bonferroni', pval_cutoff=0.05,
+                            SNPs_to_plot_dct={},
+
+                            do_manhattan_plot=False,  # unnecessary given the annotated manhattan
+                            # TODO: check if in between_species it results in seperate plots per x species
+                            do_mafs_plot=False,  # broken
+                            do_qq_plot=True,
+                            do_volcano_plot=True,
+
+                            do_snp_annotations=True,
+                            annotate_all_snps=True,
+                            do_annotated_manhattan=True,
+
+                            get_extra_gene_info=True,
+                            do_find_surrounding_genes=True,
+                            do_test_nonsynonymous_enrichment=True,
+                            ).run()
+
+    os.chdir(jobs_path)
+    sethandlers(file_dir=jobs_path)
+    # TODO: between needs more memory
+    with qp(jobname=run_type, _delete_csh_withnoerr=True, q=['himem7.q'], max_r=50) as q:
+        q.startpermanentrun()
+        tkttores = {}
+
+        for file in glob.glob(os.path.join(input_path, 'SGB_9712.h5')):
+            tkttores[file] = q.method(do, [file])
+
+        for k, v in tkttores.items():
+            q.waitforresult(v)
+
+    print('done')
