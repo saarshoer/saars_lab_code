@@ -102,6 +102,7 @@ if __name__ == '__main__':
                             do_snp_annotations=True,
                             annotate_all_snps=True,
                             do_annotated_manhattan=True,
+                            # TODO: within plot does not look good - need to debug
 
                             get_extra_gene_info=True,
                             do_find_surrounding_genes=True,
