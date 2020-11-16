@@ -82,7 +82,7 @@ if __name__ == '__main__':
     # TODO: perhaps change directories structure so to be one folder per species with within and between inside it
     run_type = 'between_species'
 
-    input_path = os.path.join('/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/anti_mwas_processed', run_type)
+    input_path = os.path.join('/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas_processed', run_type)
     output_path = os.path.join('/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/figs', run_type)
     jobs_path = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/jobs/'
 
