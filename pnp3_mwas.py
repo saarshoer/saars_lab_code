@@ -146,31 +146,35 @@ def gen_f(subjects_df, df):
 
 if __name__ == '__main__':
 
-    sethandlers(file_dir=config.log_dir)
-    m = MWAS(P)
-    work_dir = m.gen_mwas()
+    # sethandlers(file_dir=config.log_dir)
+    # m = MWAS(P)
+    # work_dir = m.gen_mwas()
 
-    # TODO: separate file by y and re-compute corrected p_value separately
     # TODO: filter by Liron's significant results
 
-    # folder = '{}_{}_mwas_{}_{}'.format(P.study_ids[0], P.body_site.lower(), P.time_point, P.label)
-    # M = MWASInterpreter(params=P, mwas_fname='mb_gwas.h5',
-    #                     work_dir=os.path.join('/net/mraid08/export/genie/LabData/Analyses/saarsh/', folder),
-    #                     out_dir=os.path.join('/net/mraid08/export/jafar/Microbiome/Analyses/saar/{}/figs/'
-    #                                          .format(P.study_ids[0]), folder),
-    #                     mbsnp_loader=get_mbsnp_loader_class(P.body_site),
-    #                     pval_col='Pval', pval_cutoff=0.05,
-    #                     SNPs_to_plot_dct={},
-    #
-    #                     do_manhattan_plot=True,
-    #                     do_mafs_plot=False,  # broken
-    #                     do_qq_plot=True,
-    #                     do_volcano_plot=True,
-    #
-    #                     do_snp_annotations=True,
-    #                     annotate_all_snps=True,
-    #                     do_annotated_manhattan=True,
-    #
-    #                     get_extra_gene_info=True,
-    #                     do_test_nonsynonymous_enrichment=True,
-    #                     ).run()
+    path = '/home/saarsh/Genie/LabData/Analyses/saarsh/PNP3_gut_mwas_dependent/mb_gwas_bt__hba1c.h5'
+
+    file = os.path.basename(path)
+    folder = os.path.basename(os.path.dirname(path))
+
+    M = MWASInterpreter(params=P, mwas_fname=file,
+                        work_dir=os.path.join('/net/mraid08/export/genie/LabData/Analyses/saarsh/', folder),
+                        out_dir=os.path.join('/net/mraid08/export/jafar/Microbiome/Analyses/saar',
+                                             P.study_ids[0], 'figs', folder),
+                        mbsnp_loader=get_mbsnp_loader_class(P.body_site),
+                        pval_col='Global_Bonferroni', pval_cutoff=0.05,
+                        SNPs_to_plot_dct={},
+
+                        do_manhattan_plot=False,  # unnecessary given the annotated manhattan
+                        do_mafs_plot=False,  # broken
+                        do_qq_plot=True,
+                        do_volcano_plot=True,
+
+                        do_snp_annotations=True,
+                        annotate_all_snps=True,
+                        do_annotated_manhattan=True,
+
+                        get_extra_gene_info=True,
+                        do_find_surrounding_genes=True,
+                        do_test_nonsynonymous_enrichment=True,
+                        ).run()
