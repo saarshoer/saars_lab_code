@@ -61,10 +61,10 @@ class Study:
                  # Default parameters
                  study=None, controls=None, colors=None,
                  alpha=0.05, detection_threshold=0.0001, dissimilarity_threshold=1/20000,
-                 base_directory=os.getcwd(), figsize_factor=1.5):
+                 base_directory=os.getcwd(), fig_fontsize=12, fig_sizefactor=1.5, fig_dpi=200, fig_format='png'):
 
         # Parameters
-        self.params = _Parameters(study=study, controls=controls, colors=colors, figsize_factor=figsize_factor,
+        self.params = _Parameters(study=study, controls=controls, colors=colors,
                                   alpha=alpha,
                                   detection_threshold=detection_threshold,
                                   dissimilarity_threshold=dissimilarity_threshold)
@@ -76,9 +76,12 @@ class Study:
         self.objs = {}
 
         # Figures
-        rcParams['figure.figsize'] = (rcParams['figure.figsize'][0] * figsize_factor,
-                                      rcParams['figure.figsize'][1] * figsize_factor)
-        # TODO: go over all rcParams https://matplotlib.org/3.2.1/tutorials/introductory/customizing.html
+        # full list of parameters in https://matplotlib.org/3.2.1/tutorials/introductory/customizing.html
+        rcParams['font.size'] = fig_fontsize
+        rcParams['figure.figsize'] = (rcParams['figure.figsize'][0] * fig_sizefactor,
+                                      rcParams['figure.figsize'][1] * fig_sizefactor)  # figure size in inches
+        rcParams['savefig.dpi'] = fig_dpi  # figure dots per inch or 'figure'
+        rcParams['savefig.format'] = fig_format  # {png, ps, pdf, svg}
 
         # Jobs
         sethandlers(file_dir=self.dirs.jobs)
@@ -527,10 +530,7 @@ class Study:
 
             else:
                 # texting
-                ax.text(x=(ax.get_xlim()[0]+ax.get_xlim()[1])/2, y=(ax.get_ylim()[0]+ax.get_ylim()[1])/2,
-                        s='no significant results', horizontalalignment='center')
-                # TODO: fix bug that if this is the first ax then the middle of the graph is changed
-                #  when plotting the second ax
+                ax.text(x=0.5, y=0.5, s='no significant results', horizontalalignment='center', transform=ax.transAxes)
                 ax.axis('off')
 
             ax.set_title(minor_e, color=self.params.colors[minor_e])
@@ -2421,13 +2421,12 @@ class _Directories:
 class _Parameters:
 
     # Initialization
-    def __init__(self, study=None, controls=None, colors=None, figsize_factor=None,
+    def __init__(self, study=None, controls=None, colors=None,
                  alpha=None, detection_threshold=None, dissimilarity_threshold=None):
 
         self.study = study
         self.controls = controls
         self.colors = colors
-        self.figsize_factor = figsize_factor
         self.alpha = alpha
         self.detection_threshold = detection_threshold
         self.dissimilarity_threshold = dissimilarity_threshold
