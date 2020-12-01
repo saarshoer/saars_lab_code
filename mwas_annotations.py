@@ -1,6 +1,7 @@
 import re
 import os
 import glob
+import numpy as np
 import pandas as pd
 from pandas import HDFStore
 from typing import List, Iterable
@@ -8,48 +9,46 @@ from LabQueue.qp import qp, fakeqp
 from LabUtils.addloglevels import sethandlers
 from LabUtils.SeqUtils import translate_codon, codons_inv
 from LabData.DataAnalyses.MBSNPs.taxonomy import taxonomy_df
+from UseCases.DataAnalyses.mbsnps_annotation import Annotationist
 from LabData.DataLoaders.MBSNPLoader import get_mbsnp_loader_class
 from LabData.DataLoaders.GeneAnnotLoader import GeneAnnotLoader, ANNOTS_03_2020_EXPANDED
 
 # parameters
-mwas_files_path = '/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas_raw/mb_gwas_SGB_*.h5'
+x_mwas_files_path = '/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas_raw/mb_gwas_SGB_*.h5'
+y_mwas_files_path = '/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas_processed/*/SGB_*.h5'
 annotations_files_path = '/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas_processed'
 jobs_path = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/jobs'
 from antibiotics_mwas import P
 
 
-os.chdir(jobs_path)
-sethandlers()
-
-
 def do():
 
     # phase 1
-    def read(x_mwas_file):
+    x_mwas_files = glob.glob(x_mwas_files_path)
+    y_mwas_files = glob.glob(y_mwas_files_path)
+
+    x_species = list(set(['SGB' + file.split('SGB')[-1].split('.')[0] for file in x_mwas_files]))
+    y_species = list(set([os.path.basename(file).split('.')[0] for file in y_mwas_files]))
+
+    pvals_df = pd.DataFrame(index=y_species, columns=x_species)
+
+    snps = set()
+
+    for x_mwas_file in x_mwas_files:
         species = 'SGB' + x_mwas_file.split('SGB')[-1].split('.')[0]
         with HDFStore(x_mwas_file, 'r') as x_mwas_df:
             x_mwas_df = x_mwas_df[species]
-        return set(x_mwas_df.index.droplevel('Y').values)
-    # TODO: p-value
 
-    os.chdir(jobs_path)
-    with fakeqp(jobname='p1', _delete_csh_withnoerr=True, q=['himem7.q'], max_r=50) as q:
-        q.startpermanentrun()
-        tkttores = {}
+        values, counts = np.unique(x_mwas_df.index.get_level_values('Y'), return_counts=True)
+        pvals_df.loc[values.tolist(), species] = counts.tolist()
 
-        x_mwas_files = glob.glob(mwas_files_path)[:3]
+        snps = snps.union(set(x_mwas_df.index.droplevel('Y').values))
 
-        for x_mwas_file in x_mwas_files:
-            tkttores[x_mwas_file] = q.method(read, [x_mwas_file])
+    snps = pd.DataFrame(snps)
 
-        snps = set()
-        for k, v in tkttores.items():
-            q.waitforresult(v)
-            snps = snps.union(set(tkttores[k]))
+    pvals_df.to_csv(os.path.join(annotations_files_path, 'pvals_count.csv'))
 
-        snps = pd.DataFrame(snps)
-        snps.to_hdf(os.path.join(annotations_files_path, 'snps.h5'), key='snps')
-
+    snps.to_hdf(os.path.join(annotations_files_path, 'snps.h5'), key='snps')
 
     # phase 2
     def _add_snp_annotations(species, df):
@@ -60,7 +59,6 @@ def do():
                 maf_annot = maf_annot[species]
             df = df.join(maf_annot)
         return df
-
 
     def remove_contig_parts(contigs: Iterable[str]) -> List[str]:
         """Returns the given contig names without the trailing '_P###'."""
@@ -75,7 +73,6 @@ def do():
 
         return [cached_name(x) for x in contigs]
 
-
     # Remove the part from the contig key
     snps.columns = ['Species', 'Contig', 'Position']
     snps['Contig'] = remove_contig_parts(snps['Contig'].values)
@@ -84,7 +81,6 @@ def do():
     snps = pd.concat([_add_snp_annotations(species, df) for species, df in snps.groupby('Species')])
 
     snps.to_hdf(os.path.join(annotations_files_path, 'snps_maf_annotations.h5'), key='snps')
-
 
     # phase 3
     # remove the codons extracted from the reference genomes, rather than the MAFs
@@ -102,22 +98,24 @@ def do():
 
     snps.to_hdf(os.path.join(annotations_files_path, 'snps_codon_annotations.h5'), key='snps')
 
-
     # phase 4
     genes = GeneAnnotLoader(ANNOTS_03_2020_EXPANDED).get_annot()
     snps = snps.join(genes.drop(columns=['strand', 'feature']), on='GeneID')
-    # genes = Annotationist(genes).lookup_df(snps) # upstream/downstream, +/- strand genes
+    # snps = Annotationist(genes, load_sequences=False).lookup_df(snps)  # upstream/downstream, +/- strand genes
 
     snps.to_hdf(os.path.join(annotations_files_path, 'snps_gene_annotations.h5'), key='snps')
 
+    # # phase 5
+    # tax_df = taxonomy_df(level_as_numbers=False).set_index('SGB')[
+    #     ['Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus', 'Species']]
+    # snps = snps.join(tax_df, on='Species')
+    #
+    # snps.to_hdf(os.path.join(annotations_files_path, 'snps_taxonomy_annotations.h5'), key='snps')
 
-    # phase 5
-    tax_df = taxonomy_df(level_as_numbers=False)
-    snps = snps.join(tax_df.set_index('SGB'), on='Species')
 
-    snps.to_hdf(os.path.join(annotations_files_path, 'snps_taxonomy_annotations.h5'), key='snps')
+os.chdir(jobs_path)
+sethandlers()
 
-
-with fakeqp(jobname='annot', _delete_csh_withnoerr=True, q=['himem7.q'], max_r=1, _mem_def='50G') as q:
+with qp(jobname='annot', _delete_csh_withnoerr=True, q=['himem7.q'], max_r=1, _mem_def='50G') as q:
     q.startpermanentrun()
     q.waitforresult(q.method(do))
