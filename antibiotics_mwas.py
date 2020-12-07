@@ -98,7 +98,7 @@ def draw_func_annotated(sp_df: pd.DataFrame, **kwargs):
     marker_dict = {'intergenic': '*', 'synonymous': 'o', 'non-synonymous': 'o', 'non-protein': 'v'}
     facecolor_marker_dict = {'intergenic': black, 'synonymous': white, 'non-synonymous': black, 'non-protein': black}
     facecolor_dict = {True: red, False: blue}
-    facecolor_label_dict = {True: 'positive relationship', False: 'negative relationship'}
+    facecolor_label_dict = {True: 'positive coefficient', False: 'negative coefficient'}
     label_dict = {'intergenic': 'Intergenic (no annotated function)',
                   'synonymous': 'Protein coding - synonymous mutation',
                   'non-synonymous': 'Protein coding - non-synonymous mutation',
@@ -139,7 +139,8 @@ if __name__ == '__main__':
     jobs_path = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/jobs/'
 
     # annotations
-    annotations_df = pd.read_hdf('/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas_processed/snps_codon.h5')
+    annotations_df = pd.read_hdf(
+        '/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas_processed/snps_maf_codon_annotations.h5')
     # annotation handling is done with contig without part while mwas data frame is contig with part
     annotations_df = annotations_df.rename(columns={'Contig_with_part': 'Contig'})
     annotations_df = annotations_df.reset_index('Contig', drop=True).set_index('Contig', append=True).\
