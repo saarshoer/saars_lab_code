@@ -1,5 +1,6 @@
 import os
 import glob
+import math
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -8,6 +9,7 @@ from LabQueue.qp import qp, fakeqp
 from matplotlib.lines import Line2D
 from LabUtils.addloglevels import sethandlers
 from LabData.DataLoaders.MBSNPLoader import MAF_1_VALUE
+from LabData.DataAnalyses.MBSNPs.taxonomy import taxonomy_df, _TAX_COLUMN
 from LabData.DataAnalyses.MBSNPs.Plots.manhattan_plot import draw_manhattan_plot
 
 
@@ -32,7 +34,7 @@ def draw_volcano_plot(df, title='volcano plot', figsize=(10, 6), out_file='volca
     ax.set_xlabel('coefficient')
     # y
     ax.set_yscale('log')
-    ax.set_ylim(1000, pvals.min()/1000)
+    ax.set_ylim(1, pvals.min())
     ax.set_ylabel('p-value')
 
     # color bar
@@ -67,11 +69,12 @@ def draw_qq_plot(df, title='qq plot', figsize=(6, 6), out_file='qq_plot', pval_c
     # x
     ax.set_xlabel('expected p-value')
     ax.set_xscale('log')
-    ax.set_xlim(1, expected_pvals[1])  # 0 fails so has to be the next biggest thing
+    x_max = expected_pvals[1] if len(expected_pvals) > 1 else 10**-1
+    ax.set_xlim(1, x_max)  # 0 fails so it has to be the next smallest thing, but sometimes 0 is all you have
     # y
     ax.set_ylabel('actual p-value')
     ax.set_yscale('log')
-    ax.set_ylim(1000, df[pval_col].min()/1000)
+    ax.set_ylim(1, df[pval_col].min())
 
     # finish
     ax.set_title(title)
@@ -89,21 +92,29 @@ def run(mwas_fname, annotations_df=None, pval_col='Global_Bonferroni', pval_cuto
     mwas_df = pd.read_hdf(mwas_fname)
     if annotations_df is not None:
         mwas_df = mwas_df.join(annotations_df, on=['Species', 'Contig', 'Position'])
-    mwas_df['Pval'] = mwas_df['Pval'].replace(to_replace=0, value=1e-300)  # for qq plot
-    mwas_df[pval_col] = mwas_df[pval_col].replace(to_replace=0, value=1e-300)  # for all the rest
+    # for qq plot
+    mwas_df['Pval'] = mwas_df['Pval'].replace(to_replace=0, value=
+      10**-(math.ceil(-np.log10(mwas_df.loc[mwas_df['Pval'] != 0, 'Pval'].min())/10)*10))  # smallest round non-zero
+    # for all the rest
+    mwas_df[pval_col] = mwas_df[pval_col].replace(to_replace=0, value=
+      10**-(math.ceil(-np.log10(mwas_df.loc[mwas_df[pval_col] != 0, pval_col].min())/10)*10))  # smallest round non-zero
+
+    tax_df = taxonomy_df(level_as_numbers=False).set_index('SGB')[_TAX_COLUMN]
 
     for y, y_df in mwas_df.groupby('Y'):
         y_out_dir = os.path.join(out_dir, y)
         os.makedirs(y_out_dir, mode=0o744, exist_ok=True)
 
-        # draw_qq_plot(df=y_df, title=y, out_file=os.path.join(y_out_dir, f'qq_{y}'), pval_col=pval_col)
+        title = tax_df.loc[y].value if 'SGB' in y else y
 
-        draw_volcano_plot(df=y_df, title=y, out_file=os.path.join(y_out_dir, f'volcano_{y}'),
+        draw_qq_plot(df=y_df, title=title, out_file=os.path.join(y_out_dir, f'qq_{y}'), pval_col=pval_col)
+
+        draw_volcano_plot(df=y_df, title=title, out_file=os.path.join(y_out_dir, f'volcano_{y}'),
                           pval_col=pval_col, pval_cutoff=pval_cutoff)
 
-        # draw_manhattan_plot(df=y_df, title=y, out_file=os.path.join(y_out_dir, f'manhattan_{y}'),
-        #                     draw_func=manhattan_draw_func, text_func=manhattan_text_func,
-        #                     pval_col=pval_col, pval_cutoff=pval_cutoff)
+        draw_manhattan_plot(df=y_df, title=title, out_file=os.path.join(y_out_dir, f'manhattan_{y}'),
+                            draw_func=manhattan_draw_func, text_func=manhattan_text_func,
+                            pval_col=pval_col, pval_cutoff=pval_cutoff)
 
 
 if __name__ == '__main__':
@@ -134,15 +145,15 @@ if __name__ == '__main__':
         blue = (0.0, 0.0, 1.0, 0.7)
         red = (1.0, 0.0, 0.0, 0.7)
 
-        marker_dict = {'intergenic': '*', 'synonymous': 'o', 'non-synonymous': 'o', 'non-protein': 'v'}
-        facecolor_marker_dict = {'intergenic': black, 'synonymous': white, 'non-synonymous': black,
-                                 'non-protein': black}
+        marker_dict = {'synonymous': 'o', 'non-synonymous': 'o', 'non-protein': 'v', 'intergenic': '*'}
+        facecolor_marker_dict = {'synonymous': white, 'non-synonymous': black,
+                                 'non-protein': black, 'intergenic': black}
         facecolor_dict = {True: red, False: blue}
         facecolor_label_dict = {True: 'positive coefficient', False: 'negative coefficient'}
-        label_dict = {'intergenic': 'Intergenic (no annotated function)',
-                      'synonymous': 'Protein coding - synonymous mutation',
+        label_dict = {'synonymous': 'Protein coding - synonymous mutation',
                       'non-synonymous': 'Protein coding - non-synonymous mutation',
-                      'non-protein': 'Non-protein coding (rRNA, tRNA etc.)'}
+                      'non-protein': 'Non-protein coding (rRNA, tRNA etc.)',
+                      'intergenic': 'Intergenic (no annotated function)'}
 
         d['marker'] = sp_df['annotation'].map(marker_dict).values
         d['s'] = -np.log10(
@@ -182,7 +193,7 @@ if __name__ == '__main__':
         return text
 
     # def antibiotics():
-    run_type = 'within_species'
+    run_type = 'between_species'
 
     input_path = os.path.join('/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas_processed', run_type)
     output_path = os.path.join('/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/figs', run_type)
@@ -190,23 +201,29 @@ if __name__ == '__main__':
     annotations_path = '/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas_processed/snps_maf_codon_annotations.h5'
 
     # annotations
+    print('starting annotations')
     annotations_df = mutation_type(annotations_path)
+    print('finished annotations')
 
     # queue
     os.chdir(jobs_path)
     sethandlers(file_dir=jobs_path)
 
-    with fakeqp(jobname=run_type, _delete_csh_withnoerr=True, q=['himem7.q'], _mem_def='10G') as q:
+    with qp(jobname=run_type, _delete_csh_withnoerr=True, q=['himem7.q'], _mem_def='10G', _tryrerun=True, _num_reruns=3) as q:
         q.startpermanentrun()
         tkttores = {}
 
-        for file in glob.glob(os.path.join(input_path, 'SGB_9712.h5')):  # 10068
+        print('start sending jobs')
+        for file in glob.glob(os.path.join(input_path, 'SGB_*.h5')):  # 9702, 10068
             kwargs = {'mwas_fname': file, 'annotations_df': annotations_df, 'out_dir': output_path,
                       'manhattan_draw_func': draw_func_annotated,
                       'manhattan_text_func': text_func_annotated_between if run_type == 'between_species' else text_func_annotated_within}
             tkttores[file] = q.method(run, kwargs=kwargs)
+        print('finished sending jobs')
 
+        print('start waiting for jobs')
         for k, v in tkttores.items():
             q.waitforresult(v)
+        print('finished waiting for jobs')
 
     print('done')
