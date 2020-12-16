@@ -161,10 +161,10 @@ if __name__ == '__main__':
         # run
         snps = find_unique_snps(x_mwas_files_path, y_mwas_files_path, output_path)
         snps = add_contig_without_part(snps, output_path)
-        snps = add_single_gene_maf_annotations(snps, P, output_path)
 
         add_surrounding_genes(snps, output_path)
 
+        snps = add_single_gene_maf_annotations(snps, P, output_path)
         snps = map_codon_information(snps, output_path)
         snps = add_gene_info(snps, output_path)
 
