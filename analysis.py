@@ -289,9 +289,9 @@ class Study:
 
             # if there is no actual control time_point we have a problem
             if self.params.controls['time_point'] != 'fake_time_point':
-                df3 = pd.DataFrame(self.get_delta_df(abundance_df, self.params.controls['time_point'])
+                df3 = pd.DataFrame(get_delta_df(abundance_df, self.params.controls['time_point'])
                                    .stack()).reset_index()
-                df4 = pd.DataFrame(self.get_delta_df(np.log10(abundance_df), self.params.controls['time_point'])
+                df4 = pd.DataFrame(get_delta_df(np.log10(abundance_df), self.params.controls['time_point'])
                                    .stack()).reset_index()
                 df3['log'] = False
                 df4['log'] = True
@@ -564,7 +564,7 @@ class Study:
         # change the values in the data frames to be the change in value between two time points:
         # any time point and the control time point
         if delta:
-            df = self.get_delta_df(df, self.params.controls['time_point'])
+            df = get_delta_df(df, self.params.controls['time_point'])
             delta_str = ' delta'  # for file names
         else:
             delta_str = ''  # for file names
@@ -887,8 +887,8 @@ class Study:
         # change the values in the data frames to be the change in value between two time points:
         # any time point and the control time point
         if delta:
-            x_df = self.get_delta_df(x_df, self.params.controls['time_point'])
-            y_df = self.get_delta_df(y_df, self.params.controls['time_point'])
+            x_df = get_delta_df(x_df, self.params.controls['time_point'])
+            y_df = get_delta_df(y_df, self.params.controls['time_point'])
             delta_str = ' delta'  # for file names
         else:
             delta_str = ''  # for file names
@@ -1078,8 +1078,8 @@ class Study:
         # change the values in the data frames to be the change in value between two time points:
         # any time point and the control time point
         if delta:
-            x_df = self.get_delta_df(x_df, self.params.controls['time_point'])
-            y_df = self.get_delta_df(y_df, self.params.controls['time_point'])
+            x_df = get_delta_df(x_df, self.params.controls['time_point'])
+            y_df = get_delta_df(y_df, self.params.controls['time_point'])
             delta_str = ' delta'  # for file names
         else:
             delta_str = ''  # for file names
@@ -1700,193 +1700,8 @@ class Study:
         plt.savefig(os.path.join(self.dirs.figs, 'correlation {} {}'
                                  .format(xobj.type.replace('_', ' '), yobj.type.replace('_', ' '))))
 
-    # data frame computations
-
-    @staticmethod
-    def get_diversity_df(abundance_df):
-        """
-        Compute the Shanon's alpha diversity index (using log2) based on an "abundance_df"
-
-        :param abundance_df: (pd.DataFrame) data frame to compute on, if not given takes the self.objs.abundance.df
-
-        :return: (pd.DataFrame) "diversity_df"
-        (same as abundance_df just instead of bacteria columns there is a single diversity column)
-        """
-
-        # Shannon's alpha diversity index = -sum(Pi*log10(Pi))
-
-        # revert values to their pre log state
-        if not (0 <= abundance_df.min().min() and abundance_df.max().max() <= 1):
-            abundance_df = (10 ** abundance_df)
-
-        diversity_df = pd.DataFrame(-(abundance_df * np.log2(abundance_df)).sum(axis=1).dropna())
-        diversity_df.columns = ['diversity']
-
-        return diversity_df
-
-    @staticmethod
-    def get_delta_df(regular_df, control_time_point):
-        """
-        Subtract from each time point values the self.params.control_time values
-
-        :param regular_df: (pd.DataFrame) data frame to calculate for the delta
-        :param control_time_point: time point values to subtract for all other time points values
-
-        :return: delta_df (pd.DataFrame)
-        """
-
-        # list of all indices columns TO REMOVE in order to not have a contradicting indices
-        # between different time points
-        index_names2remove = list(regular_df.index.names)
-        index_names2remove.remove('person')
-        index_names2remove.remove('time_point')
-
-        # copy of the data frame in order to not delete the additional indices from the returned data frame
-        delta_df = regular_df.copy()
-        regular_df = regular_df.droplevel(index_names2remove)
-
-        # all possible time points
-        time_points = delta_df.index.get_level_values('time_point').unique().to_list()
-        time_points.remove(control_time_point)
-
-        # subtract from each time point values the control time values
-        for time_point in time_points:
-            idx = delta_df.xs(time_point, level='time_point', drop_level=False).index
-            delta_df.loc[idx] = \
-                (regular_df.xs(time_point, level='time_point') -
-                 regular_df.xs(control_time_point, level='time_point')).values
-            delta_df = delta_df.rename(
-                index={time_point: '{}-{}'.format(time_point, control_time_point)},
-                level='time_point')
-
-        # delete the control time points
-        idx = delta_df.xs(control_time_point, level='time_point', drop_level=False).index
-        delta_df = delta_df.drop(idx)
-
-        return delta_df
-
-    @staticmethod
-    def time_series2time_point(person_df, days_between_time_points=6):
-        """
-        Takes the time index column and adds to it time_point columns for each group of samples that have less
-        than days_between_time_points between them
-
-        :param person_df: (pd.DataFrame) single person data frame to apply the function on
-        :param days_between_time_points: (int) maximum amount of days that can be between samples that will still be
-        considered as a single time_point
-
-        :return: person_df (pd.DataFrame)
-        """
-
-        person_df['diff'] = person_df.index.get_level_values('time')
-        person_df = person_df.sort_values('diff')  # which is actually 'time'
-        person_df['diff'] = person_df['diff'].diff().apply(lambda x: x.days)
-
-        break_points = person_df['diff'][person_df['diff'] > days_between_time_points].index
-        break_points = break_points.union([person_df.index[-1]])  # add last row
-
-        person_df['time_point'] = np.nan
-        previous_break_point = person_df.index[0]
-        for time_point, current_break_point in enumerate(break_points):
-            person_df.loc[previous_break_point:current_break_point, 'time_point'] = time_point
-            previous_break_point = current_break_point
-
-        person_df = person_df.drop('diff', axis=1).set_index('time_point', append=True)
-
-        return person_df
-
-    @staticmethod
-    def add_cgm(samples_df, cgm_df, delta_days=-7, glucose_threshold=140):
-        """
-        Adds percentage of cgm measurements above glucose_threshold from these amount of days_back
-        to each sample in samples_df
-
-        :param samples_df: (pd.DataFrame) to add to each sample the relevant measurements
-        :param cgm_df: (pd.DataFrame) to take the relevant cgm measurements from
-        :param delta_days: (int) cgm time in days to consider before (negative) or after (positive) sample time
-        :param glucose_threshold: (int) to count measurements above it
-
-        :return: samples_df (pd.DataFrame)
-        """
-
-        # TODO: consider the fact that different cgms have different baseline values
-        samples_df['time_above{}'.format(glucose_threshold)] = np.nan
-        for i, sample in samples_df.reset_index().iterrows():
-
-            if sample['person'] in cgm_df.index.get_level_values('person'):
-                curr_cgm = cgm_df.xs(sample['person'], level='person')  # this person
-                delta_time = (curr_cgm.index.get_level_values('time').tz_convert('UTC') -
-                              sample['time']).days  # conversion to UTC should be part of the LabData
-
-                if delta_days < 0:
-                    curr_cgm = curr_cgm[(delta_days <= delta_time) & (delta_time <= 0)]  # these days back
-                else:
-                    curr_cgm = curr_cgm[(0 <= delta_time) & (delta_time <= delta_days)]  # these days forward
-
-                if curr_cgm.shape[0] != 0:
-                    samples_df.iloc[i, -1] = (curr_cgm['GlucoseValue'] > glucose_threshold).sum() / curr_cgm.shape[0]
-                    # assuming the last column is the column added
-
-        return samples_df
-
-    @staticmethod
-    def add_strain_replacement(test, control=None, quantile=0.05):
-        """
-        Adds "replacement column that represents strain replacement to a dissimilarity data frame
-
-        :param test: (pd.DataFrame) dissimilarity data frame with 'SampleName1/2' and 'dissimilarity' columns to which
-        replacement column will be add to comparisons within individual
-        :param control: (pd.DataFrame) dissimilarity data frame with 'SampleName1/2' and 'dissimilarity' columns from
-        which strain replacement threshold will be calculated based on comparisons between individuals
-        if not defined will use test data frame between individuals dissimilarity
-        :param quantile: between individuals dissimilarity threshold from which replacement will be defined
-
-        :return: test (pd.DataFrame)
-        """
-
-        # control data
-        if control is None:
-            control = test
-
-        # otherwise changes inplace
-        test = test.copy()
-        control = control.copy()
-
-        # remove duplicate comparisons and comparisons to the same sample
-        control = control.reset_index()
-        control = control[control['SampleName1'] != control['SampleName2']]
-        control['s1'] = np.minimum(control['SampleName1'], control['SampleName2'])
-        control['s2'] = np.maximum(control['SampleName1'], control['SampleName2'])
-        control = control.drop_duplicates(['Species', 's1', 's2'])
-
-        # remove within person comparisons
-        if 'person1' in control.columns and 'person2' in control.columns:
-            control = control[control['person1'] != control['person2']]
-        else:
-            print('the control samples are not identified by person, assuming all are between individuals comparisons')
-
-        # get quantile
-        control = control.groupby('Species')['dissimilarity'].quantile(quantile)
-
-        # test data
-        # remove comparisons to the same sample
-        condition = (test.index.get_level_values('SampleName1') != test.index.get_level_values('SampleName2'))
-
-        # remove between person comparisons
-        if 'person1' in test.index.names and 'person2' in test.index.names:
-            condition = condition & (test.index.get_level_values('person1') == test.index.get_level_values('person2'))
-        else:
-            print('the test samples are not identified by person, assuming all are within individual comparisons')
-
-        test.loc[condition, 'replacement'] = test[condition].loc[control.index].groupby('Species')[
-            'dissimilarity'].apply(lambda specie_data: specie_data > control.loc[specie_data.name])
-        # control.index are control species
-
-        return test
-
 
 # general file handling
-
 def ftp_download(address, username, password, directories, skip_files=None, destination=os.getcwd(), check_only=True):
         """
         Download files from a FTP address not including those in skip_files to the destination directory
@@ -1961,6 +1776,189 @@ def decompress_files(file_type, input_dir=os.getcwd(), output_dir=os.getcwd(), r
             # deleting the compressed files
             if delete:
                 os.remove(file_name)
+
+
+# data frame computations
+def get_diversity_df(abundance_df):
+    """
+    Compute the Shanon's alpha diversity index (using log2) based on an "abundance_df"
+
+    :param abundance_df: (pd.DataFrame) data frame to compute on, if not given takes the self.objs.abundance.df
+
+    :return: (pd.DataFrame) "diversity_df"
+    (same as abundance_df just instead of bacteria columns there is a single diversity column)
+    """
+
+    # Shannon's alpha diversity index = -sum(Pi*log10(Pi))
+
+    # revert values to their pre log state
+    if not (0 <= abundance_df.min().min() and abundance_df.max().max() <= 1):
+        abundance_df = (10 ** abundance_df)
+
+    diversity_df = pd.DataFrame(-(abundance_df * np.log2(abundance_df)).sum(axis=1).dropna())
+    diversity_df.columns = ['diversity']
+
+    return diversity_df
+
+
+def get_delta_df(regular_df, control_time_point):
+    """
+    Subtract from each time point values the self.params.control_time values
+
+    :param regular_df: (pd.DataFrame) data frame to calculate for the delta
+    :param control_time_point: time point values to subtract for all other time points values
+
+    :return: delta_df (pd.DataFrame)
+    """
+
+    # list of all indices columns TO REMOVE in order to not have a contradicting indices
+    # between different time points
+    index_names2remove = list(regular_df.index.names)
+    index_names2remove.remove('person')
+    index_names2remove.remove('time_point')
+
+    # copy of the data frame in order to not delete the additional indices from the returned data frame
+    delta_df = regular_df.copy()
+    regular_df = regular_df.droplevel(index_names2remove)
+
+    # all possible time points
+    time_points = delta_df.index.get_level_values('time_point').unique().to_list()
+    time_points.remove(control_time_point)
+
+    # subtract from each time point values the control time values
+    for time_point in time_points:
+        idx = delta_df.xs(time_point, level='time_point', drop_level=False).index
+        delta_df.loc[idx] = \
+            (regular_df.xs(time_point, level='time_point') -
+             regular_df.xs(control_time_point, level='time_point')).values
+        delta_df = delta_df.rename(
+            index={time_point: '{}-{}'.format(time_point, control_time_point)},
+            level='time_point')
+
+    # delete the control time points
+    idx = delta_df.xs(control_time_point, level='time_point', drop_level=False).index
+    delta_df = delta_df.drop(idx)
+
+    return delta_df
+
+
+def time_series2time_point(person_df, days_between_time_points=6):
+    """
+    Takes the time index column and adds to it time_point columns for each group of samples that have less
+    than days_between_time_points between them
+
+    :param person_df: (pd.DataFrame) single person data frame to apply the function on
+    :param days_between_time_points: (int) maximum amount of days that can be between samples that will still be
+    considered as a single time_point
+
+    :return: person_df (pd.DataFrame)
+    """
+
+    person_df['diff'] = person_df.index.get_level_values('time')
+    person_df = person_df.sort_values('diff')  # which is actually 'time'
+    person_df['diff'] = person_df['diff'].diff().apply(lambda x: x.days)
+
+    break_points = person_df['diff'][person_df['diff'] > days_between_time_points].index
+    break_points = break_points.union([person_df.index[-1]])  # add last row
+
+    person_df['time_point'] = np.nan
+    previous_break_point = person_df.index[0]
+    for time_point, current_break_point in enumerate(break_points):
+        person_df.loc[previous_break_point:current_break_point, 'time_point'] = time_point
+        previous_break_point = current_break_point
+
+    person_df = person_df.drop('diff', axis=1).set_index('time_point', append=True)
+
+    return person_df
+
+
+def add_cgm(samples_df, cgm_df, delta_days=-7, glucose_threshold=140):
+    """
+    Adds percentage of cgm measurements above glucose_threshold from these amount of days_back
+    to each sample in samples_df
+
+    :param samples_df: (pd.DataFrame) to add to each sample the relevant measurements
+    :param cgm_df: (pd.DataFrame) to take the relevant cgm measurements from
+    :param delta_days: (int) cgm time in days to consider before (negative) or after (positive) sample time
+    :param glucose_threshold: (int) to count measurements above it
+
+    :return: samples_df (pd.DataFrame)
+    """
+
+    # TODO: consider the fact that different cgms have different baseline values
+    samples_df['time_above{}'.format(glucose_threshold)] = np.nan
+    for i, sample in samples_df.reset_index().iterrows():
+
+        if sample['person'] in cgm_df.index.get_level_values('person'):
+            curr_cgm = cgm_df.xs(sample['person'], level='person')  # this person
+            delta_time = (curr_cgm.index.get_level_values('time').tz_convert('UTC') -
+                          sample['time']).days  # conversion to UTC should be part of the LabData
+
+            if delta_days < 0:
+                curr_cgm = curr_cgm[(delta_days <= delta_time) & (delta_time <= 0)]  # these days back
+            else:
+                curr_cgm = curr_cgm[(0 <= delta_time) & (delta_time <= delta_days)]  # these days forward
+
+            if curr_cgm.shape[0] != 0:
+                samples_df.iloc[i, -1] = (curr_cgm['GlucoseValue'] > glucose_threshold).sum() / curr_cgm.shape[0]
+                # assuming the last column is the column added
+
+    return samples_df
+
+
+def add_strain_replacement(test, control=None, quantile=0.05):
+    """
+    Adds "replacement column that represents strain replacement to a dissimilarity data frame
+
+    :param test: (pd.DataFrame) dissimilarity data frame with 'SampleName1/2' and 'dissimilarity' columns to which
+    replacement column will be add to comparisons within individual
+    :param control: (pd.DataFrame) dissimilarity data frame with 'SampleName1/2' and 'dissimilarity' columns from
+    which strain replacement threshold will be calculated based on comparisons between individuals
+    if not defined will use test data frame between individuals dissimilarity
+    :param quantile: between individuals dissimilarity threshold from which replacement will be defined
+
+    :return: test (pd.DataFrame)
+    """
+
+    # control data
+    if control is None:
+        control = test
+
+    # otherwise changes inplace
+    test = test.copy()
+    control = control.copy()
+
+    # remove duplicate comparisons and comparisons to the same sample
+    control = control.reset_index()
+    control = control[control['SampleName1'] != control['SampleName2']]
+    control['s1'] = np.minimum(control['SampleName1'], control['SampleName2'])
+    control['s2'] = np.maximum(control['SampleName1'], control['SampleName2'])
+    control = control.drop_duplicates(['Species', 's1', 's2'])
+
+    # remove within person comparisons
+    if 'person1' in control.columns and 'person2' in control.columns:
+        control = control[control['person1'] != control['person2']]
+    else:
+        print('the control samples are not identified by person, assuming all are between individuals comparisons')
+
+    # get quantile
+    control = control.groupby('Species')['dissimilarity'].quantile(quantile)
+
+    # test data
+    # remove comparisons to the same sample
+    condition = (test.index.get_level_values('SampleName1') != test.index.get_level_values('SampleName2'))
+
+    # remove between person comparisons
+    if 'person1' in test.index.names and 'person2' in test.index.names:
+        condition = condition & (test.index.get_level_values('person1') == test.index.get_level_values('person2'))
+    else:
+        print('the test samples are not identified by person, assuming all are within individual comparisons')
+
+    test.loc[condition, 'replacement'] = test[condition].loc[control.index].groupby('Species')[
+        'dissimilarity'].apply(lambda specie_data: specie_data > control.loc[specie_data.name])
+    # control.index are control species
+
+    return test
 
 
 # others
@@ -2425,8 +2423,8 @@ class _Parameters:
                  alpha=None, detection_threshold=None, dissimilarity_threshold=None):
 
         self.study = study
-        self.controls = controls
-        self.colors = colors
+        self.controls = controls if controls is not None else {}
+        self.colors = colors if colors is not None else {}
         self.alpha = alpha
         self.detection_threshold = detection_threshold
         self.dissimilarity_threshold = dissimilarity_threshold
