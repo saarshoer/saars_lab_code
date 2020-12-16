@@ -1,18 +1,16 @@
 import os
 import pandas as pd
-from analysis import cat2binary
+from analysis import get_delta_df
+from LabUtils.Utils import date2_dir
 from LabData import config_global as config
 from LabUtils.addloglevels import sethandlers
 from LabData.DataLoaders.Loader import LoaderData
 from LabData.DataAnalyses.MBSNPs.MWAS import MWAS
 from LabUtils.pandas_utils import filter_dataframe
-from LabUtils.Utils import date2_dir, write_members
-from LabData.DataLoaders.MBSNPLoader import get_mbsnp_loader_class
-from LabData.DataAnalyses.MBSNPs.MWASInterpreter import MWASInterpreter
 from LabData.DataAnalyses.MBSNPs.MBSNPSpeciesSeparation import get_species_covariate, get_contig_covariate
 
 
-def get_data(study_ids, body_site, time_point, y_cols, cov_cols):
+def get_data(study_ids, body_site, group, time_point, y_cols, cov_cols, delta):
 
     # blood
     # ['bt__neutrophils_%', 'bt__hdl_cholesterol', 'bt__potassium',
@@ -36,9 +34,13 @@ def get_data(study_ids, body_site, time_point, y_cols, cov_cols):
 
     df_dir = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/{}/data_frames'.format(study_ids[0])
 
-    def get_df(df_name):
+    def get_df(df_name, df_delta):
         df = pd.read_pickle(os.path.join(df_dir, df_name))
-        df = df.xs(time_point, level='time_point') if time_point is not None else df
+        df = df.xs(group, level='group') if group else df
+        if df_delta:
+            df = get_delta_df(df, '0months')
+        else:
+            df = df.xs(time_point, level='time_point') if time_point else df
 
         return df
 
@@ -51,19 +53,21 @@ def get_data(study_ids, body_site, time_point, y_cols, cov_cols):
 
         return df
 
-    # raw data frames  # TODO: add the option of getting delta data
-    idx = get_df('{}_abundance.df'.format(body_site.lower()))
-    idx = idx[[]].reset_index(list(set(idx.index.names) - set(['person', 'time_point', 'group'])))
-    blood = get_df('blood.df')
-    body = get_df('body.df')
-    diet = get_df('diet.df')
+    # raw data frames
+    idx = get_df('{}_abundance.df'.format(body_site.lower()), False)
+    indices2keep = ['person', 'group'] if delta else ['person', 'time_point', 'group']
+    idx = idx[[]].reset_index(list(set(idx.index.names) - set(indices2keep)))
+    blood = get_df('blood.df', delta)
+    body = get_df('body.df', False)
+    diet = get_df('diet.df', delta)
+    diet.columns = [col.replace('%', '') for col in diet.columns]
 
     # mwas data frames
-    joined_df = idx.join(blood, how='outer').join(body, how='outer').join(diet, how='outer')
+    joined_df = idx.join(blood).join(body).join(diet)
     joined_df = joined_df.reset_index().rename(columns={'person': 'RegistrationCode', 'time': 'Date'})\
         .set_index(['RegistrationCode', 'Date'])
 
-    x = list(idx['sample'])
+    x = idx['sample'].tolist()
     y = prep_df(joined_df[y_cols])
     c = prep_df(joined_df[cov_cols])
 
@@ -71,33 +75,26 @@ def get_data(study_ids, body_site, time_point, y_cols, cov_cols):
 
 
 class P:
-    # dependent mwas
+    study_ids = ['PNP3']
     body_site = 'Gut'
-    time_point = None
+    group = None
+    time_point = '0months'
+    delta = True
 
-    y_cols = ['bt__hba1c', 'bmi']  # 'bmi' - they were not suppose to change weight
-    cov_cols = ['age', 'gender']
+    y_cols = ['bt__hba1c']  # 'bmi' - participants were not suppose to change weight
+    cov_cols = ['age', 'gender', 'carbohydrates']
 
+    # coverage
     species_specific_cov_f = get_species_covariate
     contig_specific_cov_f = get_contig_covariate
 
     output_cols = ['N', 'Coef', 'Pval', 'Coef_025', 'Coef_975',
                    'av_sample_score_Pval', 'av_sample_score_Coef',
                    'contig_av_sample_score_Pval', 'contig_av_sample_score_Coef']
+    for cov in cov_cols:
+        output_cols = output_cols + [cov + '_Pval', cov + '_Coef']
 
-    # independent mwas
-    # body_site = 'Gut'
-    # time_point = '0months'#None
-    #
-    # y_cols = ['%carbohydrates']
-    # cov_cols = ['age', 'gender']#diet?
-    #
-    # output_cols = None?
-
-    # general
-    study_ids = ['PNP3']
-
-    x, y, c = get_data(study_ids, body_site, time_point, y_cols, cov_cols)
+    x, y, c = get_data(study_ids, body_site, group, time_point, y_cols, cov_cols, delta)
 
     # queue
     max_jobs = 100
@@ -145,36 +142,6 @@ def gen_f(subjects_df, df):
 
 
 if __name__ == '__main__':
-
-    # sethandlers(file_dir=config.log_dir)
-    # m = MWAS(P)
-    # work_dir = m.gen_mwas()
-
-    # TODO: filter by Liron's significant results
-
-    path = '/home/saarsh/Genie/LabData/Analyses/saarsh/PNP3_gut_mwas_dependent/mb_gwas_bt__hba1c.h5'
-
-    file = os.path.basename(path)
-    folder = os.path.basename(os.path.dirname(path))
-
-    M = MWASInterpreter(params=P, mwas_fname=file,
-                        work_dir=os.path.join('/net/mraid08/export/genie/LabData/Analyses/saarsh/', folder),
-                        out_dir=os.path.join('/net/mraid08/export/jafar/Microbiome/Analyses/saar',
-                                             P.study_ids[0], 'figs', folder),
-                        mbsnp_loader=get_mbsnp_loader_class(P.body_site),
-                        pval_col='Global_Bonferroni', pval_cutoff=0.05,
-                        SNPs_to_plot_dct={},
-
-                        do_manhattan_plot=False,  # unnecessary given the annotated manhattan
-                        do_mafs_plot=False,  # broken
-                        do_qq_plot=True,
-                        do_volcano_plot=True,
-
-                        do_snp_annotations=True,
-                        annotate_all_snps=True,
-                        do_annotated_manhattan=True,
-
-                        get_extra_gene_info=True,
-                        do_find_surrounding_genes=True,
-                        do_test_nonsynonymous_enrichment=True,
-                        ).run()
+    sethandlers(file_dir=config.log_dir)
+    m = MWAS(P)
+    work_dir = m.gen_mwas()
