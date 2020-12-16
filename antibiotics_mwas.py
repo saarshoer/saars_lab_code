@@ -47,16 +47,19 @@ class P:
     # max_samples_per_snp = 10000
     snp_set = None
 
-    # covariates
+    # covariates - required even if none
+    covariate_gen_f = None
     # covariate_loaders = None
     # covariate_get_data_args = {}
-    test_maf_cov_corr = False  # necessary
+    test_maf_cov_corr = False
 
     # subjects
     subjects_loaders = ['SubjectLoader']
     subjects_get_data_args = {'study_ids': study_ids, 'countries': countries, 'groupby_reg': 'first'}
 
     output_cols = None
+    # for cov in cov_cols:
+    #     output_cols = output_cols + [cov + '_Pval', cov + '_Coef']
 
 
 def y_gen_f_inner(subjects_df, y):
