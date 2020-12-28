@@ -106,6 +106,7 @@ class P:
     # species
     species_set = None
     ignore_species = None
+    filter_by_species_existence= True
     species_blocks = 1
 
     # samples
@@ -132,7 +133,8 @@ class P:
 
     # y
     y_gen_f = lambda subjects_df: gen_f(subjects_df, P.y)
-    is_y_valid_f = None  # Function that checks whether the analyzed y is valid
+    is_y_valid_f = None  # Function that checks whether the analyzed y is valid  # RE THINK
+    max_on_most_freq_val_in_col = 0.99
 
 
 def gen_f(subjects_df, df):

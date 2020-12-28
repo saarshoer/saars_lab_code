@@ -25,13 +25,14 @@ class P:
     ignore_species = None
     # [file.split('mb_gwas_')[-1].split('.')[0]
     # for file in glob.glob('/home/saarsh/Genie/LabData/Analyses/saarsh/anti_mwas_raw/*h5')]
+    filter_by_species_existence = True
 
     species_blocks = 1
 
     # y
     y = pd.read_pickle('/home/saarsh/Analysis/antibiotics/URA/dl.df')
     y_gen_f = lambda subjects_df: y_gen_f_inner(subjects_df, P.y)
-    is_y_valid_f = None  # Function that checks whether the analyzed y is valid
+    is_y_valid_f = None  # Function that checks whether the analyzed y is valid  # RE THINK
 
     # samples
     samples_set = y.index.tolist()

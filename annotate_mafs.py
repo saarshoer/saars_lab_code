@@ -14,6 +14,7 @@ def func():
 
     ld = OralMBSNPLoader()
     ld._gen_species_set_maf_annot_data(species, min_reads_per_snp=1, min_samples_per_snp_cached=100)
+    # TODO: make sure the gene annotation loader is using the OralMBLoader and not the Gut
 
 
 sethandlers(file_dir='/home/saarsh/Analysis/antibiotics/jobs/')
