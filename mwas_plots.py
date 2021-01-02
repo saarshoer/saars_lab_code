@@ -5,7 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib import rcParams
 from LabData.DataLoaders.MBSNPLoader import MAF_1_VALUE
-from LabData.DataAnalyses.MBSNPs.taxonomy import taxonomy_df, _TAX_COLUMN
+from LabData.DataAnalyses.MBSNPs.taxonomy import taxonomy_df
 from LabData.DataAnalyses.MBSNPs.Plots.manhattan_plot import draw_manhattan_plot
 
 
@@ -38,7 +38,7 @@ def draw_volcano_plot(df, title='volcano plot', figsize=(10, 6), out_file='volca
 
     # significance
     ax.axhline(y=pval_cutoff, linestyle='--', color='red')
-    ax.annotate(xy=(-abs_x_max, pval_cutoff), verticalalignment='bottom', s='significance', color='red')
+    ax.annotate(xy=(-0.15, pval_cutoff), xycoords=ax.get_yaxis_transform(), text='significance', color='red')
 
     # finish
     ax.set_title(title)
@@ -53,6 +53,8 @@ def draw_qq_plot(df, title='qq plot', figsize=(6, 6), out_file='qq_plot', pval_c
     ax.tick_params(axis='both', which='minor', length=0)
 
     # calculations
+    df = df.reset_index().drop_duplicates(['Species', 'Contig', 'Position'])
+    # because rows can be multiplied if they have multiple genes
     actual_pvals = df['Pval'].dropna().sort_values()  # Pval is intentionally hard coded because it should be raw values
     n = len(actual_pvals)
     expected_pvals = np.arange(n)/n
@@ -70,6 +72,7 @@ def draw_qq_plot(df, title='qq plot', figsize=(6, 6), out_file='qq_plot', pval_c
     # y
     ax.set_ylabel('actual p-value')
     ax.set_yscale('log')
+    # intentionally pval_col and not 'Pval' so to be the same as in other graphs
     ax.set_ylim(1, df[pval_col].min())
 
     # finish
@@ -87,7 +90,8 @@ def run(mwas_fname, annotations_df=None, pval_col='Global_Bonferroni', pval_cuto
 
     mwas_df = pd.read_hdf(mwas_fname)
     if annotations_df is not None:
-        mwas_df = mwas_df.join(annotations_df, on=['Species', 'Contig', 'Position'])
+        mwas_df = mwas_df.join(annotations_df, on=['Species', 'Contig', 'Position']).dropna(subset=[pval_col])
+        # multiply rows in caller if there are multiple matches in other
     # for qq plot
     mwas_df['Pval'] = mwas_df['Pval'].replace(to_replace=0, value=
       10**-(math.ceil(-np.log10(mwas_df.loc[mwas_df['Pval'] != 0, 'Pval'].min())/10)*10))  # smallest round non-zero
@@ -95,13 +99,13 @@ def run(mwas_fname, annotations_df=None, pval_col='Global_Bonferroni', pval_cuto
     mwas_df[pval_col] = mwas_df[pval_col].replace(to_replace=0, value=
       10**-(math.ceil(-np.log10(mwas_df.loc[mwas_df[pval_col] != 0, pval_col].min())/10)*10))  # smallest round non-zero
 
-    tax_df = taxonomy_df(level_as_numbers=False).set_index('SGB')[_TAX_COLUMN]
+    tax_df = taxonomy_df(level_as_numbers=False).set_index('SGB')['Species']
 
     for y, y_df in mwas_df.groupby('Y'):
         y_out_dir = os.path.join(out_dir, y)
         os.makedirs(y_out_dir, mode=0o744, exist_ok=True)
 
-        title = tax_df.loc[y].value if 'SGB' in y else y
+        title = f"{y}\n{tax_df.loc[y].split('s__')[-1]}" if 'SGB' in y else y
 
         draw_qq_plot(df=y_df, title=title, out_file=os.path.join(y_out_dir, f'qq_{y}'), pval_col=pval_col)
 
@@ -111,5 +115,3 @@ def run(mwas_fname, annotations_df=None, pval_col='Global_Bonferroni', pval_cuto
         draw_manhattan_plot(df=y_df, title=title, out_file=os.path.join(y_out_dir, f'manhattan_{y}'),
                             draw_func=manhattan_draw_func, text_func=manhattan_text_func,
                             pval_col=pval_col, pval_cutoff=pval_cutoff)
-
-# TODO: drop duplicates +/- genes of the same position

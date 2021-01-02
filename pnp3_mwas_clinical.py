@@ -10,6 +10,16 @@ from LabUtils.pandas_utils import filter_dataframe
 from LabData.DataAnalyses.MBSNPs.MBSNPSpeciesSeparation import get_species_covariate, get_contig_covariate
 
 
+def gen_f(subjects_df, df):
+    if subjects_df is not None:
+        df = filter_dataframe(df, subjects_df)
+    return LoaderData(pd.DataFrame(df), None)
+
+
+def is_y_valid(y, max_on_most_freq_val_in_col=0.99):
+    return y.value_counts().max() <= max_on_most_freq_val_in_col * len(y)
+
+
 def get_data(study_ids, body_site, group, time_point, y_cols, cov_cols, delta):
 
     # blood
@@ -31,6 +41,13 @@ def get_data(study_ids, body_site, group, time_point, y_cols, cov_cols, delta):
 
     # diet
     # ['%proteins', '%lipids', '%carbohydrates']
+
+    # clinical
+    # ['ALT_GPT', 'AST_GOT', 'BMI', 'BMR', 'BP_dia', 'BP_sys',
+    #  'Cholesterol___HDL', 'Cholesterol_total___blood', 'FPG', 'Fat_perc',
+    #  'Fructosamine', 'HOMAIR', 'HbA1C_Blood', 'HbA1C_CGM', 'HeartRate',
+    #  'Hips', 'Insulin', 'LDL_Cholesterol', 'OGTT', 'Time_above_140',
+    #  'Tot_Chol_to_HDL_Ratio', 'Triglycerides', 'US', 'Waist', 'Weight']
 
     df_dir = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/{}/data_frames'.format(study_ids[0])
 
@@ -58,14 +75,20 @@ def get_data(study_ids, body_site, group, time_point, y_cols, cov_cols, delta):
     indices2keep = ['person', 'group'] if delta else ['person', 'time_point', 'group']
     idx = idx[[]].reset_index(list(set(idx.index.names) - set(indices2keep)))
     blood = get_df('blood.df', delta)
-    body = get_df('body.df', False)
+    body1 = get_df('body.df', False)  # for age and gender
+    body2 = get_df('body.df', delta)
+    body = body1[['age', 'gender']].join(body2[list(set(body2.columns) - set(['age', 'gender']))])
     diet = get_df('diet.df', delta)
-    diet.columns = [col.replace('%', '') for col in diet.columns]
+    clinical = get_df('clinical_paper.df', False)  # data here is already in delta
+    if delta:
+        clinical['time_point'] = f'{time_point}-0months'
+        clinical = clinical.set_index('time_point', append=True)
 
     # mwas data frames
-    joined_df = idx.join(blood).join(body).join(diet)
+    joined_df = idx.join(blood).join(body).join(diet).join(clinical)
     joined_df = joined_df.reset_index().rename(columns={'person': 'RegistrationCode', 'time': 'Date'})\
         .set_index(['RegistrationCode', 'Date'])
+    joined_df.columns = [col.replace('%', '') for col in joined_df.columns]
 
     x = idx['sample'].tolist()
     y = prep_df(joined_df[y_cols])
@@ -78,10 +101,16 @@ class P:
     study_ids = ['PNP3']
     body_site = 'Gut'
     group = None
-    time_point = '0months'
-    delta = True
+    time_point = '6months'
+    delta = True  # for carbohydrates
 
-    y_cols = ['bt__hba1c']  # 'bmi' - participants were not suppose to change weight
+    y_cols = \
+        ['ALT_GPT', 'AST_GOT', 'BMI', 'BMR', 'BP_dia', 'BP_sys',
+         'Cholesterol___HDL', 'Cholesterol_total___blood', 'FPG', 'Fat_perc',
+         'Fructosamine', 'HOMAIR', 'HbA1C_Blood', 'HbA1C_CGM', 'HeartRate',
+         'Hips', 'Insulin', 'LDL_Cholesterol', 'OGTT', 'Time_above_140',
+         'Tot_Chol_to_HDL_Ratio', 'Triglycerides', 'US', 'Waist', 'Weight']  # carbohydrates is intentional to see if the system works
+
     cov_cols = ['age', 'gender', 'carbohydrates']
 
     # coverage
@@ -106,7 +135,7 @@ class P:
     # species
     species_set = None
     ignore_species = None
-    filter_by_species_existence= True
+    filter_by_species_existence = True
     species_blocks = 1
 
     # samples
@@ -133,14 +162,8 @@ class P:
 
     # y
     y_gen_f = lambda subjects_df: gen_f(subjects_df, P.y)
-    is_y_valid_f = None  # Function that checks whether the analyzed y is valid  # RE THINK
+    is_y_valid_f = is_y_valid  # Function that checks whether the analyzed y is valid
     max_on_most_freq_val_in_col = 0.99
-
-
-def gen_f(subjects_df, df):
-    if subjects_df is not None:
-        df = filter_dataframe(df, subjects_df)
-    return LoaderData(pd.DataFrame(df), None)
 
 
 if __name__ == '__main__':
