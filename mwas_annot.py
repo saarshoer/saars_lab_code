@@ -5,13 +5,12 @@ import numpy as np
 import pandas as pd
 from pandas import HDFStore
 from typing import List, Iterable
-from LabData.RawData.genome import GenePosition
-from LabData.config_global import mb_pipeline_dir
-from LabUtils.SeqUtils import translate_codon, codons_inv
+from LabUtils.SeqUtils import translate_codon
 from LabData.DataAnalyses.MBSNPs.taxonomy import taxonomy_df
-from UseCases.DataAnalyses.mbsnps_annotation import Annotationist
+from LabData.DataLoaders.MBSNPLoader import get_mbsnp_loader_class
+from LabData.DataAnalyses.MBSNPs.annotationist import Annotationist
 from LabData.DataLoaders.GeneAnnotLoader import GeneAnnotLoader, ANNOTS_03_2020_EXPANDED
-from LabData.DataLoaders.MBSNPLoader import get_mbsnp_loader_class, _MISSING_DATA_NOT_IN_GENE
+
 
 indices = ['Species', 'Contig', 'Position']
 
@@ -21,16 +20,25 @@ first_columns = ['SGB', 'contig', 'Contig_with_part',
                  'feature', 'gene', 'product', 'eggNOG annot']
 
 annotations_file = ANNOTS_03_2020_EXPANDED
-annotations = None
+gene_annotations = None
+annotations_list = None
 
 
-def load_annotations():
-    global annotations
-    if annotations is None:
-        annotations = GeneAnnotLoader(annotations_file).get_annot()
+def load_gene_annotations():
+    global gene_annotations
+    if gene_annotations is None:
+        gene_annotations = GeneAnnotLoader(annotations_file).get_annot()
         # snps is 0 based while the annotations are 1 based
-        annotations['start_pos'] = annotations['start_pos'] - 1
-        annotations['end_pos'] = annotations['end_pos'] - 1
+        # gene_annotations['start_pos'] = gene_annotations['start_pos'] - 1
+        # gene_annotations['end_pos'] = gene_annotations['end_pos'] - 1
+
+
+def load_annotations_list():
+    load_gene_annotations()
+    global annotations_list
+    if annotations_list is None:
+        load_gene_annotations()
+        annotations_list = Annotationist(gene_annotations, load_sequences=False)
 
 
 def order_columns(snps):
@@ -42,7 +50,7 @@ def order_columns(snps):
     return snps[first_cols + other_cols]
 
 
-def find_unique_snps(x_mwas_files_path, y_mwas_files_path, output_path):
+def find_unique_snps(x_mwas_files_path, y_mwas_files_path, output_path, pval_col='Global_Bonferroni', alpha=0.05):
     # find unique snps and count comparisons (for p_value calculations)
 
     x_mwas_files = glob.glob(x_mwas_files_path)
@@ -64,7 +72,7 @@ def find_unique_snps(x_mwas_files_path, y_mwas_files_path, output_path):
         y_species, y_species_count = np.unique(x_mwas_df.index.get_level_values('Y'), return_counts=True)
         pvals_df.loc[y_species.tolist(), x_species] = y_species_count.tolist()
 
-        snps = snps.union(set(x_mwas_df.index.droplevel('Y').values))
+        snps = snps.union(set(x_mwas_df[x_mwas_df[pval_col] < alpha].index.droplevel('Y').values))
 
     # post run
     snps = pd.DataFrame(snps)
@@ -74,35 +82,6 @@ def find_unique_snps(x_mwas_files_path, y_mwas_files_path, output_path):
     pvals_df.to_csv(os.path.join(output_path, 'pvals_count.csv'))
     snps = order_columns(snps)
     snps.to_hdf(os.path.join(output_path, 'snps_unique.h5'), key='snps')
-
-    return snps
-
-
-def add_alleles(snps, P, output_path):
-    # adds major and minor allele to each position
-
-    columns = ['Major', 'Minor']
-
-    alleles = pd.DataFrame(columns=indices + columns).set_index(indices)
-    for species in snps.index.get_level_values('Species').unique():
-        maf_path = os.path.join(mb_pipeline_dir, 'Analyses', 'MBSNP', P.body_site, 'MAF1', '{}_{}_R{}_S{}.h5'.
-                                format('mb_snp_g_maf', species, P.min_reads_per_snp, P.min_subjects_per_snp_cached))
-        if os.path.exists(maf_path):
-            contigs = snps.loc[species].index.get_level_values('Contig').unique()
-            with pd.HDFStore(maf_path, 'r') as hdf:
-                for contig in contigs:
-                    contig_df = hdf[contig][columns]
-                    contig_df['Species'] = species
-                    contig_df['Contig'] = contig
-                    contig_df = contig_df.reset_index().set_index(indices)
-                    alleles = alleles.append(contig_df)
-
-    snps = snps.join(alleles)
-    snps = snps.rename(columns={'Major': 'MajorAllele', 'Minor': 'MinorAllele'})
-    snps[['MajorAllele', 'MinorAllele']] = snps[['MajorAllele', 'MinorAllele']].astype(int)
-
-    snps = order_columns(snps)
-    snps.to_hdf(os.path.join(output_path, 'snps_alleles.h5'), key='snps')
 
     return snps
 
@@ -157,8 +136,8 @@ def add_maf_genes_annotations(snps, P, output_path):
 def add_surrounding_genes(snps, output_path):
     # add multiple genes
 
-    load_annotations()
-    snps = Annotationist(annotations, load_sequences=False).lookup_df(snps)  # current/upstream/downstream, +/- strand
+    load_annotations_list()
+    snps = annotations_list.lookup_df(snps)  # current/upstream/downstream, +/- strand
 
     snps = order_columns(snps)
     snps.to_hdf(os.path.join(output_path, 'snps_surrounding_genes.h5'), key='snps')
@@ -220,8 +199,8 @@ def add_annotations(snps, output_path, on='GeneID', rsuffix=''):
 
     original_columns = snps.columns
 
-    load_annotations()
-    snps = snps.join(annotations, on=on, rsuffix=rsuffix)  # TODO: take only useful columns, rename unclear ones
+    load_gene_annotations()
+    snps = snps.join(gene_annotations, on=on, rsuffix=rsuffix)  # TODO: take only useful columns, rename unclear ones
     snps = snps.drop(['SGB', 'contig'], axis=1)
     new_columns = list(set(snps.columns) - set(original_columns) - set(['start_pos', 'end_pos']))
     snps[new_columns] = snps[new_columns].astype(str)
@@ -236,40 +215,13 @@ def add_codons(snps, P, output_path):
     # adds codons
 
     # match column names to what is used in the MBSNPLoader
-    snps = snps.rename(columns={'MajorAllele': 'Major', 'MinorAllele': 'Minor'})
+    # snps = snps.rename(columns={'MajorAllele': 'Major', 'MinorAllele': 'Minor'})
 
-    snps['MajorCodonMAF'] = None
-    snps['MinorCodonMAF'] = None
+    load_annotations_list()
+    snps = annotations_list.assign_codons(snps)
 
-    load_annotations()
-    for species in snps.index.get_level_values('Species').unique():
-
-        species_genes = annotations[annotations['SGB'] == int(species.replace('SGB_', ''))]
-        gene_id_2_idx = {gene_id: i for i, gene_id in enumerate(species_genes.index.values)}
-
-        # in case annotation file is 0 based x[2] -1, x[3] or if is 1 based x[2], x[3] + 1
-        gp = [GenePosition(*(list(['SGB_{}'.format(x[0]), 'C_{}'.format(x[1]), x[2], x[3]+1, x[4]])))
-              for x in species_genes[['SGB', 'contig', 'start_pos', 'end_pos', 'strand']].values]
-        # in gp, start_pos is already corrected for zero based
-
-        condition_species_current = (snps.index.get_level_values('Species') == species) & (snps['GeneRelation'] == 'Current')
-        species_current_df = snps[condition_species_current].copy()
-        # updates species_current_df
-        get_mbsnp_loader_class(P.body_site)._add_codon_annot(species_current_df, gene_id_2_idx, gp, None)
-        snps[condition_species_current] = species_current_df
-
-        snps[['MajorCodonMAF', 'MinorCodonMAF']] = snps[['MajorCodonMAF', 'MinorCodonMAF']].fillna(_MISSING_DATA_NOT_IN_GENE)
-
-    # revert back column names
-    snps = snps.rename(columns={'Major': 'MajorAllele', 'Minor': 'MinorAllele',
-                                'MajorCodonMAF': 'MajorCodon', 'MinorCodonMAF': 'MinorCodon'})
-
-    is_coding = snps['MajorCodon'] >= 0
-
-    snps.loc[is_coding, 'MajorCodon'] = snps.loc[is_coding, 'MajorCodon'].map(codons_inv)
-    snps.loc[is_coding, 'MinorCodon'] = snps.loc[is_coding, 'MinorCodon'].map(codons_inv)
-
-    snps[['MajorCodon', 'MinorCodon']] = snps[['MajorCodon', 'MinorCodon']].astype(str)
+    codon_cols = ['PlusCurrentMajorCodon', 'PlusCurrentMinorCodon', 'MinusCurrentMajorCodon', 'MinusCurrentMinorCodon']
+    snps[codon_cols] = snps[codon_cols].astype(str)
 
     snps = order_columns(snps)
     snps.to_hdf(os.path.join(output_path, 'snps_codons.h5'), key='snps')
@@ -304,15 +256,22 @@ def add_taxonomy(snps, output_path):
     return snps
 
 
-def run(P, output_path, x_mwas_files_path, y_mwas_files_path):
+def run(P, output_path, x_mwas_files_path, y_mwas_files_path=None):
 
-    snps = find_unique_snps(x_mwas_files_path, y_mwas_files_path, output_path)  # TODO: handel the regular mwas case
-    snps = add_alleles(snps, P, output_path)  # early because it uses contig with part
+    if y_mwas_files_path:
+        snps = find_unique_snps(x_mwas_files_path, y_mwas_files_path, output_path, pval_col='Pval', alpha=0.05)
+    else:
+        snps = pd.read_hdf(x_mwas_files_path)[[]]
+    # snps = add_alleles(snps, P, output_path)  # early because it uses contig with part
     snps = add_contig_without_part(snps, output_path)
     snps = add_surrounding_genes(snps, output_path)
-    snps = flatten_surrounding_genes(snps, output_path)
-    snps = add_annotations(snps, output_path)
+    snps = snps.reset_index()
+    snps = snps.rename(columns={'Contig': 'Contig_without_part'})
+    snps['Contig'] = snps['Contig_with_part'].values
+    snps = snps.set_index(indices)
     snps = add_codons(snps, P, output_path)  # late because it depends on column 'feature' from annotations
-    snps = add_amino_acids(snps, output_path)
+    # snps = flatten_surrounding_genes(snps, output_path)
+    # snps = add_annotations(snps, output_path)
+    # snps = add_amino_acids(snps, output_path)
 
     return snps

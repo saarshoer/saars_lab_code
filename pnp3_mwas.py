@@ -57,7 +57,8 @@ def get_data(study_ids, body_site, group, time_point, y_cols, cov_cols, delta):
         if df_delta:
             df = get_delta_df(df, '0months')
         else:
-            df = df.xs(time_point, level='time_point') if time_point else df
+            tp = time_point if df_name != 'clinical_paper.df' else '6months'
+            df = df.xs(tp, level='time_point') if tp else df
 
         return df
 
@@ -81,7 +82,7 @@ def get_data(study_ids, body_site, group, time_point, y_cols, cov_cols, delta):
     diet = get_df('diet.df', delta)
     clinical = get_df('clinical_paper.df', False)  # data here is already in delta
     if delta:
-        clinical['time_point'] = f'{time_point}-0months'
+        clinical['time_point'] = '6months-0months'
         clinical = clinical.set_index('time_point', append=True)
 
     # mwas data frames
@@ -101,8 +102,8 @@ class P:
     study_ids = ['PNP3']
     body_site = 'Gut'
     group = None
-    time_point = '0months'
-    delta = True
+    time_point = '0months'  # does not apply to clinical
+    delta = True  # for carbohydrates
 
     y_cols = \
         ['bt__neutrophils_', 'bt__hdl_cholesterol', 'bt__potassium',
@@ -118,6 +119,15 @@ class P:
          'bmi', 'bmr', 'sitting_blood_pressure_diastolic', 'waist',
          'trunk_fat', 'sitting_blood_pressure_pulse_rate', 'weight'] + \
         ['proteins', 'lipids', 'carbohydrates']  # carbohydrates is intentional to see if the system works
+
+    # Clinical
+    # y_cols = \
+    #     ['ALT_GPT', 'AST_GOT', 'BMI', 'BMR', 'BP_dia', 'BP_sys',
+    #      'Cholesterol___HDL', 'Cholesterol_total___blood', 'FPG', 'Fat_perc',
+    #      'Fructosamine', 'HOMAIR', 'HbA1C_Blood', 'HbA1C_CGM', 'HeartRate',
+    #      'Hips', 'Insulin', 'LDL_Cholesterol', 'OGTT', 'Time_above_140',
+    #      'Tot_Chol_to_HDL_Ratio', 'Triglycerides', 'US', 'Waist', 'Weight']  # carbohydrates is intentional to see if the system works
+
 
     cov_cols = ['age', 'gender', 'carbohydrates']
 
