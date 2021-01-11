@@ -47,11 +47,11 @@ def order_columns(snps):
     return snps[first_cols + other_cols]
 
 
-def find_unique_snps(x_mwas_dir, y_mwas_dir, output_dir, pval_col='Global_Bonferroni', alpha=0.05):
+def find_unique_snps(x_mwas_files_path, y_mwas_files_path, output_dir, pval_col='Global_Bonferroni', alpha=0.05):
     # find unique snps and count comparisons (for p_value calculations)
 
-    x_mwas_files = glob.glob(x_mwas_dir)
-    y_mwas_files = glob.glob(y_mwas_dir)
+    x_mwas_files = glob.glob(x_mwas_files_path)
+    y_mwas_files = glob.glob(y_mwas_files_path)
 
     x_species = list(set(['SGB' + file.split('SGB')[-1].split('.')[0] for file in x_mwas_files]))
     y_species = list(set(['SGB' + file.split('SGB')[-1].split('.')[0] for file in y_mwas_files]))
@@ -144,7 +144,7 @@ def add_surrounding_genes(snps, output_dir):
     snps = annotations_list.lookup_df(snps)  # current/upstream/downstream, +/- strand
 
     snps = order_columns(snps)
-    # snps.to_hdf(os.path.join(output_dir, 'snps_surrounding_genes.h5'), key='snps')
+    snps.to_hdf(os.path.join(output_dir, 'snps_surrounding_genes.h5'), key='snps')
 
     return snps
 
@@ -284,8 +284,8 @@ def run(P, mwas_file_path, output_dir):
     # snps = add_maf_genes(choose_contig_type(snps, 'Contig_without_part'), P, output_dir)
     snps = add_surrounding_genes(choose_contig_type(snps, 'Contig_without_part'), output_dir)
     snps = add_codons(choose_contig_type(snps, 'Contig_with_part'), P, output_dir)
-    # snps = flatten_surrounding_genes(snps, output_dir)
-    # snps = add_amino_acids(snps, output_dir)
-    # snps = add_gene_annotations(snps, output_dir)
+    snps = flatten_surrounding_genes(snps, output_dir)
+    snps = add_amino_acids(snps, output_dir)
+    snps = add_gene_annotations(snps, output_dir)
 
     return snps
