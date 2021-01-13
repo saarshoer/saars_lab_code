@@ -5,8 +5,6 @@ from LabUtils.addloglevels import sethandlers
 
 
 # parameters
-from anti_mwas import P
-
 output_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas_processed'
 
 x_mwas_files_path = '/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas_raw/mb_gwas_SGB_*.h5'
@@ -28,5 +26,5 @@ with qp(jobname='annot', _delete_csh_withnoerr=True, q=['himem7.q'], max_r=1, _m
                            (x_mwas_files_path, y_mwas_files_path, output_dir, 'Pval', 0.05/26068850133))
     q.waitforresult(snps_unique)
 
-    snps = q.method(mwas_annot2.run, (P, mwas_file_path, output_dir))
+    snps = q.method(mwas_annot2.run, (mwas_file_path, output_dir))
     q.waitforresult(snps)

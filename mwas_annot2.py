@@ -22,12 +22,13 @@ first_columns = ['SGB', 'contig', 'Contig_with_part', 'Contig_without_part',
 annotations_file = ANNOTS_03_2020_EXPANDED
 gene_annotations = None
 annotations_list = None
+global_body_site = 'Gut'
 
 
 def load_gene_annotations():
     global gene_annotations
     if gene_annotations is None:
-        gene_annotations = GeneAnnotLoader(annotations_file).get_annot()
+        gene_annotations = GeneAnnotLoader(annotations_file, body_site=global_body_site).get_annot()
 
 
 def load_annotations_list():
@@ -35,7 +36,7 @@ def load_annotations_list():
 
     global annotations_list
     if annotations_list is None:
-        annotations_list = Annotationist(gene_annotations, load_sequences=False)
+        annotations_list = Annotationist(gene_annotations, body_site=global_body_site, load_sequences=False)
 
 
 def order_columns(snps):
@@ -118,25 +119,6 @@ def choose_contig_type(snps, contig_type):
     return snps
 
 
-def add_maf_genes(snps, P, output_dir):
-    # add annotations from maf_annot file
-
-    def add_species_genes(species, df):
-        maf_annot_fname = get_mbsnp_loader_class(P.body_site).\
-            get_snp_maf_annot_fname(species, P.min_reads_per_snp, P.min_subjects_per_snp_cached)
-        if os.path.exists(maf_annot_fname):
-            maf_annot = pd.read_hdf(maf_annot_fname)
-            df = df.join(maf_annot)
-        return df
-
-    snps = pd.concat([add_species_genes(species, df) for species, df in snps.groupby('Species')])
-
-    snps = order_columns(snps)
-    snps.to_hdf(os.path.join(output_dir, 'snps_maf_genes.h5'), key='snps')
-
-    return snps
-
-
 def add_surrounding_genes(snps, output_dir):
     # add multiple genes
 
@@ -208,7 +190,7 @@ def flatten_surrounding_genes(snps, output_dir):
     snps = pd.concat(dfs).reset_index()
     snps = snps.drop_duplicates(snps.columns[:-1]).set_index(indices).sort_index()
     snps.loc[snps['GeneID'].isna(), 'GeneRelation'] = None
-    snps['GeneID'] = snps['GeneID'].replace(np.nan, None).astype(int)
+    snps['GeneID'] = snps['GeneID'].replace(np.nan, None)#.astype(int)
     snps['MajorCodon'] = snps['MajorCodon'].astype(str)
     snps['MinorCodon'] = snps['MinorCodon'].astype(str)
 
@@ -235,7 +217,7 @@ def add_gene_annotations(snps, output_dir, on='GeneID', rsuffix=''):
     return snps
 
 
-def add_codons(snps, P, output_dir):
+def add_codons(snps, output_dir):
     # adds codons
 
     load_annotations_list()
@@ -278,14 +260,17 @@ def add_taxonomy(snps, output_dir):
     return snps
 
 
-def run(P, mwas_file_path, output_dir):
-    
+def run(mwas_file_path, output_dir, body_site='Gut'):
+
+    global global_body_site
+    global_body_site = body_site
+
     snps = pd.read_hdf(mwas_file_path)
-    # snps = add_maf_genes(choose_contig_type(snps, 'Contig_without_part'), P, output_dir)
-    snps = add_surrounding_genes(choose_contig_type(snps, 'Contig_without_part'), output_dir)
-    snps = add_codons(choose_contig_type(snps, 'Contig_with_part'), P, output_dir)
+    # snps = add_surrounding_genes(choose_contig_type(snps, 'Contig_without_part'), output_dir)
+    # snps = add_codons(choose_contig_type(snps, 'Contig_with_part'), output_dir)
     snps = flatten_surrounding_genes(snps, output_dir)
     snps = add_amino_acids(snps, output_dir)
     snps = add_gene_annotations(snps, output_dir)
 
     return snps
+

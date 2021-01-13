@@ -7,6 +7,7 @@ from LabUtils.addloglevels import sethandlers
 from LabData.DataLoaders.Loader import LoaderData
 from LabData.DataAnalyses.MBSNPs.MWAS import MWAS
 from LabUtils.pandas_utils import filter_dataframe
+from LabUtils.timeutils import sample_date_19000101
 from LabData.DataAnalyses.MBSNPs.MBSNPSpeciesSeparation import get_species_covariate, get_contig_covariate
 
 
@@ -87,6 +88,8 @@ def get_data(study_ids, body_site, group, time_point, y_cols, cov_cols, delta):
 
     # mwas data frames
     joined_df = idx.join(blood).join(body).join(diet).join(clinical)
+    if body_site == 'Oral':
+        joined_df['time'] = sample_date_19000101()
     joined_df = joined_df.reset_index().rename(columns={'person': 'RegistrationCode', 'time': 'Date'})\
         .set_index(['RegistrationCode', 'Date'])
     joined_df.columns = [col.replace('%', '') for col in joined_df.columns]
@@ -100,7 +103,7 @@ def get_data(study_ids, body_site, group, time_point, y_cols, cov_cols, delta):
 
 class P:
     study_ids = ['PNP3']
-    body_site = 'Gut'
+    body_site = 'Oral'
     group = None
     time_point = '0months'  # does not apply to clinical
     delta = True  # for carbohydrates
@@ -132,12 +135,12 @@ class P:
     cov_cols = ['age', 'gender', 'carbohydrates']
 
     # coverage
-    species_specific_cov_f = get_species_covariate
-    contig_specific_cov_f = get_contig_covariate
+    # species_specific_cov_f = get_species_covariate
+    # contig_specific_cov_f = get_contig_covariate
 
-    output_cols = ['N', 'Coef', 'Pval', 'Coef_025', 'Coef_975',
-                   'av_sample_score_Pval', 'av_sample_score_Coef',
-                   'contig_av_sample_score_Pval', 'contig_av_sample_score_Coef']
+    output_cols = ['N', 'Coef', 'Pval', 'Coef_025', 'Coef_975']#+\
+                   # ['av_sample_score_Pval', 'av_sample_score_Coef',
+                   # 'contig_av_sample_score_Pval', 'contig_av_sample_score_Coef']
     for cov in cov_cols:
         output_cols = output_cols + [cov + '_Pval', cov + '_Coef']
 
