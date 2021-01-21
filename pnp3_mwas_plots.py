@@ -8,6 +8,7 @@ from matplotlib.lines import Line2D
 from LabUtils.addloglevels import sethandlers
 
 
+
 def draw_func(sp_df: pd.DataFrame, **kwargs):
     d = dict()
 
@@ -16,10 +17,16 @@ def draw_func(sp_df: pd.DataFrame, **kwargs):
     blue = (0.0, 0.0, 1.0, 0.7)
     red = (1.0, 0.0, 0.0, 0.7)
 
+    marker_dict = {'synonymous': 'o', 'non-synonymous': 'o', 'non-protein': 'v', 'intergenic': '*'}
+    facecolor_marker_dict = {'synonymous': white, 'non-synonymous': black, 'non-protein': black, 'intergenic': black}
     facecolor_dict = {True: red, False: blue}
     facecolor_label_dict = {True: 'positive coefficient', False: 'negative coefficient'}
+    label_dict = {'synonymous': 'Protein coding - synonymous mutation',
+                  'non-synonymous': 'Protein coding - non-synonymous mutation',
+                  'non-protein': 'Non-protein coding (rRNA, tRNA etc.)',
+                  'intergenic': 'Intergenic (no annotated function)'}
 
-    d['marker'] = 'o'
+    d['marker'] = sp_df['annotation'].map(marker_dict).values
     d['s'] = -np.log10(
         sp_df[kwargs['pval_col']]).values  # to not divide by max because than it is species subjective
     # d['facecolor'] = sp_df['annotation'].map(facecolor_dict).values
@@ -27,19 +34,24 @@ def draw_func(sp_df: pd.DataFrame, **kwargs):
     d['edgecolor'] = black
     d['linewidths'] = 1
     d['alpha'] = 0.5
-    d['text'] = sp_df['gene'].fillna('')
 
     if kwargs['legend_elements'] is None:
+        legend_mutation = [Line2D([0], [0], linewidth=0, label=label_dict[k], alpha=d['alpha'],
+                                  markersize=10, marker=marker_dict[k], markeredgewidth=d['linewidths'],
+                                  markerfacecolor=facecolor_marker_dict[k], markeredgecolor=d['edgecolor']) for k in
+                           marker_dict.keys()]
+
         legend_coefficient = [Line2D([0], [0], linewidth=0, label=facecolor_label_dict[k], alpha=d['alpha'],
                                      markersize=10, marker='s', markeredgewidth=0,
                                      markerfacecolor=facecolor_dict[k], markeredgecolor=white) for k in
                               facecolor_dict.keys()]
 
-        legend = legend_coefficient
+        legend = legend_mutation + legend_coefficient
     else:
         legend = kwargs['legend_elements']
 
     return sp_df, d, legend
+
 
 
 def text_func(df: pd.DataFrame, **kwargs):

@@ -7,7 +7,7 @@ from pandas import HDFStore
 from typing import List, Iterable
 from LabUtils.SeqUtils import translate_codon
 from LabData.DataAnalyses.MBSNPs.taxonomy import taxonomy_df
-from LabData.DataLoaders.MBSNPLoader import get_mbsnp_loader_class
+from LabData.RawData.genome import read_sequences, GenePosition
 from LabData.DataAnalyses.MBSNPs.annotationist import Annotationist
 from LabData.DataLoaders.GeneAnnotLoader import GeneAnnotLoader, ANNOTS_03_2020_EXPANDED
 
@@ -153,7 +153,7 @@ def flatten_surrounding_genes(snps, output_dir):
         df = df.drop([col for col in surrounding_columns if relation not in col], axis=1)
 
         # no gene
-        no_gene = df[[f'Plus{relation}GeneID', f'Minus{relation}GeneDistance']].isna().sum(axis=1) == 2
+        no_gene = df[[f'Plus{relation}GeneID', f'Minus{relation}GeneID']].isna().sum(axis=1) == 2
         no_gene = df.loc[no_gene].drop([f'Minus{relation}GeneID', f'Minus{relation}GeneDistance',
                                         'PlusCurrentMajorCodon', 'PlusCurrentMinorCodon',
                                         'MinusCurrentMajorCodon', 'MinusCurrentMinorCodon'], axis=1)
@@ -187,12 +187,10 @@ def flatten_surrounding_genes(snps, output_dir):
         df['GeneRelation'] = relation
         dfs.append(df)
 
-    snps = pd.concat(dfs).reset_index()
-    snps = snps.drop_duplicates(snps.columns[:-1]).set_index(indices).sort_index()
+    snps = pd.concat(dfs)
+    snps = snps.reset_index().drop_duplicates([col for col in snps.columns if col != 'GeneRelation']).\
+        set_index(indices).sort_index()
     snps.loc[snps['GeneID'].isna(), 'GeneRelation'] = None
-    snps['GeneID'] = snps['GeneID'].replace(np.nan, None)
-    snps['MajorCodon'] = snps['MajorCodon'].astype(str)
-    snps['MinorCodon'] = snps['MinorCodon'].astype(str)
 
     snps = order_columns(snps)
     snps.to_hdf(os.path.join(output_dir, 'snps_surrounding_genes_flat.h5'), key='snps')
@@ -220,8 +218,6 @@ def add_codons(snps, output_dir):
     snps = annotations_list.assign_codons(snps)
 
     snps = snps.rename(columns={'Major': 'MajorAllele', 'Minor': 'MinorAllele'})
-    codon_cols = ['PlusCurrentMajorCodon', 'PlusCurrentMinorCodon', 'MinusCurrentMajorCodon', 'MinusCurrentMinorCodon']
-    snps[codon_cols] = snps[codon_cols].astype(str)
 
     snps = order_columns(snps)
     snps.to_hdf(os.path.join(output_dir, 'snps_codons.h5'), key='snps')
@@ -246,12 +242,32 @@ def add_amino_acids(snps, output_dir):
 def add_taxonomy(snps, output_dir):
     # adds taxonomy
 
-    tax_df = taxonomy_df(level_as_numbers=False).set_index('SGB')[
-        ['Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus', 'Species']]
+    tax_df = taxonomy_df(level_as_numbers=False).set_index('SGB')[['Species']]
+    # ['Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus', 'Species']]
     snps = snps.join(tax_df, on='Species')
 
     snps = order_columns(snps)
     snps.to_hdf(os.path.join(output_dir, 'snps_taxonomy.h5'), key='snps')
+
+    return snps
+
+
+def add_sequences(snps, output_dir):
+    # add genomic and amino acid sequences to genes
+
+    unique_genes = snps.dropna(subset=['GeneID']).drop_duplicates(['GeneID']).reset_index().set_index('GeneID')
+
+    seqs = read_sequences([GenePosition(*[x[0], x[1], int(x[2]), int(x[3]+1), x[4]]) for x in
+                           unique_genes[['Species', 'Contig_without_part', 'start_pos', 'end_pos', 'strand']].values])
+
+    snps[['nuc_seq', 'aa_seq']] = None, None
+    is_protein = unique_genes['feature'] == 'CDS'
+    for gene_id, nuc_seq, translate in zip(unique_genes.index, seqs, is_protein):
+        aa_seq = nuc_seq.translate() if translate else ''
+        snps.loc[snps['GeneID'] == gene_id, ['nuc_seq', 'aa_seq']] = str(nuc_seq), str(aa_seq)
+
+    snps = order_columns(snps)
+    snps.to_hdf(os.path.join(output_dir, 'snps_sequences.h5'), key='snps')
 
     return snps
 
@@ -262,11 +278,13 @@ def run(mwas_file_path, output_dir, body_site='Gut'):
     global_body_site = body_site
 
     snps = pd.read_hdf(mwas_file_path)
-    snps = add_surrounding_genes(choose_contig_type(snps, 'Contig_without_part'), output_dir)
+    # snps = add_surrounding_genes(choose_contig_type(snps, 'Contig_without_part'), output_dir)
     snps = add_codons(choose_contig_type(snps, 'Contig_with_part'), output_dir)
     snps = flatten_surrounding_genes(snps, output_dir)
     snps = add_amino_acids(snps, output_dir)
+    snps = add_taxonomy(snps, output_dir)
     snps = add_gene_annotations(snps, output_dir)
+    # snps = add_sequences(snps, output_dir)
 
     return snps
 
