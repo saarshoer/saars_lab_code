@@ -1,12 +1,8 @@
 import os
-import glob
 import mwas_plots
 import numpy as np
 import pandas as pd
-from LabQueue.qp import qp, fakeqp
 from matplotlib.lines import Line2D
-from LabUtils.addloglevels import sethandlers
-
 
 
 def draw_func(sp_df: pd.DataFrame, **kwargs):
@@ -53,47 +49,22 @@ def draw_func(sp_df: pd.DataFrame, **kwargs):
     return sp_df, d, legend
 
 
-
 def text_func(df: pd.DataFrame, **kwargs):
     text = f"{df.shape[0]:,} SNPs in {df.index.get_level_values('Species').unique().shape[0]:,} species\n" + \
            f"N = between {df['N'].min():,} and {df['N'].max():,} samples per SNP\n" + \
            f"{sum(df[kwargs['pval_col']] <= kwargs['pval_cutoff']):,} SNPs passed {kwargs['pval_cutoff']:.2e} {kwargs['pval_col'].replace('_', ' ').replace('Pval', 'p-value')} cutoff"
     return text
 
-run_type = 'PNP3_gut_mwas_0months_delta_species_exist'
 
-input_path = os.path.join('/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas/all', run_type, 'mb_gwas_per_y')
-output_path = os.path.join('/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3/figs/MWAS', run_type)
-jobs_path = os.path.join('/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3/jobs/')
-annotations_path = os.path.join('/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas/all', run_type, 'annotations_significant', 'snps_amino_acids.h5')
+body_site = 'Gut'
 
-# annotations
-print('starting annotations')
-annotations_df = pd.read_hdf(annotations_path)
-print('finished annotations')
+base_dir = f'/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas/PNP3_mwas_{body_site.lower()}_0months_log2division'
+mwas_fname = os.path.join(base_dir, 'mb_gwas.h5')
+data_fname = None  # os.path.join(base_dir, 'mb_gwas_data.h5')
+annotations_df = pd.read_hdf(os.path.join(base_dir, 'annotations', 'snps_sequences.h5'))[['gene']].rename(
+    columns={'gene': 'text'})
+output_dir = os.path.join(base_dir, 'plots')
 
-# queue
-os.chdir(jobs_path)
-sethandlers(file_dir=jobs_path)
-
-with fakeqp(jobname=run_type, _delete_csh_withnoerr=True, q=['himem7.q'], _mem_def='10G', _tryrerun=True, _num_reruns=3) as q:
-    q.startpermanentrun()
-    tkttores = {}
-
-    print('start sending jobs')
-    for y in ['bt__alt_gpt', 'bt__ast_got', 'bt__crp_hs', 'bt__crp_synthetic', 'bt__hemoglobin', 'bt__neutrophils_',
-              'bt__wbc', 'carbohydrates', 'hips', 'sitting_blood_pressure_pulse_rate']:
-        file = os.path.join(input_path, f'mb_gwas_{y}.h5')
-        kwargs = {'mwas_fname': file, 'annotations_df': annotations_df, 'out_dir': output_path,
-                  'manhattan_draw_func': draw_func,
-                  'manhattan_text_func': text_func,
-                  'pval_col': 'Global_Bonferroni', 'pval_cutoff': 0.05}
-        tkttores[file] = q.method(mwas_plots.run, kwargs=kwargs)
-    print('finished sending jobs')
-
-    print('start waiting for jobs')
-    for k, v in tkttores.items():
-        q.waitforresult(v)
-    print('finished waiting for jobs')
-
-print('done')
+mwas_plots.run(mwas_fname=mwas_fname, data_fname=data_fname, annotations_df=annotations_df, pval_col='Global_FDR', pval_cutoff=0.1, # input
+               out_dir=output_dir, fontsize=10, dpi=200,  # output
+               manhattan_draw_func=None, manhattan_text_func=None)

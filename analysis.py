@@ -15,7 +15,7 @@ import pandas as pd
 # statistics
 from skbio import DistanceMatrix
 from scipy.spatial import distance_matrix
-from mne.stats.multi_comp import fdr_correction
+from mne.stats.multi_comp import bonferroni_correction, fdr_correction
 from scipy.stats import mannwhitneyu, wilcoxon, ttest_ind, ttest_rel, ttest_1samp, binom_test, \
     pearsonr, spearmanr, kendalltau
 
@@ -23,6 +23,7 @@ from scipy.stats import mannwhitneyu, wilcoxon, ttest_ind, ttest_rel, ttest_1sam
 from sklearn.preprocessing import LabelEncoder
 from xgboost import XGBClassifier, XGBRegressor
 from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score, accuracy_score
 from sklearn.model_selection import RepeatedKFold, train_test_split, GridSearchCV
 
 # dimensionality reduction
@@ -46,7 +47,7 @@ from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from LabQueue.qp import qp, fakeqp
 from LabUtils.addloglevels import sethandlers
 from LabData.DataLoaders import GutMBLoader, OralMBLoader, BloodTestsLoader, BodyMeasuresLoader, \
-    CGMLoader, DietLoggingLoader
+    DietLoggingLoader
 
 segata_df = pd.read_csv('/net/mraid08/export/jafar/Microbiome/Analyses/Unicorn/Segata/'
                         'SupplementaryTable8-SGBsDescription.csv')
@@ -149,7 +150,8 @@ class Study:
             elif data == 'body':
                 lab_data = BodyMeasuresLoader.BodyMeasuresLoader().get_data(study_ids=self.params.study)
             elif data == 'cgm':
-                lab_data = CGMLoader.CGMLoader().get_data(study_ids=self.params.study)
+                pass
+                # lab_data = CGMLoader.CGMLoader().get_data(study_ids=self.params.study)
             elif data == 'diet':
                 loader = DietLoggingLoader.DietLoggingLoader()
                 lab_data = loader.get_data(study_ids=self.params.study)
@@ -426,8 +428,8 @@ class Study:
         return df
 
     # analysis
-    def comp_stats(self, obj, test, between, delta=False, minimal_samples=0.1, normalize_figure=False,
-                   internal_use=False):
+    def comp_stats(self, obj, test, between, delta=False, minimal_samples=0.1, main_correction_method='FDR',
+                   normalize_figure=False, internal_use=False):
         """
         Compute the statistical significance for the difference between elements
 
@@ -437,6 +439,7 @@ class Study:
         :param delta: (bool) whether or not to calculate the statistics based on the difference between
         time_point values
         :param minimal_samples: (percentage or int) to have in order to compute
+        :param main_correction_method: (str) bonferroni or FDR, main multiple hypothesis correction method
         :param normalize_figure: (bool) whether to normalizes values scale in figure
         :param internal_use: (bool) whether an internal function is running it or not
 
@@ -727,12 +730,14 @@ class Study:
                         # intentionally not done for all columns at once
                         # so problems with test function will be seen as missing values
 
-                # fdr correction
+                # multiple hypothesis correction
+                _, stats_df_list[-1]['p_bonferroni'] = bonferroni_correction(stats_df_list[-1]['p'], alpha=self.params.alpha)
                 _, stats_df_list[-1]['p_FDR'] = fdr_correction(stats_df_list[-1]['p'], alpha=self.params.alpha)
-                stats_df_list[-1].sort_values('p_FDR', inplace=True)
+                stats_df_list[-1].sort_values(f'p_{main_correction_method}', inplace=True)
 
                 # delete from the data_df un-significant results
-                significant_indices = stats_df_list[-1][stats_df_list[-1]['p_FDR'] < self.params.alpha].index
+                significant_indices = stats_df_list[-1]\
+                    [stats_df_list[-1][f'p_{main_correction_method}'] < self.params.alpha].index
                 non_significant_indices = data_df.index.difference(significant_indices)
                 data_df.loc[non_significant_indices, (major_e, minor_e)] = np.nan
 
@@ -740,6 +745,9 @@ class Study:
                 print('')
                 print(test)
                 print(stats_df_list[-1].name)
+                print('{}/{} {} are significant after bonferroni correction'
+                      .format((stats_df_list[-1]['p_bonferroni'] < self.params.alpha).sum(), stats_df_list[-1].shape[0],
+                              obj.columns))
                 print('{}/{} {} are significant after FDR correction'
                       .format((stats_df_list[-1]['p_FDR'] < self.params.alpha).sum(), stats_df_list[-1].shape[0],
                               obj.columns))
@@ -770,7 +778,7 @@ class Study:
         else:
             return stats_df_list
 
-    def score_models(self, xobj, yobj, delta=True, minimal_samples=0.9,
+    def score_models(self, xobj, yobj, cobj, delta=True, minimal_samples=0.9,
                      model_type='linear', n_repeats=1, n_splits=5, random_state=None, hyper_parameters=None,
                      send2queue=False, save=False):
         """
@@ -779,12 +787,13 @@ class Study:
 
         :param xobj: (object) the features object
         :param yobj: (object) the label object
+        :param cobj: (object) the covariates object
         :param delta: (bool) whether or not to calculate the models based on the difference between time_point values
         :param minimal_samples: (percentage or int) that needs to be included in the models
         and therefore cannot be deleted in the missing values filtering process
         :param model_type: (str) 'linear' or 'xgb'
         :param n_repeats: (int) number of models to be created for each target
-        :param n_splits: (int) number of time to split the data in the KFold
+        :param n_splits: (int) number of times to split the data in the KFold or -1 for leave one out
         :param random_state: (int) seed for the random process used for splitting the data
         :param hyper_parameters: (dict) dictionary with hyper parameters for the model {key: [value/s]}
         if value is single will be set directly, if values are multiple will perform a grid search
@@ -796,33 +805,39 @@ class Study:
 
         # TODO: add model evaluation (ROC, PR, calibration)
         # TODO: add SHAP analysis
-        def score_model(x, y):
+        def score_model(x, y, n_splits=1):
+            # TODO: not relay on person - maybe x.join(y, how='inner) and then x= joined[:, :-1], y=joined([:, -1])
+            # find the indices that exists in the x_df, y_df
+            combined_indices = x.dropna().index.get_level_values('person').\
+                  intersection(y.dropna().index.get_level_values('person'))
+
+            if len(combined_indices) < minimal_samples:
+                print(f'{x_col} {y_col} does not have enough samples')
+                return [np.nan]*5
+
+            # filter the data frames to only include these indices
+            x = x[x.index.isin(combined_indices, level='person')].sort_values('person')
+            y = y[y.index.isin(combined_indices, level='person')].sort_values('person')
+
+            if x.shape[0] != y.shape[0]:
+                print(f'{x_col} {y_col} are not the same shape')
+                return [np.nan]*5
+
+            # conversion
+            x = np.array(x)
+            y = np.array(y)
 
             # check if column is classifiable in order to know which model to use
-            if sorted(np.unique(y)) == [0, 1] or sorted(np.unique(y)) == [False, True] \
-                    or not all(np.issubdtype(val, np.number) for val in y):
+            if sorted(np.unique(y)) == [0, 1] or sorted(np.unique(y)) == [False, True]:# \
+                    # or not all(np.issubdtype(val, np.number) for val in y):
                 classifiable = True
             else:
                 classifiable = False
 
-            # skip column in some cases
-            if model_type == 'linear' and classifiable:
-                # print('skipping classifiable column while model is linear - {}'.format(col))
-                return [np.nan, np.nan]
-            if any(np.unique(y) == np.nan):
-                # print('skipping column with {} missing values - {}'.format(y_df[col].isna().sum(), col))
-                return [np.nan, np.nan]
-            if np.unique(y).shape[0] == 1:
-                # print('skipping column with a single value ({}) - {}'.format(y_df[col].unique(), col))
-                return [np.nan, np.nan]
-
-            # a list to contain the iterations scores
             scores = []
+            y_pred = []
+            y_true = []
 
-            # empty array to hold all predictions in order to score them later together
-            # this will be overwritten in case of a grid search
-            y_pred = np.empty(y.shape)
-            y_pred.fill(np.nan)
 
             # linear model
             if model_type == 'linear':
@@ -843,7 +858,9 @@ class Study:
                 raise Exception('model not valid')
 
             # create K folds of the data and do for each fold
-            kf = RepeatedKFold(n_splits=n_splits, n_repeats=n_repeats, random_state=random_state)  # shuffle=True
+            number_of_splits = len(x) if n_splits == -1 else n_splits
+
+            kf = RepeatedKFold(n_splits=number_of_splits, n_repeats=n_repeats, random_state=random_state)  # shuffle=True
 
             # grid search mode
             if len(search_hyper_params) != 0:
@@ -854,6 +871,10 @@ class Study:
 
                 model.fit(x_train, y_train)
 
+                if n_splits == -1:
+                    y_true.append(y_test)
+                    y_pred.append(model.predict(x_test))
+                else:
                 scores.append(model.score(x_test, y_test))
 
             # not grid search mode
@@ -867,22 +888,35 @@ class Study:
 
                     model.fit(x_train, y_train)
 
-                    scores.append(model.score(x_test, y_test))
+                    if n_splits == -1:
+                        y_true.append(y_test)
+                        y_pred.append(model.predict(x_test))
+                    else:
+                        scores.append(model.score(x_test, y_test))
 
+            if n_splits == -1:
+                if score == 'r2':
+                    scores = r2_score(np.array(y_true).flatten(), np.array(y_pred).flatten())
+                    r_pearson, p_pearson = pearsonr(np.array(y_true).flatten(), np.array(y_pred).flatten())
+                    r_spearman, p_spearman = spearmanr(np.array(y_true).flatten(), np.array(y_pred).flatten())
             # save/load the model
-            if save:
-                pickle.dump(model, open(os.path.join(self.dirs.models,
-                            'model {} {} {}{} {}.sav'.format(xobj.type, yobj.type, col, delta_str, model_type)), 'wb'))
+            # if save:
+            #     pickle.dump(model, open(os.path.join(self.dirs.models,
+            #                                          f'model_{xobj.type}_{x_col}_{yobj.type}_{y_col}_' +
+            #                                          f'{delta_str}_{model_type}.sav'), 'wb'))
                 # model = pickle.load(open('model.sav', 'rb'))
 
-            return [np.mean(scores), np.std(scores)]
+            return [scores, r_pearson, p_pearson, r_spearman, p_spearman]
+
+
 
         # retrieving the data frames from the objects
-        if type(xobj) == self.Object and type(yobj) == self.Object:
-            x_df = xobj.df
+        if (cobj is None or type(cobj) == self.Object) and type(xobj) == self.Object and type(yobj) == self.Object:
+            # TODO: check what happnes if cobj is None
+            x_df = cobj.df.join(xobj.df, how='inner') if cobj else xobj.df
             y_df = yobj.df
         else:
-            raise Exception('xobj and yobj type is not object')
+            raise Exception('cobj, xobj or yobj type is not object')
 
         # change the values in the data frames to be the change in value between two time points:
         # any time point and the control time point
@@ -898,26 +932,6 @@ class Study:
             minimal_samples = round(minimal_samples * x_df.shape[0])
             # needs to be after the delta because delta effects the shape
 
-        # deal with missing values # TODO: make more general
-        if 'abundance' in xobj.type:  # only for abundance otherwise the min min might not be the best solution
-            x_df = x_df.fillna(x_df.min().min())
-        # drop samples with missing values as long as it does not go over the minimal_samples
-        na_columns = (y_df.isna().sum(axis=0) > 0) & (y_df.isna().sum(axis=0) < (x_df.shape[0] - minimal_samples))
-        # columns with small number of missing values and thus the entries missing in them can be deleted
-        na_person = y_df.loc[:, na_columns].isna().groupby('person').any().any(axis=1)
-        person2delete = na_person[na_person.values].index.values
-        # person from rows that can be deleted by the previous logic
-        y_df = y_df[~y_df.index.isin(person2delete, level='person')]
-
-        # find the indices that exists in both the x_df and the y_df
-        combined_indices = x_df.index.get_level_values('person').intersection(y_df.index.get_level_values('person'))
-        # filter the data frames to only include these indices
-        x_df = x_df[x_df.index.isin(combined_indices, level='person')]
-        y_df = y_df[y_df.index.isin(combined_indices, level='person')]
-
-        # conversion
-        x_ = np.array(x_df)
-
         # split hyper parameters to those given and those that need to be optimized
         if hyper_parameters is None:
             hyper_parameters = {}
@@ -928,11 +942,11 @@ class Study:
         # random_state is used by the xgb model to split the data the same way in the KFold
         # if random_state is not None:
         #     np.random.seed(random_state)
-        # random_state = np.random.randint(100, size=n_iterations)  # the 100 is arbitrary
+        # random_state = np.random.randint(100, size=n_repeats)  # the 100 is arbitrary
 
         # queue
         original_dir = os.getcwd()
-        os.chdir(os.path.join(self.dirs.excels, '..', 'jobs'))
+        os.chdir(self.dirs.jobs)
         queue = qp if send2queue else fakeqp
 
         with queue(jobname='model', _delete_csh_withnoerr=True, q=['himem7.q']) as q:
@@ -940,27 +954,19 @@ class Study:
             q.startpermanentrun()
             tkttores = {}
 
-            # create a model for each target column
-            for col in y_df.columns:
-
-                if y_df[col].isna().sum() != 0:
-                    print('skipping column with {} missing values - {}'.format(y_df[col].isna().sum(), col))
-                    continue
-                if y_df[col].unique().shape[0] == 1:
-                    print('skipping column with a single value ({}) - {}'.format(y_df[col].unique(), col))
-                    continue
-
-                # conversion
-                y_ = np.array(y_df[col])
-
+            # create a model for each combination of x an y
+            # intentionally taken from object otherwise x includes covariates
+            c_cols = cobj.df.columns.tolist() if cobj else []
+            for x_col in xobj.df.columns:
+                for y_col in yobj.df.columns:
                 # send job
-                tkttores[col] = q.method(score_model, (x_, y_))
+                    tkttores[f'{x_col}_{y_col}'] = q.method(score_model, (x_df[c_cols+[x_col]], y_df[[y_col]], n_splits))
 
             # summarize the scores using the iterations scores distribution if exist
-            scores_df = pd.DataFrame(index=y_df.columns, columns=['mean', 'std'])
+            scores_df = pd.DataFrame(index=tkttores.keys(), columns=['R2', 'r_pearson', 'p_pearson', 'r_spearman', 'p_spearman'])
 
             for k, v in tkttores.items():
-                scores_df.loc[k, ['mean', 'std']] = q.waitforresult(v)
+                scores_df.loc[k, ['R2', 'r_pearson', 'p_pearson', 'r_spearman', 'p_spearman']] = q.waitforresult(v)
 
         os.chdir(original_dir)
 
@@ -968,7 +974,7 @@ class Study:
         scores_df = scores_df.dropna(axis=0, how='all')
 
         # sort values by score
-        scores_df = scores_df.sort_values('mean', ascending=False)
+        scores_df = scores_df.sort_values('R2', ascending=False)
 
         # save the data frame as excel
         # create excel writer to fill up
@@ -1286,6 +1292,8 @@ class Study:
 
                     df_linkage = linkage(squareform(df, force='tovector', checks=False),
                                          method='average', optimal_ordering=True)
+                    # TODO: consider method='max' so to be like in assemblies
+
                     # necessary to define explicitly otherwise there are differences between the rows and columns
 
                     # A (n-1) by 4 matrix Z is returned. At the i-th iteration,
@@ -1609,7 +1617,7 @@ class Study:
         # histogram
         g = sns.FacetGrid(n_replacements.reset_index(), hue=hue, palette=self.params.colors,
                           sharex=False, sharey=False, margin_titles=True)
-        g = g.map(sns.distplot, 'replacement', hist=True, kde=False)  # norm_hist=False does not work as expected
+        g = g.map(sns.distplot, 'replacement', hist=True, kde=False, norm_hist=True)  # norm_hist=False does not work as expected
         g = g.add_legend()
 
         obj_type = obj.type.split(' ')[0].lower()
@@ -1801,12 +1809,13 @@ def get_diversity_df(abundance_df):
     return diversity_df
 
 
-def get_delta_df(regular_df, control_time_point):
+def get_delta_df(regular_df, control_time_point, divide=False):
     """
     Subtract from each time point values the self.params.control_time values
 
     :param regular_df: (pd.DataFrame) data frame to calculate for the delta
     :param control_time_point: time point values to subtract for all other time points values
+    :param divide: (bool) default False mean subtract value True means divide
 
     :return: delta_df (pd.DataFrame)
     """
@@ -1828,11 +1837,18 @@ def get_delta_df(regular_df, control_time_point):
     # subtract from each time point values the control time values
     for time_point in time_points:
         idx = delta_df.xs(time_point, level='time_point', drop_level=False).index
-        delta_df.loc[idx] = \
-            (regular_df.xs(time_point, level='time_point') -
-             regular_df.xs(control_time_point, level='time_point')).values
+        if divide:
+            delta_df.loc[idx] = \
+                (regular_df.xs(time_point, level='time_point') /
+                 regular_df.xs(control_time_point, level='time_point')).values
+            sign = '/'
+        else:
+            delta_df.loc[idx] = \
+                (regular_df.xs(time_point, level='time_point') -
+                 regular_df.xs(control_time_point, level='time_point')).values
+            sign = '-'
         delta_df = delta_df.rename(
-            index={time_point: '{}-{}'.format(time_point, control_time_point)},
+            index={time_point: '{}{}{}'.format(time_point, sign, control_time_point)},
             level='time_point')
 
     # delete the control time points
@@ -2439,7 +2455,7 @@ class _Parameters:
         self.colors[''] = 'gray'  # necessary
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     PNP3 = Study(
 
         study='PNP3',
@@ -2470,40 +2486,31 @@ if __name__ == "__main__":
             'mostly lipids': 'yellow',
             # hba1c
             'increased': 'red',
-            'decreased': 'green'
-        },
+            'decreased': 'green'},
 
-        base_directory='/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3')
+        base_directory='/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3/new')
+    site = 'oral'
+    PNP3.objs[f'{site}_abundance'] = PNP3.Object(obj_type=f'{site} abundance', columns='bacteria')
+    # PNP3.objs['diet'] = PNP3.Object(obj_type='diet', columns='nutrients')
+    # PNP3.objs['body'] = PNP3.Object(obj_type='body', columns='measurements')
 
-    ###
-
-    PNP3.objs['gut_abundance'] = PNP3.Object(obj_type='gut abundance', columns='bacteria')
-    PNP3.objs['gut_diversity'] = PNP3.Object(obj_type='gut diversity', columns='diversity')
-    PNP3.objs['gut_snp_diss'] = PNP3.Object(obj_type='gut snp dissimilarity', columns='dissimilarity')
-
-    PNP3.objs['oral_abundance'] = PNP3.Object(obj_type='oral abundance', columns='bacteria')
-    PNP3.objs['oral_diversity'] = PNP3.Object(obj_type='oral diversity', columns='diversity')
-    PNP3.objs['oral_snp_diss'] = PNP3.Object(obj_type='oral snp dissimilarity', columns='dissimilarity')
-
-    PNP3.objs['combined_abundance'] = PNP3.Object(obj_type='combined abundance', columns='bacteria')
-
-    PNP3.objs['blood'] = PNP3.Object(obj_type='blood', columns='measurements')
-    PNP3.objs['body'] = PNP3.Object(obj_type='body', columns='measurements')
-    PNP3.objs['diet'] = PNP3.Object(obj_type='diet', columns='nutrients')
-
-    ###
-
-    PNP3.objs['gut_abundance'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'gut_abundance.df'))
-    PNP3.objs['gut_diversity'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'gut_diversity.df'))
-    PNP3.objs['gut_snp_diss'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'gut_snp_diss.df'))
-    PNP3.objs['oral_abundance'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'oral_abundance.df'))
-    PNP3.objs['oral_diversity'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'oral_diversity.df'))
-    PNP3.objs['oral_snp_diss'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'oral_snp_diss.df'))
-    PNP3.objs['combined_abundance'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'combined_abundance.df'))
-    PNP3.objs['blood'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'blood.df'))
-    PNP3.objs['body'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'body.df'))
-    PNP3.objs['diet'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, 'diet.df'))
-
-    ###
-
-    print(help(Study))
+    PNP3.objs[f'{site}_abundance'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames.replace('/new', ''), f'{site}_abundance.df'))#.fillna(-4)
+    # PNP3.objs['gut_abundance'].df = PNP3.objs['gut_abundance'].df.loc[:,
+    #                                 (~PNP3.objs['gut_abundance'].df.isna()).sum() / PNP3.objs['gut_abundance'].df.shape[
+    #                                     0] > 0.1]
+    # PNP3.objs['gut_abundance'].df = PNP3.objs['gut_abundance'].df.loc[:,
+    #                                 (PNP3.objs['gut_abundance'].df != -4).sum() / PNP3.objs['gut_abundance'].df.shape[
+    #                                     0] > 0.1]
+    # PNP3.objs['diet'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames.replace('/new', ''), 'diet.df'))[['%carbohydrates']]
+    # PNP3.objs['body'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames.replace('/new', ''), 'body.df'))[['age', 'gender']]
+    # PNP3.objs['body'].df[PNP3.objs['body'].df.index.get_level_values('time_point') == '0months'] = 0
+    #
+    # PNP3.score_models(PNP3.objs['diet'], PNP3.objs['gut_abundance'], PNP3.objs['body'], delta=True, minimal_samples=50,
+    #                   model_type='linear', n_repeats=1, n_splits=-1, random_state=None, hyper_parameters=None,
+    #                   send2queue=False, save=True)
+    PNP3.objs[site + '_richness'] = PNP3.Object(obj_type=site + ' richness', columns='richness')
+    PNP3.objs[site + '_richness'].df = pd.DataFrame(
+        (PNP3.objs[site + '_abundance'].df > PNP3.objs[site + '_abundance'].df.min().min()).sum(axis=1))
+    obj = PNP3.objs[site + '_richness']
+    PNP3.comp_stats(obj=PNP3.objs[f'{site}_richness'], test='wilcoxon', between='time_point', delta=False, normalize_figure=True)#, minimal_samples=1)
+    # PNP3.comp_stats(obj=PNP3.objs['gut_abundance'], test='mannwhitneyu', between='time_point', delta=T, normalize_figure=True, minimal_samples=1)

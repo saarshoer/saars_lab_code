@@ -17,9 +17,9 @@ indices = ['Species', 'Contig', 'Position']
 first_columns = ['SGB', 'contig', 'Contig_with_part', 'Contig_without_part',
                  'MajorAllele', 'MinorAllele', 'MajorCodon', 'MinorCodon', 'MajorAA', 'MinorAA',
                  'GeneID', 'GeneRelation', 'GeneDistance', 'strand', 'start_pos', 'end_pos',
-                 'feature', 'gene', 'product', 'eggNOG annot']
+                 'feature']#, 'gene', 'product', 'eggNOG annot']
 
-annotations_file = ANNOTS_03_2020_EXPANDED
+annotations_file = '/net/mraid08/export/genie/LabData/Data/Annotations/Segata_annots/Segata_annots_2021_02_04_prokka_eggnog.csv'
 gene_annotations = None
 annotations_list = None
 global_body_site = 'Gut'
@@ -188,9 +188,12 @@ def flatten_surrounding_genes(snps, output_dir):
         dfs.append(df)
 
     snps = pd.concat(dfs)
-    snps = snps.reset_index().drop_duplicates([col for col in snps.columns if col != 'GeneRelation']).\
-        set_index(indices).sort_index()
     snps.loc[snps['GeneID'].isna(), 'GeneRelation'] = None
+    snps = snps.drop_duplicates().sort_index()
+
+    # for snps that have both GeneID na and GeneID not na, delete their GeneID na version
+    duplicated_indices = snps['GeneID'].isna().index.intersection((~snps['GeneID'].isna()).index)
+    snps = snps[~(snps['GeneID'].isna() & snps.index.isin(duplicated_indices))]
 
     snps = order_columns(snps)
     snps.to_hdf(os.path.join(output_dir, 'snps_surrounding_genes_flat.h5'), key='snps')
@@ -202,11 +205,13 @@ def add_gene_annotations(snps, output_dir, on='GeneID', rsuffix=''):
     # add gene annotations
 
     load_gene_annotations()
-    snps = snps.join(gene_annotations, on=on, rsuffix=rsuffix)  # TODO: take only useful columns, rename unclear ones
+    snps = snps.join(gene_annotations, on=on, rsuffix=rsuffix)
     snps = snps.drop(['SGB', 'contig'], axis=1)
 
     snps = order_columns(snps)
+    snps.to_csv(os.path.join(output_dir, 'snps_gene_annotations.csv'))
     snps.to_hdf(os.path.join(output_dir, 'snps_gene_annotations.h5'), key='snps')
+    snps.reset_index().to_excel(os.path.join(output_dir, 'snps_gene_annotations.xlsx'))
 
     return snps
 
@@ -242,7 +247,7 @@ def add_amino_acids(snps, output_dir):
 def add_taxonomy(snps, output_dir):
     # adds taxonomy
 
-    tax_df = taxonomy_df(level_as_numbers=False).set_index('SGB')[['Species']]
+    tax_df = taxonomy_df(level_as_numbers=False).set_index('SGB')[['Species']].rename(columns={'Species': 'taxa'})
     # ['Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus', 'Species']]
     snps = snps.join(tax_df, on='Species')
 
@@ -268,6 +273,7 @@ def add_sequences(snps, output_dir):
 
     snps = order_columns(snps)
     snps.to_hdf(os.path.join(output_dir, 'snps_sequences.h5'), key='snps')
+    snps.reset_index().to_excel(os.path.join(output_dir, 'snps_sequences.xlsx'))
 
     return snps
 
@@ -278,13 +284,12 @@ def run(mwas_file_path, output_dir, body_site='Gut'):
     global_body_site = body_site
 
     snps = pd.read_hdf(mwas_file_path)
-    # snps = add_surrounding_genes(choose_contig_type(snps, 'Contig_without_part'), output_dir)
+    snps = add_surrounding_genes(choose_contig_type(snps, 'Contig_without_part'), output_dir)
     snps = add_codons(choose_contig_type(snps, 'Contig_with_part'), output_dir)
     snps = flatten_surrounding_genes(snps, output_dir)
     snps = add_amino_acids(snps, output_dir)
     snps = add_taxonomy(snps, output_dir)
     snps = add_gene_annotations(snps, output_dir)
-    # snps = add_sequences(snps, output_dir)
+    snps = add_sequences(snps, output_dir)
 
     return snps
-
