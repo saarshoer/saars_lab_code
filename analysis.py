@@ -201,7 +201,7 @@ class Study:
                 # read file to data frame according to the file's type
                 file_extension = os.path.splitext(file)[1]
                 if file_extension == '.xlsx':
-                    file_df = pd.read_excel(file)
+                    file_df = pd.read_excel(file, engine='openpyxl')
                 elif file_extension == '.csv':
                     file_df = pd.read_csv(file)
                 else:
@@ -217,7 +217,7 @@ class Study:
 
             # fix known problems
             if 'RegistrationCode' in file_df.columns:
-                file_df['RegistrationCode'] = file_df['RegistrationCode'].astype(str)
+                file_df['RegistrationCode'] = file_df['RegistrationCode'].astype(str).str.split('.').str[0]
 
             if 'Timestamp' in file_df.columns:
                 file_df['Timestamp'] = pd.to_datetime(file_df['Timestamp'], dayfirst=True, errors='coerce')
@@ -875,7 +875,7 @@ class Study:
                     y_true.append(y_test)
                     y_pred.append(model.predict(x_test))
                 else:
-                scores.append(model.score(x_test, y_test))
+                    scores.append(model.score(x_test, y_test))
 
             # not grid search mode
             else:
@@ -1255,18 +1255,20 @@ class Study:
         :return: None
         """
 
-        if annotations is None:
-            annotations = ['group', 'time_point']
+        colors_df = None
+        annotations_df = None
+        annotations_labels = []
 
-        # create all the annotation data for the colored bars
-        annotations_df = obj.df
-        annotations_df = annotations_df.reset_index()[[s for s in annotations_df.index.names if '1' in s]] \
-            .set_index('SampleName1').drop_duplicates()  # take only sample1 metadata
-        annotations_df.columns = annotations_df.columns.str.rstrip('1')  # remove 1 suffix from the names
-        annotations_df = annotations_df[annotations]  # limit the annotation to these categories
-        annotations_df = annotations_df.iloc[~annotations_df.index.duplicated()]  # drop duplicated samples
-        annotations_labels = np.unique(annotations_df.values)
-        colors_df = annotations_df.replace(self.params.colors)  # replace values with corresponding colors
+        if annotations is not None:
+            # create all the annotation data for the colored bars
+            annotations_df = obj.df
+            annotations_df = annotations_df.reset_index()[[s for s in annotations_df.index.names if '1' in s]] \
+                .set_index('SampleName1').drop_duplicates()  # take only sample1 metadata
+            annotations_df.columns = annotations_df.columns.str.rstrip('1')  # remove 1 suffix from the names
+            annotations_df = annotations_df[annotations]  # limit the annotation to these categories
+            annotations_df = annotations_df.iloc[~annotations_df.index.duplicated()]  # drop duplicated samples
+            annotations_labels = np.unique(annotations_df.values)
+            colors_df = annotations_df.replace(self.params.colors)  # replace values with corresponding colors
 
         # for each species
         for species in obj.df.index.get_level_values('Species').unique():
@@ -1321,37 +1323,38 @@ class Study:
                     # cbar ticks are None because otherwise in log scale there are no ticks
 
                     # statistical test
-                    stats_df = annotations_df.loc[df.iloc[g.dendrogram_col.reordered_ind].index]
-                    stats_df['rank'] = np.arange(stats_df.shape[0])
+                    if annotations:
+                        stats_df = annotations_df.loc[df.iloc[g.dendrogram_col.reordered_ind].index]
+                        stats_df['rank'] = np.arange(stats_df.shape[0])
 
-                    expanded_labels = []
+                        expanded_labels = []
 
-                    for anno in annotations:
+                        for anno in annotations:
 
-                        # statistics
-                        if len(np.unique(stats_df[anno])) == 2:
-                            s, p = mannwhitneyu(
-                                x=stats_df.loc[stats_df[anno] == np.unique(stats_df[anno])[0], 'rank'].values,
-                                y=stats_df.loc[stats_df[anno] == np.unique(stats_df[anno])[1], 'rank'].values,
-                                use_continuity=True, alternative='two-sided')  # TODO: think about use_continuity
-                            p = round(p, 3)
-                        else:
-                            p = 'NA'
+                            # statistics
+                            if len(np.unique(stats_df[anno])) == 2:
+                                s, p = mannwhitneyu(
+                                    x=stats_df.loc[stats_df[anno] == np.unique(stats_df[anno])[0], 'rank'].values,
+                                    y=stats_df.loc[stats_df[anno] == np.unique(stats_df[anno])[1], 'rank'].values,
+                                    use_continuity=True, alternative='two-sided')  # TODO: think about use_continuity
+                                p = round(p, 3)
+                            else:
+                                p = 'NA'
 
-                        # rand index between the annotation and the clusters
-                        org_clusters = annotations_df.loc[df.index, anno].values.flatten()
-                        new_clusters = fcluster(df_linkage, t=len(np.unique(org_clusters)),
-                                                criterion='maxclust')
+                            # rand index between the annotation and the clusters
+                            org_clusters = annotations_df.loc[df.index, anno].values.flatten()
+                            new_clusters = fcluster(df_linkage, t=len(np.unique(org_clusters)),
+                                                    criterion='maxclust')
 
-                        RI = round(adjusted_rand_score(org_clusters, new_clusters), 3)
+                            RI = round(adjusted_rand_score(org_clusters, new_clusters), 3)
 
-                        # TODO: think what should be the t for inconsistent fcluster
-                        # new_clusters2 = fcluster(df_linkage, t=1, criterion='inconsistent')
-                        # rand_index2 = adjusted_rand_score(org_clusters, new_clusters2)
+                            # TODO: think what should be the t for inconsistent fcluster
+                            # new_clusters2 = fcluster(df_linkage, t=1, criterion='inconsistent')
+                            # rand_index2 = adjusted_rand_score(org_clusters, new_clusters2)
 
-                        expanded_labels.append('{} (p={}, RI={})'.format(anno, p, RI))
+                            expanded_labels.append('{} (p={}, RI={})'.format(anno, p, RI))
 
-                    g.ax_col_colors.set_yticklabels(expanded_labels)
+                        g.ax_col_colors.set_yticklabels(expanded_labels)
 
                     # title
                     title = '{}\n{}'.format(obj.type, species)
@@ -2456,61 +2459,10 @@ class _Parameters:
 
 
 if __name__ == '__main__':
-    PNP3 = Study(
+    mic = Study(base_directory='/home/saarsh')
 
-        study='PNP3',
+    mic.objs['diss'] = mic.Object(obj_type='dissimilarity', columns='???')
 
-        controls={'time_point': '0months',
-                  'group': 'mediterranean'},
+    mic.objs['diss'].df = pd.read_hdf('/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_diss_species_exist/mb_dists.h5')
 
-        colors={  # time_points
-            '0months': 'orchid',
-            '6months': 'darkorchid',
-            '6months-0months': 'deeppink',
-            '0months vs. 6months': 'deeppink',
-            # groups
-            'mediterranean': 'mediumblue',
-            'algorithm': 'orange',
-            # body sites
-            'gut abundance': 'brown',
-            'oral abundance': 'green',
-            # body sites
-            'gut snp dissimilarity': 'brown',
-            'oral snp dissimilarity': 'green',
-            # batches
-            0.0: 'yellow',
-            1.0: 'cyan',
-            2.0: 'pink',
-            # diet
-            'mostly carbohydrates': 'purple',
-            'mostly lipids': 'yellow',
-            # hba1c
-            'increased': 'red',
-            'decreased': 'green'},
-
-        base_directory='/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3/new')
-    site = 'oral'
-    PNP3.objs[f'{site}_abundance'] = PNP3.Object(obj_type=f'{site} abundance', columns='bacteria')
-    # PNP3.objs['diet'] = PNP3.Object(obj_type='diet', columns='nutrients')
-    # PNP3.objs['body'] = PNP3.Object(obj_type='body', columns='measurements')
-
-    PNP3.objs[f'{site}_abundance'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames.replace('/new', ''), f'{site}_abundance.df'))#.fillna(-4)
-    # PNP3.objs['gut_abundance'].df = PNP3.objs['gut_abundance'].df.loc[:,
-    #                                 (~PNP3.objs['gut_abundance'].df.isna()).sum() / PNP3.objs['gut_abundance'].df.shape[
-    #                                     0] > 0.1]
-    # PNP3.objs['gut_abundance'].df = PNP3.objs['gut_abundance'].df.loc[:,
-    #                                 (PNP3.objs['gut_abundance'].df != -4).sum() / PNP3.objs['gut_abundance'].df.shape[
-    #                                     0] > 0.1]
-    # PNP3.objs['diet'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames.replace('/new', ''), 'diet.df'))[['%carbohydrates']]
-    # PNP3.objs['body'].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames.replace('/new', ''), 'body.df'))[['age', 'gender']]
-    # PNP3.objs['body'].df[PNP3.objs['body'].df.index.get_level_values('time_point') == '0months'] = 0
-    #
-    # PNP3.score_models(PNP3.objs['diet'], PNP3.objs['gut_abundance'], PNP3.objs['body'], delta=True, minimal_samples=50,
-    #                   model_type='linear', n_repeats=1, n_splits=-1, random_state=None, hyper_parameters=None,
-    #                   send2queue=False, save=True)
-    PNP3.objs[site + '_richness'] = PNP3.Object(obj_type=site + ' richness', columns='richness')
-    PNP3.objs[site + '_richness'].df = pd.DataFrame(
-        (PNP3.objs[site + '_abundance'].df > PNP3.objs[site + '_abundance'].df.min().min()).sum(axis=1))
-    obj = PNP3.objs[site + '_richness']
-    PNP3.comp_stats(obj=PNP3.objs[f'{site}_richness'], test='wilcoxon', between='time_point', delta=False, normalize_figure=True)#, minimal_samples=1)
-    # PNP3.comp_stats(obj=PNP3.objs['gut_abundance'], test='mannwhitneyu', between='time_point', delta=T, normalize_figure=True, minimal_samples=1)
+    mic.fig_snp_heatmap(mic.objs['diss'])
