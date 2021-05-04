@@ -1,18 +1,22 @@
+"""Main entry point for running the MWFTP module."""
 import os
-import pandas as pd
-from LabQueue.qp import qp, fakeqp
 from typing import Iterable, Callable, Dict, NamedTuple, Any
+
+import pandas as pd
+from LabQueue.qp import fakeqp
 from LabUtils.addloglevels import sethandlers
 
 
 class JobInfo(NamedTuple):
+    """The information passed to a single job, to indicate its name and what data it should operate
+    on."""
     name: str = ''
     info: Any = None
 
-    pass
 
-
-def run_per_job(job_info: JobInfo, data_iterator_gen: Callable, xy_function: Callable[..., Dict], output_dir: str):
+def _run_per_job(job_info: JobInfo, data_iterator_gen: Callable, xy_function: Callable[..., Dict],
+                 output_dir: str):
+    """The function that is called by each job."""
     results = []
 
     for x, y in data_iterator_gen(job_info.info):
@@ -26,8 +30,9 @@ def run_per_job(job_info: JobInfo, data_iterator_gen: Callable, xy_function: Cal
     return output_fname
 
 
-def run(job_iterator: Iterable[JobInfo], data_iterator: Callable, xy_function: Callable, collector: Callable,
-        output_dir: str, qp_kwargs: Dict = None):
+def run(job_iterator: Iterable[JobInfo], data_iterator: Callable, xy_function: Callable,
+        output_dir: str, qp_kwargs: Dict = None) -> pd.DataFrame:
+    """Creates a job for each item in job_iterator and collects the results."""
     # os.chdir('.')
     sethandlers()
     if qp_kwargs is None:
@@ -37,18 +42,17 @@ def run(job_iterator: Iterable[JobInfo], data_iterator: Callable, xy_function: C
         q.startpermanentrun()
 
         tkttores = []
-
         for job_info in job_iterator:
-            tkttores.append(q.method(run_per_job, (job_info, data_iterator, xy_function, output_dir),
-                                    _job_name=job_info.name))
+            tkttores.append(q.method(_run_per_job, (job_info, data_iterator, xy_function,
+                                                    output_dir),
+                                     _job_name=job_info.name))
 
-        results = []
+        fnames = []
         for r in tkttores:
-            results.append(q.waitforresult(r))
+            fnames.append(q.waitforresult(r))
 
-        collector(results)
+    result = pd.concat((pd.read_hdf(f) for f in fnames), ignore_index=True)
+    for f in fnames:
+        os.remove(f)
 
-
-if __name__ == '__main__':
-    qp_kwargs = {'_delete_csh_withnoerr': True, '_tryrerun': True}
-    run(qp_kwargs)
+    return result
