@@ -26,7 +26,7 @@ output_dir = analyses_dir
 
 jobs_dir = os.path.join(output_dir, 'jobs')
 
-prokka_env = '/home/saarsh/Develop/anaconda_33/envs/prokk_env/bin'
+prokka_env = '~/Develop/anaconda_33/envs/prokk_env/bin'
 eggnog_env = '/net/mraid08/export/genie/Bin/eggnogv2/eggnog-mapper'
 prokka_cmd = 'prokka --cpus 2 --quiet --force --outdir {} --prefix prokka {} --rfam'
 eggnog_cmd = 'emapper.py -i {} --output {} --dbmem --go_evidence all -m diamond --cpu 16'

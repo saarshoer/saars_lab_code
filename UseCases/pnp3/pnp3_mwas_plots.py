@@ -56,13 +56,12 @@ def text_func(df: pd.DataFrame, **kwargs):
     return text
 
 
-body_site = 'Gut'
+body_site = 'Oral'
 
-base_dir = f'/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas/PNP3_mwas_{body_site.lower()}_0months_log2division'
+base_dir = f'/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas/PNP3_mwas_{body_site.lower()}_0months_subtraction'
 mwas_fname = os.path.join(base_dir, 'mb_gwas.h5')
 data_fname = None  # os.path.join(base_dir, 'mb_gwas_data.h5')
-annotations_df = pd.read_hdf(os.path.join(base_dir, 'annotations', 'snps_sequences.h5'))[['gene']].rename(
-    columns={'gene': 'text'})
+annotations_df = None  # pd.read_hdf(os.path.join(base_dir, 'annotations', 'snps_sequences.h5'))[['gene']].rename(columns={'gene': 'text'})
 output_dir = os.path.join(base_dir, 'plots')
 
 mwas_plots.run(mwas_fname=mwas_fname, data_fname=data_fname, annotations_df=annotations_df, pval_col='Global_FDR', pval_cutoff=0.1, # input

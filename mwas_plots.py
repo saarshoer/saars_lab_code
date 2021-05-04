@@ -6,7 +6,6 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib import rcParams
 from scipy.stats import pearsonr, spearmanr
-from mne.stats.multi_comp import fdr_correction
 from LabData.DataLoaders.MBSNPLoader import MAF_1_VALUE
 from LabData.DataAnalyses.MBSNPs.taxonomy import taxonomy_df
 from LabData.DataAnalyses.MBSNPs.Plots.manhattan_plot import draw_manhattan_plot
@@ -114,7 +113,7 @@ def draw_box_plot(df, title='box plot', figsize=(12, 6), out_file='box_plot'):
     xlabels[0].set_text(xlabels[0].get_text().replace('-0.001', '0.0'))
     ax.set_xticklabels(labels=xlabels, rotation=45)
     ax.set_xlabel('Major Allele Frequency')
-    if 'log2division' in base_dir:
+    if 'log2division' in out_file:
         ax.set_ylabel(f"log2 fold change in {df.index.get_level_values('Y')[0]}")
         ax.set_yticks(ax.get_yticks())  # necessary to prevent a warning
         ax.set_yticklabels(labels=[f'2^{label:.2f}' for label in ax.get_yticks()])
@@ -192,8 +191,8 @@ def run(mwas_fname=None, data_fname=None, annotations_df=None, pval_col='Global_
 
     if mwas_fname:
         if type(mwas_fname) is str:
-            mwas_df = pd.read_hdf(mwas_fname, key='snps')
-            mwas_df = mwas_df[mwas_df.index.get_level_values('Y') == 'Hips']
+            mwas_df = pd.read_hdf(mwas_fname)
+            # mwas_df = mwas_df[mwas_df.index.get_level_values('Y') == 'Hips']
         else:
             mwas_df = mwas_fname
         if annotations_df is not None:
@@ -209,12 +208,12 @@ def run(mwas_fname=None, data_fname=None, annotations_df=None, pval_col='Global_
         min_value = min_value if min_value > 1e-319 else 1e-319  # smaller number ends up to be zero
         mwas_df[pval_col] = mwas_df[pval_col].replace(to_replace=0, value=10**-(math.ceil(-np.log10(min_value)/10)*10))
 
-        y = 'Hips'
-        for sp, y_df in mwas_df.groupby('Species'):
+        # y = 'Hips'
+        for y, y_df in mwas_df.groupby('Y'):
             if (y_df[pval_col] <= pval_cutoff).sum() == 0:
                 continue
 
-            y_out_dir = os.path.join(out_dir, f'{y}_{sp}')
+            y_out_dir = os.path.join(out_dir, y)#f'{y}_{sp}')
             os.makedirs(y_out_dir, mode=0o744, exist_ok=True)
 
             title = f"{y}\n{tax_df.loc[y].split('s__')[-1]}" if 'SGB' in y else y
