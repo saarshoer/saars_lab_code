@@ -9,11 +9,11 @@ def clip(data: pd.Series,
          window_frac: float = 0.98,
          stds_clip: float = 6,
          stds_remove: float = 10) -> pd.DataFrame:
-    """Returns a copy of the series with the values of column removed or
+    """Returns a copy of the series with some of its values possibly removed or
     clipped, according to their distance from the mean.
 
     Values stds_remove or more away from the mean are removed. Values stds_clip or
-    more away from mean are set to mean+=stds_clip."""
+    more away from mean are set to (mean +- stds_clip)."""
 
     assert 0 < window_frac <= 1, f'{window_frac}'
 
