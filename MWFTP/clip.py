@@ -5,10 +5,8 @@ Based on NormDistCapping.fit_transform().
 import pandas as pd
 
 
-def clip(data: pd.Series,
-         window_frac: float = 0.98,
-         stds_clip: float = 6,
-         stds_remove: float = 10) -> pd.DataFrame:
+def clip(data: pd.Series, window_frac: float, stds_clip: float,
+         stds_remove: float) -> pd.DataFrame:
     """Returns a copy of the series with some of its values possibly removed or
     clipped, according to their distance from the mean.
 
