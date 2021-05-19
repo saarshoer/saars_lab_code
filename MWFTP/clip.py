@@ -18,8 +18,7 @@ def clip(data: pd.Series, window_frac: float, stds_clip: float,
     # Find the densest window in the series (lowest span).
     # We consider only the values within this window for calculating mean and std,
     # to avoid extreme values.
-    series = data.sort_values()
-    series = series[~series.isna()]
+    series = data.dropna().sort_values()
     window_size = round(len(series) * window_frac)
     windows = series.rolling(window_size)
     spans = windows.max() - windows.min()
