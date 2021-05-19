@@ -33,9 +33,6 @@ def clip(data: pd.Series, window_frac: float, stds_clip: float,
                  (data >= mean - std * stds_remove))
     data = data[keep_cond][:]
 
-    if len(data) == 0:
-        raise ValueError('all the values were clipped')
-
     # Clip values that are more extreme than stds_clip.
     clip_upper = mean + std * stds_clip
     clip_lower = mean - std * stds_clip
