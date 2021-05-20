@@ -19,8 +19,8 @@ def _run_per_job(job_info: JobInfo, data_iterator_gen: Callable, xy_function: Ca
     """The function that is called by each job."""
     results = []
 
-    for x, y in data_iterator_gen(job_info.info):
-        results.append(xy_function(x, y))
+    for x, y, k in data_iterator_gen(job_info.info):
+        results.append(xy_function(x, y, k))
 
     result_df = pd.DataFrame(results)
     output_fname = os.path.join(output_dir, f'{job_info.name}.h5')
