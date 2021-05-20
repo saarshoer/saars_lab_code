@@ -3,7 +3,7 @@ import os
 from typing import Iterable, Callable, Dict, NamedTuple, Any
 
 import pandas as pd
-from LabQueue.qp import fakeqp
+from LabQueue.qp import fakeqp, qp
 from LabUtils.addloglevels import sethandlers
 
 
@@ -30,15 +30,17 @@ def _run_per_job(job_info: JobInfo, data_iterator_gen: Callable, xy_function: Ca
     return output_fname
 
 
-def run(job_iterator: Iterable[JobInfo], data_iterator: Callable, xy_function: Callable,
-        output_dir: str, qp_kwargs: Dict = None) -> pd.DataFrame:
+def run(job_iterator: Iterable[JobInfo], data_iterator: Callable,
+        xy_function: Callable, output_dir: str, use_fakeqp=False,
+        qp_kwargs: Dict = None) -> pd.DataFrame:
     """Creates a job for each item in job_iterator and collects the results."""
-    # os.chdir('.')
     sethandlers()
     if qp_kwargs is None:
         qp_kwargs = {}
 
-    with fakeqp(jobname='manager', **qp_kwargs) as q:
+    qprovider = qp if not use_fakeqp else fakeqp
+
+    with qprovider(**qp_kwargs) as q:
         q.startpermanentrun()
 
         tkttores = []
