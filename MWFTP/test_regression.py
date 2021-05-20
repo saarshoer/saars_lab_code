@@ -17,6 +17,7 @@ class TestRegression(unittest.TestCase):
         }
         print(got)
         self.assertEqual(got.keys(), want_keys)
+        self.assertEqual(got['key'], 'my_key')
 
 
 if __name__ == '__main__':
