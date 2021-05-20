@@ -19,7 +19,7 @@ class TestManager(unittest.TestCase):
             return {'key': k, 'sum': sum(x) + sum(y)}
 
         tmpdir = tempfile.mkdtemp()
-        result = run(infos, data_iterator_gen, xy_func, tmpdir)
+        result = run(infos, data_iterator_gen, xy_func, tmpdir, use_fakeqp=True)
         expected = pd.DataFrame({'key': ['key1', 'key2'], 'sum': [20, 0]})
 
         pd.testing.assert_frame_equal(result, expected)
