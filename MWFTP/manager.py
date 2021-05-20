@@ -37,17 +37,17 @@ def run(job_iterator: Iterable[JobInfo], data_iterator: Callable,
     sethandlers()
     if qp_kwargs is None:
         qp_kwargs = {}
-    qp_defaults = {'jobname': 'manager'}
 
     qprovider = qp if not use_fakeqp else fakeqp
 
-    with qprovider(**{**qp_defaults, **qp_kwargs}) as q:
+    with qprovider(**qp_kwargs) as q:
         q.startpermanentrun()
 
         tkttores = []
         for job_info in job_iterator:
             tkttores.append(q.method(_run_per_job, (job_info, data_iterator, xy_function,
-                                                    output_dir)))
+                                                    output_dir),
+                                     _job_name=job_info.name))
 
         fnames = []
         for r in tkttores:
