@@ -13,7 +13,7 @@ class TestManager(unittest.TestCase):
         ]
 
         def data_iterator_gen(info):
-            return (list(info[1]), [x * x for x in info[1]], info[0]),
+            return ((list(info[1]), [x * x for x in info[1]], info[0]),)
 
         def xy_func(x, y, k):
             return {'key': k, 'sum': sum(x) + sum(y)}
