@@ -48,7 +48,7 @@ samples = loader().get_data('segata_species', study_ids=['PNP3']).df.index
 if body_site == 'Gut':
     oral_samples = OralMBLoader().get_data('segata_species', study_ids=['PNP3']).df.index
     samples = set(samples) - set(oral_samples)
-df = df.loc[df.index.isin(samples), ['URB' not in col and 'SNPB' not in col and 'SNB' not in col for col in df.columns]]
+df = df.loc[df.index.isin(samples), ['URA' not in col and 'URB' not in col and 'SNP' not in col and 'SNPB' not in col for col in df.columns]]
 if df['RawReadLength'].unique() != read_len:
     print('all hell broke loose')
     1/0
