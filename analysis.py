@@ -266,8 +266,8 @@ class Study:
 
         return df
 
-    def prep_df(self, obj, time_points=None, mean_time_point=False, n_entries=None,
-                indices_dict=None, log=True):
+    def prep_df(self, obj, time_points=None, mean_time_point=False, n_entries=None, indices_dict=None,
+                log=10, clip_std_quantile=False, robust_standardization=False, clip_std=False, fill_na=False):
         """
         Handel the time_point, replace indices values, handel missing values (if abundance) and optionally log10
 
@@ -277,7 +277,12 @@ class Study:
         :param n_entries: (int) amount of entries to accept per person
         :param indices_dict: (dict of dicts) outer key for index name
         inner key for index value and value after replacement
-        :param log: (bool) whether or not to log10 the values
+        :param log: (int or str or bool) [2, 10, 'e' or False] whether to log
+        :param clip_std_quantile: (float) how many quantile to trim from each side
+        :param robust_standardization: (bool) whether to robust standardize the data (using median)
+        :param clip_std: (int) how many standard deviations to clip from each side
+        :param fill_na: (bool) whether to fill missing values with column's minimal value (True) or other given value
+
 
         :return: (pd.DataFrame) df
         """
@@ -318,7 +323,7 @@ class Study:
         def fig_species_distribution(abundance_df):
             n_species_per_sample = pd.DataFrame(pd.DataFrame(
                 (abundance_df > self.params.detection_threshold).sum(axis=1))
-                                                .stack()).reset_index().rename(columns={0: 'n_species'})
+                                                .stack()).reset_index().rename(columns={0: f'n_{obj.columns}'})
 
             if self.params.controls['time_point'] == 'fake_time_point':
                 n_species_per_sample['time_point'] = 'fake_time_point'
@@ -327,13 +332,13 @@ class Study:
             # hue 'group'
             g = sns.FacetGrid(n_species_per_sample, col='time_point', hue='group', palette=self.params.colors,
                               sharex=True, sharey=True, margin_titles=True)
-            g = g.map(sns.distplot, 'n_species', hist=True, kde=False, bins=10)
+            g = g.map(sns.distplot, f'n_{obj.columns}', hist=True, kde=False, bins=10)
             g.set_titles(col_template="{col_name}")
             for ax in g.axes.flatten():
                 ax.set_title(label=ax.get_title(), color=self.params.colors[ax.get_title()])
             g.add_legend()
             g.set_ylabels('n_samples')
-            title = '{}species distribution colored by group'.format(obj.type.replace('abundance', ''))
+            title = '{} distribution colored by group'.format(obj.type.replace('abundance', '')).replace('  ', ' ')
             plt.suptitle(title)
             plt.subplots_adjust(top=0.8)
 
@@ -342,13 +347,13 @@ class Study:
             # hue 'time_point'
             g = sns.FacetGrid(n_species_per_sample, col='group', hue='time_point', palette=self.params.colors,
                               sharex=True, sharey=True, margin_titles=True)
-            g = g.map(sns.distplot, 'n_species', hist=True, kde=False, bins=10)
+            g = g.map(sns.distplot, f'n_{obj.columns}', hist=True, kde=False, bins=10)
             g.set_titles(col_template="{col_name}")
             for ax in g.axes.flatten():
                 ax.set_title(label=ax.get_title(), color=self.params.colors[ax.get_title()])
             g.add_legend()
             g.set_ylabels('n_samples')
-            title = '{}species distribution colored by time_point'.format(obj.type.replace('abundance', ''))
+            title = '{} distribution colored by time_point'.format(obj.type.replace('abundance', '')).replace('  ', ' ')
             plt.suptitle(title)
             plt.subplots_adjust(top=0.8)
 
@@ -403,27 +408,55 @@ class Study:
 
         if 'abundance' in obj.type:
             # fill missing values caused by MBLoader with detection threshold
-            df = df.fillna(self.params.detection_threshold)
-
+            # df = df.fillna(self.params.detection_threshold)
+            #
             # filter out empty species before declare_missing_values to shorten run time
-            df = df.loc[:, (df != self.params.detection_threshold).any()]
+            # df = df.loc[:, (df != self.params.detection_threshold).any()]
 
             # declare missing values
-            if len(np.unique(df.index.get_level_values('time_point'))) > 1:
-                df = df.groupby(['person']).apply(declare_missing_values)
-            else:
-                df = df.replace(self.params.detection_threshold, np.nan)
+            # if len(np.unique(df.index.get_level_values('time_point'))) > 1:
+            #     df = df.groupby(['person']).apply(declare_missing_values)
+            # else:
+            #     df = df.replace(self.params.detection_threshold, np.nan)
 
             # figures
             fig_abundance_distribution(df)
             fig_species_distribution(df)
 
+
         # filter out empty columns (species/test)
         df = df.dropna(axis=1, how='all')
 
-        # convert the values to the order of magnitude
+        # log
         if log:
-            df = np.log10(df)
+            log_funcs = {10: np.log10, 2: np.log2, 'e': np.log}
+            df = log_funcs[log](df.astype(float))
+
+        # robust standardization
+        if robust_standardization:
+            # clip just the standard deviation's quantile
+            if clip_std_quantile:
+                clipped_std = df.clip(lower=df.quantile(clip_std_quantile),
+                                      upper=df.quantile(1 - clip_std_quantile), axis=1).std()
+            else:
+                clipped_std = df.std()
+            df = (df - df.median()) / clipped_std
+
+        # clip standard deviation
+        if clip_std:
+            for col in df.columns:
+                col_mean = df[col].mean()
+                col_std = df[col].std()
+                df[col] = df[[col]].clip(lower=col_mean - clip_std * col_std,
+                                         upper=col_mean + clip_std * col_std, axis=1)
+
+        # fill missing values with minimum
+        if fill_na:
+            if fill_na is True:
+                na_value = df.min()
+            else:
+                na_value = fill_na
+            df = df.fillna(na_value)
 
         return df
 
@@ -1794,23 +1827,40 @@ def get_diversity_df(abundance_df):
     """
     Compute the Shanon's alpha diversity index (using log2) based on an "abundance_df"
 
-    :param abundance_df: (pd.DataFrame) data frame to compute on, if not given takes the self.objs.abundance.df
+    :param abundance_df: (pd.DataFrame) data frame to compute on
 
     :return: (pd.DataFrame) "diversity_df"
     (same as abundance_df just instead of bacteria columns there is a single diversity column)
     """
 
-    # Shannon's alpha diversity index = -sum(Pi*log10(Pi))
+    # Shannon's alpha diversity index = -sum(Pi*log2(Pi))
 
     # revert values to their pre log state
     if not (0 <= abundance_df.min().min() and abundance_df.max().max() <= 1):
         abundance_df = (10 ** abundance_df)
 
-    diversity_df = pd.DataFrame(-(abundance_df * np.log2(abundance_df)).sum(axis=1).dropna())
+    diversity_df = pd.DataFrame(-(abundance_df * np.log2(abundance_df)).sum(axis=1))
     diversity_df.columns = ['diversity']
 
     return diversity_df
 
+def get_richness_df(abundance_df):
+    """
+    Compute the richness based on an "abundance_df"
+
+    :param abundance_df: (pd.DataFrame) data frame to compute on
+
+    :return: (pd.DataFrame) "richness_df"
+    (same as abundance_df just instead of bacteria columns there is a single richness column)
+    """
+
+    if abundance_df.isna().sum().sum() > 0:
+        richness_df = pd.DataFrame((~abundance_df.isna()).sum(axis=1))
+    else:
+        richness_df = pd.DataFrame((abundance_df != abundance_df.min().min()).sum(axis=1))
+    richness_df.columns = ['richness']
+
+    return richness_df
 
 def get_delta_df(regular_df, control_time_point, divide=False):
     """
@@ -2459,10 +2509,4 @@ class _Parameters:
 
 
 if __name__ == '__main__':
-    mic = Study(base_directory='/home/saarsh')
-
-    mic.objs['diss'] = mic.Object(obj_type='dissimilarity', columns='???')
-
-    mic.objs['diss'].df = pd.read_hdf('/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_diss_species_exist/mb_dists.h5')
-
-    mic.fig_snp_heatmap(mic.objs['diss'])
+    pass
