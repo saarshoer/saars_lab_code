@@ -11,6 +11,7 @@ import copy
 import random
 import numpy as np
 import pandas as pd
+from itertools import combinations
 
 # statistics
 from skbio import DistanceMatrix
@@ -18,8 +19,10 @@ from scipy.spatial import distance_matrix
 from mne.stats.multi_comp import bonferroni_correction, fdr_correction
 from scipy.stats import mannwhitneyu, wilcoxon, ttest_ind, ttest_rel, ttest_1samp, binom_test, \
     pearsonr, spearmanr, kendalltau
+from statannot import add_stat_annotation
 
 # models
+from statsmodels.api import Logit
 from sklearn.preprocessing import LabelEncoder
 from xgboost import XGBClassifier, XGBRegressor
 from sklearn.linear_model import LinearRegression
@@ -138,27 +141,38 @@ class Study:
         default_name_changes = {'SampleName': 'sample', 'RegistrationCode': 'person', 'Date': 'time', 'alloc': 'group'}
 
         # loading from Lab Data
+        if self.params.study == 'PNP3':
+            self.params.study = ['PNP3', 'T2D']
+            reg_ids = '/net/mraid08/export/genie/LabData/Data/StudySpecificData/PNP3/Combined_RandomizationResults_final.xlsx'
+            reg_ids = pd.read_excel(reg_ids, engine='openpyxl')
+            reg_ids = reg_ids.loc[reg_ids['IsActive'] == 1, 'RegistrationCode'].astype(int).astype(str).tolist()
+        else:
+            reg_ids = None
+
         if type(data) == str:  # TODO: can be modified to get a loader and its params as arguments
             if data == 'gutMB':
-                lab_data = GutMBLoader.GutMBLoader().get_data('segata_species', study_ids=self.params.study)
+                lab_data = GutMBLoader.GutMBLoader().get_data('segata_species', study_ids=self.params.study, reg_ids=reg_ids)
                 fig_abundance_reads(lab_data.df_metadata)
             elif data == 'oralMB':
-                lab_data = OralMBLoader.OralMBLoader().get_data('segata_species', study_ids=self.params.study)
+                lab_data = OralMBLoader.OralMBLoader().get_data('segata_species', study_ids=self.params.study, reg_ids=reg_ids)
                 fig_abundance_reads(lab_data.df_metadata)
             elif data == 'blood':
-                lab_data = BloodTestsLoader.BloodTestsLoader().get_data(study_ids=self.params.study)
+                lab_data = BloodTestsLoader.BloodTestsLoader().get_data(study_ids=self.params.study, reg_ids=reg_ids)
             elif data == 'body':
-                lab_data = BodyMeasuresLoader.BodyMeasuresLoader().get_data(study_ids=self.params.study)
+                lab_data = BodyMeasuresLoader.BodyMeasuresLoader().get_data(study_ids=self.params.study, reg_ids=reg_ids)
             elif data == 'cgm':
                 pass
                 # lab_data = CGMLoader.CGMLoader().get_data(study_ids=self.params.study)
             elif data == 'diet':
                 loader = DietLoggingLoader.DietLoggingLoader()
-                lab_data = loader.get_data(study_ids=self.params.study)
+                lab_data = loader.get_data(study_ids=self.params.study, reg_ids=reg_ids)
                 lab_data.df = loader.add_nutrients(lab_data.df,
                                                    nutrient_list=['protein_g', 'totallipid_g', 'carbohydrate_g'])
             else:
                 raise Exception('data string is not valid')
+
+            if reg_ids:
+                self.params.study = 'PNP3'
 
             # retrieving
             df = lab_data.df
@@ -369,7 +383,7 @@ class Study:
         def declare_missing_values(person_abundance_df):
 
             # in places where all column values equal to detection threshold declare them as missing values
-            person_abundance_df.loc[:, (person_abundance_df == self.params.detection_threshold).all()] = np.nan
+            person_abundance_df.loc[:, person_abundance_df.isna().all()] = 'NA'
 
             return person_abundance_df
 
@@ -406,26 +420,13 @@ class Study:
                 if ind in df.index.names:
                     df = df.rename(index=indices_dict[ind], level=ind)
 
+        # filter out empty columns (species/test)
+        df = df.dropna(axis=1, how='all')
+
         if 'abundance' in obj.type:
-            # fill missing values caused by MBLoader with detection threshold
-            # df = df.fillna(self.params.detection_threshold)
-            #
-            # filter out empty species before declare_missing_values to shorten run time
-            # df = df.loc[:, (df != self.params.detection_threshold).any()]
-
-            # declare missing values
-            # if len(np.unique(df.index.get_level_values('time_point'))) > 1:
-            #     df = df.groupby(['person']).apply(declare_missing_values)
-            # else:
-            #     df = df.replace(self.params.detection_threshold, np.nan)
-
             # figures
             fig_abundance_distribution(df)
             fig_species_distribution(df)
-
-
-        # filter out empty columns (species/test)
-        df = df.dropna(axis=1, how='all')
 
         # log
         if log:
@@ -452,11 +453,17 @@ class Study:
 
         # fill missing values with minimum
         if fill_na:
+
             if fill_na is True:
                 na_value = df.min()
             else:
                 na_value = fill_na
-            df = df.fillna(na_value)
+
+            # if all person's values are missing it will not be filled
+            if len(np.unique(df.index.get_level_values('time_point'))) > 1:
+                df = df.groupby(['person']).apply(declare_missing_values)
+
+            df = df.fillna(na_value).replace('NA', np.nan)
 
         return df
 
@@ -512,6 +519,7 @@ class Study:
 
                 # transfer the columns to rows with identifiers
                 # reset index behaves differently for single level versus multilevel indices
+                # TODO: handle case where input data frame has multiple level columns
                 if len(curr_data_df.index.names) == 1 and curr_data_df.index.names != [None]:
                     name2replace = curr_data_df.index.names[0]
                 else:
@@ -941,8 +949,6 @@ class Study:
 
             return [scores, r_pearson, p_pearson, r_spearman, p_spearman]
 
-
-
         # retrieving the data frames from the objects
         if (cobj is None or type(cobj) == self.Object) and type(xobj) == self.Object and type(yobj) == self.Object:
             # TODO: check what happnes if cobj is None
@@ -1192,24 +1198,19 @@ class Study:
         excel_writer.save()
         excel_writer.close()
 
-    def dim_reduction(self, obj, n_pca_comp=50, n_tsne_comp=2):
+    def dim_reduction(self, obj, n_pca_comp=5, n_tsne_comp=2, pcs2remove=None):
         """
         Reduces the dimensionality of a samples X features data frame
         and save the best 2 components as figures, colored by each index
 
         :param obj: (Object) with data frame containing samples X features,
         index levels are used to color and create different figures
-        :param n_pca_comp: (None, 0 or int) number of desired components out of the pca
-        :param n_tsne_comp: (None, 0 or int) number of desired components out of the tsne
+        :param n_pca_comp: (int) number of desired components from pca
+        :param n_tsne_comp: (int) number of desired components from tsne
+        :param pcs2remove: (lst) of pcs index to remove from data
 
-        ** filling either of the n_comp with 'None' will use pca/tsne default arguments
-        ** filling either of the n_comp with '0' will cause the function to skip the method (pca/tsne)
-
-        :return: None
+        :return: pca_result, tsne_result, df (after removal of specified PCs)
         """
-
-        # the default n_pca_comp is 50 because that is the maximal number of features recommend to the tsne function
-        # the default n_tsne_comp is 2 because this is can be plotted
 
         def fig_best_components():
 
@@ -1227,24 +1228,71 @@ class Study:
                     palette = sns.color_palette("hls", len(hue.unique()))
 
                 # pca
-                if n_pca_comp != 0:
-                    sns.scatterplot(x=pca_result[:, 0], y=pca_result[:, 1],
-                                    hue=hue, palette=palette, alpha=0.3, ax=axes[0])
-                    axes[0].set_title('pca')
-                    axes[0].set_xlabel('pca component 1 - {:.2%}'.format(pca.explained_variance_ratio_[0]))
-                    axes[0].set_ylabel('pca component 2 - {:.2%}'.format(pca.explained_variance_ratio_[1]))
+                sns.scatterplot(x=pca_result[:, 0], y=pca_result[:, 1],
+                                hue=hue, palette=palette, alpha=0.3, ax=axes[0])
+                axes[0].set_title('pca')
+                axes[0].set_xlabel('pca component 1 - {:.2%}'.format(pca.explained_variance_ratio_[0]))
+                axes[0].set_ylabel('pca component 2 - {:.2%}'.format(pca.explained_variance_ratio_[1]))
 
                 # tsne
-                if n_tsne_comp != 0:
-                    sns.scatterplot(x=tsne_result[:, 0], y=tsne_result[:, 1],
-                                    hue=hue, palette=palette, alpha=0.3, ax=axes[1])
-                    axes[1].set_title('tsne')
-                    axes[1].set_xlabel('tsne component 1')
-                    axes[1].set_ylabel('tsne component 2')
+                sns.scatterplot(x=tsne_result[:, 0], y=tsne_result[:, 1],
+                                hue=hue, palette=palette, alpha=0.3, ax=axes[1])
+                axes[1].set_title('tsne')
+                axes[1].set_xlabel('tsne component 1')
+                axes[1].set_ylabel('tsne component 2')
 
                 title = 'dim reduction {} colored by {}'.format(obj.type, index_name)
                 fig.suptitle(title)
                 plt.savefig(os.path.join(self.dirs.figs, title))
+                plt.close()
+
+                x = df.index.get_level_values(index_name)
+
+                if n_pca_comp <= 5 and x.unique().shape[0] <= 5:
+
+                    fig, axes = plt.subplots(nrows=1, ncols=n_pca_comp,
+                                             figsize=[rcParams['figure.figsize'][0] * n_pca_comp,
+                                                      rcParams['figure.figsize'][1]])
+                    plt.subplots_adjust(left=None, bottom=None, right=None, top=0.8, wspace=None, hspace=None)
+
+                    for pc in np.arange(n_pca_comp):
+
+                        print(index_name, pc, pca.explained_variance_ratio_[pc])
+
+                        y = pca_result[:, pc]
+
+                        ax = axes[pc]
+                        sns.boxplot(x=x, y=y, ax=ax, palette=palette)
+                        add_stat_annotation(ax, x=x, y=y, box_pairs=list(combinations(x.unique(), 2)),
+                                            test='Mann-Whitney', text_format='star')
+
+                        if x.unique().shape[0] == 2:
+                            categories = dict(zip(x.unique().tolist(), [0, 1]))
+
+                            # Correlation
+                            r_p, p_p = pearsonr(x.map(categories), y)
+                            r_s, p_s = spearmanr(x.map(categories), y)
+                            corr_text = 'Correlation: r_p={:.2f}, p_p={:.2f}, r_s={:.2f}, p_s={:.2f}'.\
+                                format(r_p, p_p, r_s, p_s)
+
+                            # Logistic Regression
+                            model = Logit(endog=x.map(categories).values, exog=y).fit()
+                            logit_text = 'Logistic Regression: coef={:.2f}, pval={:.2f}'.\
+                                format(model.params[0], model.pvalues[0])
+                            text = '\n' + logit_text + '\n' + corr_text
+
+                        else:
+                            text = ''
+
+                        ax.set_title('pca component {}{}'.format(pc, text))
+                        ax.set_ylabel('pca component {} - {:.2%}'.format(pc, pca.explained_variance_ratio_[pc]))
+
+                        print(text)
+
+                    title = 'PCs {} stratified by {}'.format(obj.type, index_name)
+                    fig.suptitle(title)
+                    plt.savefig(os.path.join(self.dirs.figs, title))
+                    plt.close()
 
         # retrieving the data frames from the object
         if type(obj) == self.Object:
@@ -1252,24 +1300,20 @@ class Study:
         else:
             raise Exception('obj is not object')
 
-        if n_pca_comp == 0 and n_tsne_comp == 0:
-            raise Exception('both reduction methods are empty')
-
         # pca
-        if n_pca_comp != 0:
-            pca = PCA(n_components=n_pca_comp)
-            pca_result = pca.fit_transform(df.values)
-        else:
-            pca_result = df.values
+        pca = PCA(n_components=n_pca_comp)
+        pca_result = pca.fit_transform(df.values)
 
         # tsne
-        if n_tsne_comp != 0:
-            tsne = TSNE(n_components=n_tsne_comp)
-            tsne_result = tsne.fit_transform(pca_result)
-        else:
-            tsne_result = pca_result
+        tsne = TSNE(n_components=n_tsne_comp, method='exact', init='random' if df.shape[0] <= 50 else 'pca')
+        tsne_result = tsne.fit_transform(df.values)
 
         fig_best_components()
+
+        pca_result_in_original_values = pca.inverse_transform(pca_result)
+        df = df.subtract(pca_result_in_original_values[:, pcs2remove].sum(axis=1), axis=0)
+
+        return pca_result, tsne_result, df
 
     def fig_snp_heatmap(self, obj, maximal_filling=0.25, minimal_samples=20,
                         annotations=None, cmap=None, log_colors=False, add_hist=True):
@@ -1844,6 +1888,7 @@ def get_diversity_df(abundance_df):
 
     return diversity_df
 
+
 def get_richness_df(abundance_df):
     """
     Compute the richness based on an "abundance_df"
@@ -1861,6 +1906,7 @@ def get_richness_df(abundance_df):
     richness_df.columns = ['richness']
 
     return richness_df
+
 
 def get_delta_df(regular_df, control_time_point, divide=False):
     """
@@ -2509,4 +2555,82 @@ class _Parameters:
 
 
 if __name__ == '__main__':
-    pass
+
+    PNP3 = Study(
+
+        study='PNP3',
+
+        controls={'time_point': '0months',
+                  'group': 'mediterranean'},
+
+        colors={  # time_points
+            '0months': 'orchid',
+            '6months': 'darkorchid',
+            '6months-0months': 'deeppink',
+            '0months vs. 6months': 'deeppink',
+            # groups
+            'mediterranean': 'mediumblue',
+            'algorithm': 'orange',
+            'model': 'green',
+            # abundance
+            'gut abundance': 'brown',
+            'oral abundance': 'green',
+            # dissimilarity
+            'gut snp dissimilarity': 'brown',
+            'oral snp dissimilarity': 'green',
+            # batches - # if something fails because of this make a copy as floats
+            0: 'yellow',
+            1: 'cyan',
+            2: 'pink',
+            # diet
+            'mostly carbohydrates': 'purple',
+            'mostly lipids': 'yellow',
+            # general
+            'increased': 'red',
+            'decreased': 'green'},
+
+        base_directory = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3'
+
+    )
+
+    ura_levels = ['species', 'genera', 'families']
+
+    for body_site in ['gut', 'oral']:
+        for ura_level in ura_levels:
+            PNP3.objs[f'{body_site}_{ura_level}_abundance'] = PNP3.Object(obj_type=f'{body_site} {ura_level} abundance',
+                                                                          columns=ura_level)
+            PNP3.objs[f'{body_site}_{ura_level}_extra'] = PNP3.Object(obj_type=f'{body_site} {ura_level} extra',
+                                                                      columns='measurment')
+
+    PNP3.objs['metabolites'] = PNP3.Object(obj_type='metabolites', columns='measurements')
+    PNP3.objs['cytokines'] = PNP3.Object(obj_type='cytokines', columns='measurements')
+
+    PNP3.objs['blood'] = PNP3.Object(obj_type='blood', columns='measurements')
+    PNP3.objs['diet'] = PNP3.Object(obj_type='diet', columns='nutrients')
+    PNP3.objs['body'] = PNP3.Object(obj_type='body', columns='measurements')
+
+    min_samples = 20
+
+    for key in PNP3.objs.keys():
+        # read data frame
+        PNP3.objs[key].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, f'{key}.df'))
+        # filter features
+        PNP3.objs[key].df = PNP3.objs[key].df.dropna(how='all', axis=1)
+        PNP3.objs[key].df = PNP3.objs[key].df.loc[:, PNP3.objs[key].df.shape[0] - PNP3.objs[key].df.apply(
+            lambda col: col.isna().sum() + col.dropna().value_counts().nlargest(n=1).values[0],
+            axis=0) + 1 > min_samples]
+        # basic info
+        print(key, PNP3.objs[key].df.shape)
+
+        # special case - reducting column levels to 1 #########TODO unite them by pathways and such
+        if key == 'metabolites':
+            PNP3.objs[key].df.columns = PNP3.objs[key].df.columns.get_level_values('BIOCHEMICAL')
+
+    for key in ['oral_species_abundance']:  # PNP3.objs.keys():
+        if ('abundance' not in key) and ('metabolites' not in key) and ('cytokines' not in key):
+            continue
+        obj = copy.deepcopy(PNP3.objs[key])
+        for level in ['time', 'sample', 'Age', 'PLATE BARCODE', 'PLATE NAME', 'person']:
+            obj.df.index = obj.df.index.droplevel(level) if level in obj.df.index.names else obj.df.index
+        obj.df = obj.df.fillna(obj.df.min())
+        pca_result, tsne_result = PNP3.dim_reduction(obj, n_components=2)
