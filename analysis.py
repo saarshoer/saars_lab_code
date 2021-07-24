@@ -597,6 +597,7 @@ class Study:
                 plt.savefig(os.path.join(
                     self.dirs.figs,
                     'stats {}{} {} {}'.format(obj.type, delta_str, test, between)))
+                plt.close()
                 figure_internal = None
                 axes_internal = None
 
