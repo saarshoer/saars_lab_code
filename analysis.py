@@ -2596,42 +2596,9 @@ if __name__ == '__main__':
 
     ura_levels = ['species', 'genera', 'families']
 
-    for body_site in ['gut', 'oral']:
-        for ura_level in ura_levels:
-            PNP3.objs[f'{body_site}_{ura_level}_abundance'] = PNP3.Object(obj_type=f'{body_site} {ura_level} abundance',
-                                                                          columns=ura_level)
-            PNP3.objs[f'{body_site}_{ura_level}_extra'] = PNP3.Object(obj_type=f'{body_site} {ura_level} extra',
-                                                                      columns='measurment')
-
-    PNP3.objs['metabolites'] = PNP3.Object(obj_type='metabolites', columns='measurements')
-    PNP3.objs['cytokines'] = PNP3.Object(obj_type='cytokines', columns='measurements')
-
     PNP3.objs['blood'] = PNP3.Object(obj_type='blood', columns='measurements')
-    PNP3.objs['diet'] = PNP3.Object(obj_type='diet', columns='nutrients')
-    PNP3.objs['body'] = PNP3.Object(obj_type='body', columns='measurements')
 
-    min_samples = 20
 
-    for key in PNP3.objs.keys():
-        # read data frame
-        PNP3.objs[key].df = pd.read_pickle(os.path.join(PNP3.dirs.data_frames, f'{key}.df'))
-        # filter features
-        PNP3.objs[key].df = PNP3.objs[key].df.dropna(how='all', axis=1)
-        PNP3.objs[key].df = PNP3.objs[key].df.loc[:, PNP3.objs[key].df.shape[0] - PNP3.objs[key].df.apply(
-            lambda col: col.isna().sum() + col.dropna().value_counts().nlargest(n=1).values[0],
-            axis=0) + 1 > min_samples]
-        # basic info
-        print(key, PNP3.objs[key].df.shape)
 
-        # special case - reducting column levels to 1 #########TODO unite them by pathways and such
-        if key == 'metabolites':
-            PNP3.objs[key].df.columns = PNP3.objs[key].df.columns.get_level_values('BIOCHEMICAL')
-
-    for key in ['oral_species_abundance']:  # PNP3.objs.keys():
-        if ('abundance' not in key) and ('metabolites' not in key) and ('cytokines' not in key):
-            continue
-        obj = copy.deepcopy(PNP3.objs[key])
-        for level in ['time', 'sample', 'Age', 'PLATE BARCODE', 'PLATE NAME', 'person']:
-            obj.df.index = obj.df.index.droplevel(level) if level in obj.df.index.names else obj.df.index
-        obj.df = obj.df.fillna(obj.df.min())
-        pca_result, tsne_result = PNP3.dim_reduction(obj, n_components=2)
+    PNP3.comp_stats(obj=PNP3.objs['blood'], test='wilcoxon', between='time_point', delta=False,
+                    minimal_samples=20, main_correction_method='bonferroni', normalize_figure=True)
