@@ -5,7 +5,6 @@ from LabData import config_global as config
 from LabUtils.addloglevels import sethandlers
 from LabData.DataLoaders.Loader import LoaderData
 from LabData.DataAnalyses.MBSNPs.MWAS import MWAS
-from LabUtils.pandas_utils import filter_dataframe
 
 
 df_dir = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3/data_frames'
@@ -50,7 +49,9 @@ def get_data(body_site, time_point, delta):
         return df
 
     # raw data frames
-    idx = get_df(f'{body_site.lower()}_species_abundance{df_suffix}.df', False)[[]]
+    idx = get_df(f'{body_site.lower()}_species_abundance{df_suffix}.df', False)
+    s = ['SGB_' + col.split('sSGB__')[-1] for col in idx.columns]
+    idx = idx[[]]
 
     blood = get_df(f'blood{df_suffix}.df', delta)
     metabolites = get_df(f'metabolites{df_suffix}.df', delta)
@@ -74,7 +75,7 @@ def get_data(body_site, time_point, delta):
     y = joined_df[joined_df.columns.difference(covariates)]
     c = joined_df[covariates]
 
-    return x, y, c
+    return x, y, c, s
 
 
 class P:
@@ -88,7 +89,7 @@ class P:
     for cov in covariates:
         output_cols = output_cols + [cov + '_Pval', cov + '_Coef']
 
-    x, y, c = get_data(body_site, time_point, delta)
+    x, y, c, s = get_data(body_site, time_point, delta)
 
     collect_data = False
 
@@ -97,17 +98,20 @@ class P:
     send_to_queue = True
     analyses_dir = config.analyses_dir
     work_dir_suffix = f'{"_".join(study_ids)}_mwas_{body_site.lower()}'
-    jobname = f'{body_site[0]}'
+    jobname = f'{body_site}'
     verbose = False
 
     # fake world for special mwas
     body_site = study_ids[0]
 
     # species
-    species_set = None
+    done_species = pd.read_csv(
+        '/net/mraid08/export/genie/LabData/Analyses/saarsh/20210823_102934_PNP3_mwas_oral/finished.csv', index_col=0)
+    done_species = done_species.iloc[:, 0].to_list()
+    species_set = list(set(s) - set(done_species))
     ignore_species = None
     filter_by_species_existence = False
-    species_blocks = 10
+    species_blocks = 1
 
     # subjects
     subjects_loaders = ['SubjectLoader']
@@ -142,7 +146,7 @@ class P:
     min_on_non_freq_val_for_y = 0.05
 
     # p-value
-    max_pval_to_report = 1
+    max_pval_to_report = 0.1
     max_pval_to_detailed = None
 
     # others
