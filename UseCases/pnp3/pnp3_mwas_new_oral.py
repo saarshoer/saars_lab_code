@@ -5,7 +5,7 @@ from LabData import config_global as config
 from LabUtils.addloglevels import sethandlers
 from LabData.DataLoaders.Loader import LoaderData
 from LabData.DataAnalyses.MBSNPs.MWAS import MWAS
-
+from LabData.DataAnalyses.MBSNPs.MBSNPAnalyses import MBSNPAnalyses
 
 df_dir = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3/data_frames'
 df_suffix = '_20_corrected'
@@ -89,7 +89,7 @@ class P:
     for cov in covariates:
         output_cols = output_cols + [cov + '_Pval', cov + '_Coef']
 
-    x, y, c, s = get_data(body_site, time_point, delta)
+    x, y, c, s = None, None, None, None#get_data(body_site, time_point, delta)
 
     collect_data = False
 
@@ -105,10 +105,10 @@ class P:
     body_site = study_ids[0]
 
     # species
-    done_species = pd.read_csv(
-        '/net/mraid08/export/genie/LabData/Analyses/saarsh/20210823_102934_PNP3_mwas_oral/finished.csv', index_col=0)
-    done_species = done_species.iloc[:, 0].to_list()
-    species_set = list(set(s) - set(done_species))
+    # done_species = pd.read_csv(
+    #     '/net/mraid08/export/genie/LabData/Analyses/saarsh/20210823_102934_PNP3_mwas_oral/finished.csv', index_col=0)
+    # done_species = done_species.iloc[:, 0].to_list()
+    species_set = None#list(set(s) - set(done_species))
     ignore_species = None
     filter_by_species_existence = False
     species_blocks = 1
@@ -158,11 +158,16 @@ class P:
 if __name__ == '__main__':
     sethandlers(file_dir=config.log_dir)
 
-    m = MWAS(P)
-    work_dir = m.gen_mwas()
-    print(work_dir)
+    # m = MWAS(P)
+    # work_dir = m.gen_mwas()
+    # print(work_dir)
 
-    # work_dir = '/home/saarsh/Genie/LabData/Analyses/saarsh/???_PNP3_mwas_gut'
+    work_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas_oral_on_all_species_with_jupyter_filter'
+    # MBSNPAnalyses(P, work_dir).post_full_run_recovery_from_files()
+    df = pd.read_hdf(os.path.join(work_dir, 'mb_gwas.h5'))
+    df = df[df['Y_Bonferroni'] <= 0.05]
+    df.to_hdf(os.path.join(work_dir, 'mb_gwas_significant.h5'), key='sig')
+
     # P.collect_data = True
     # P.snp_set = pd.read_hdf(os.path.join(work_dir, 'mb_gwas.h5'))
     # if not P.snp_set.empty:
