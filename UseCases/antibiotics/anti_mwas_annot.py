@@ -1,5 +1,5 @@
 import os
-import mwas_annot
+import mwas_annots
 from LabQueue.qp import qp, fakeqp
 from LabUtils.addloglevels import sethandlers
 
@@ -22,9 +22,9 @@ sethandlers()
 with qp(jobname='annot', _delete_csh_withnoerr=True, q=['himem7.q'], max_r=1, _mem_def='20G') as q:
     q.startpermanentrun()
 
-    # snps_unique = q.method(mwas_annot.find_unique_snps,
+    # snps_unique = q.method(mwas_annots.find_unique_snps,
     #                        (x_mwas_files_path, y_mwas_files_path, output_dir, 'Pval', 0.05/26068850133))
     # q.waitforresult(snps_unique)
 
-    snps = q.method(mwas_annot.run, (mwas_file_path, output_dir))
+    snps = q.method(mwas_annots.run, (mwas_file_path, output_dir))
     q.waitforresult(snps)

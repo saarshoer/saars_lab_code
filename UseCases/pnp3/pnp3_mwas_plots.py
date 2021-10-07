@@ -1,8 +1,9 @@
 import os
-import mwas_plots
+# import mwas_plots
 import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
+from LabData.DataAnalyses.MBSNPs import mwas_plots
 
 
 def draw_func(sp_df: pd.DataFrame, **kwargs):
@@ -56,14 +57,14 @@ def text_func(df: pd.DataFrame, **kwargs):
     return text
 
 
-body_site = 'Oral'
+body_site = 'Gut'
 
-base_dir = f'/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas/PNP3_mwas_{body_site.lower()}_0months_subtraction'
+base_dir = f'/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas_{body_site.lower()}_small'
 mwas_fname = os.path.join(base_dir, 'mb_gwas.h5')
-data_fname = None  # os.path.join(base_dir, 'mb_gwas_data.h5')
-annotations_df = None  # pd.read_hdf(os.path.join(base_dir, 'annotations', 'snps_sequences.h5'))[['gene']].rename(columns={'gene': 'text'})
+data_fname = os.path.join(base_dir, 'mb_gwas_data.h5')
+annotations_df = None#pd.read_hdf(os.path.join(base_dir, 'snps_sequences.h5'))[['gene']].rename(columns={'gene': 'text'})
 output_dir = os.path.join(base_dir, 'plots')
 
-mwas_plots.run(mwas_fname=mwas_fname, data_fname=data_fname, annotations_df=annotations_df, pval_col='Global_FDR', pval_cutoff=0.1, # input
+mwas_plots.run(mwas_fname=mwas_fname, data_fname=data_fname, annotations_df=annotations_df, pval_col='Pval', pval_cutoff=1,  # input
                out_dir=output_dir, fontsize=10, dpi=200,  # output
                manhattan_draw_func=None, manhattan_text_func=None)

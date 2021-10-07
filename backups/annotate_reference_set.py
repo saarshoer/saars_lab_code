@@ -13,18 +13,19 @@ from LabData.CentralizedGenerators.prokka import prokka
 # conda create -n prokka_env -c conda-forge -c bioconda -c defaults prokka
 
 # in shell - add the prokka and eggnog environments to your .cshrc PATH, if not in file itself it will not work for jobs
-# setenv PATH ~/Develop/anaconda_33/envs/prokk_env/bin:/net/mraid08/export/genie/Bin/eggnogv2/eggnog-mapper:${PATH}
+# setenv PATH /net/mraid08/export/genie/Bin/eggnogv2/eggnog-mapper/bin:~/Develop/anaconda_33/envs/prokk_env/bin:/net/mraid08/export/genie/Bin/eggnogv2/eggnog-mapper:${PATH}
 
 # in shell - run this script with your regular python (the one that has LabQueue and LabUtils configured)
 # /usr/wisdom/python3/bin/python ~/Develop/Git/LabData/LabData/CentralizedGenerators/annotate_reference_genome.py &
 
 # in python -
-reference_fasta = '/net/mraid08/export/jafar/Microbiome/Analyses/Unicorn/databases/mash/Mar21_final/BuildURA/Rep_all/single_fastas'  # Segal
+reference_fasta = '/net/mraid08/export/jafar/Microbiome/Analyses/Unicorn/URS/URS_Build/Rep_all/single_fastas'  # Segal
 # reference_fasta = '/net/mraid08/export/jafar/Microbiome/Data/Databases/URA_IndicesAndScores/LargeOrNewGenusSGBs/SegataIndexLargeOrNewGenusSGBs.fa'  # Segata
 # reference_fasta = '/net/mraid08/export/jafar/Microbiome/Analyses/Unicorn/URA_DBs/SegataAll/other_single_fasta'  # Segata all
 output_dir = analyses_dir
 
 jobs_dir = os.path.join(output_dir, 'jobs')
+os.makedirs(jobs_dir, exist_ok=True)
 
 prokka_env = '~/Develop/anaconda_33/envs/prokk_env/bin'
 eggnog_env = '/net/mraid08/export/genie/Bin/eggnogv2/eggnog-mapper'
@@ -34,7 +35,7 @@ prokka_version = 'prokka_1.14.6'
 eggnog_version = 'eggnog_2.0.4'
 
 # create fasta file per species
-if os.path.isfile(reference_fasta):
+if os.path.isfile(reference_fasta):  # in case all the reference species are in a single file
     prev_rep = ''
     reference_file = open(reference_fasta, 'r')
     for species_object in SeqIO.parse(reference_file, 'fasta'):
@@ -50,7 +51,7 @@ if os.path.isfile(reference_fasta):
         species_file.close()
         prev_rep = rep
     reference_file.close()
-elif os.path.isdir(reference_fasta):
+elif os.path.isdir(reference_fasta):  # in case each species has its own fasta file
     for rep in glob.glob(os.path.join(reference_fasta, '*')):
         species_dir = os.path.join(output_dir, os.path.basename(rep).replace('.fa', ''))
         os.mkdir(species_dir)

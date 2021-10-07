@@ -12,16 +12,18 @@ df_suffix = '_20_corrected'
 covariates = ['Age', 'Gender', 'Carbohydrates']
 
 
-def gen_f(subjects_df, df):
+def gen_f(subjects_df, df_path):
+    df = pd.read_pickle(df_path)
     # if subjects_df is not None:
     #     df = filter_dataframe(df, subjects_df)
-    return LoaderData(pd.DataFrame(df), None)
+    return LoaderData(df, None)
 
 
-def is_y_valid(y, max_on_most_freq_val_in_col=0.99, min_on_non_freq_val_for_y=0.01, y_binary=None):
-    major_count = y.value_counts().max()
-    minor_count = len(y) - major_count
-    return (major_count <= max_on_most_freq_val_in_col * len(y)) & (minor_count >= min_on_non_freq_val_for_y * len(y))
+def is_y_valid(y, max_on_most_freq_val_in_col=0.99, min_on_non_freq_val_for_y=0.01, y_binary=None):#really effects the run time
+    return True
+    # major_count = y.value_counts().max()
+    # minor_count = len(y) - major_count
+    # return (major_count <= max_on_most_freq_val_in_col * len(y)) & (minor_count >= min_on_non_freq_val_for_y * len(y))
 
 
 def get_data(body_site, time_point, delta):
@@ -50,6 +52,7 @@ def get_data(body_site, time_point, delta):
 
     # raw data frames
     idx = get_df(f'{body_site.lower()}_species_abundance{df_suffix}.df', False)
+    idx = idx.loc[:, (~idx.isna()).sum() >= 40]
     s = ['SGB_' + col.split('sSGB__')[-1] for col in idx.columns]
     idx = idx[[]]
 
@@ -75,6 +78,9 @@ def get_data(body_site, time_point, delta):
     y = joined_df[joined_df.columns.difference(covariates)]
     c = joined_df[covariates]
 
+    y.to_pickle(os.path.join(df_dir, f'{body_site.lower()}_mwas_input_y.df'))
+    c.to_pickle(os.path.join(df_dir, f'{body_site.lower()}_mwas_input_c.df'))
+
     return x, y, c, s
 
 
@@ -89,12 +95,12 @@ class P:
     for cov in covariates:
         output_cols = output_cols + [cov + '_Pval', cov + '_Coef']
 
-    x, y, c, s = None, None, None, None#get_data(body_site, time_point, delta)
+    x, y, c, s = get_data(body_site, time_point, delta)
 
     collect_data = False
 
     # queue
-    max_jobs = 200
+    max_jobs = 120
     send_to_queue = True
     analyses_dir = config.analyses_dir
     work_dir_suffix = f'{"_".join(study_ids)}_mwas_{body_site.lower()}'
@@ -106,9 +112,10 @@ class P:
 
     # species
     # done_species = pd.read_csv(
-    #     '/net/mraid08/export/genie/LabData/Analyses/saarsh/20210823_102933_PNP3_mwas_gut/finished.csv', index_col=0)
+    #     '/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas_gut_small/done_species.csv', index_col=0)
     # done_species = done_species.iloc[:, 0].to_list()
-    species_set = None#list(set(s) - set(done_species))
+    species_set = s#list(set(s) - set(done_species))
+    # print(f'running on {len(species_set)} new species')
     ignore_species = None
     filter_by_species_existence = False
     species_blocks = 1
@@ -127,23 +134,23 @@ class P:
     # SNPs
     min_reads_per_snp = 1  # in maf file name
     min_subjects_per_snp_cached = 20  # in maf file name
-    max_on_fraq_major_per_snp = 0.95  # Max fraction of major allele frequency in analyzed samples
+    max_on_fraq_major_per_snp = 0.8  # Max fraction of major allele frequency in analyzed samples
     min_on_minor_per_snp = 10  # (Liron 50) Min number of analyzed samples with a minor allele
-    min_subjects_per_snp = 10  # (Liron 400)
+    min_subjects_per_snp = 40  # (Liron 400)
     max_samples_per_snp = None
     snp_set = None
 
     # covariates
-    covariate_gen_f = lambda subjects_df: gen_f(subjects_df, P.c)
+    covariate_gen_f = lambda subjects_df: gen_f(subjects_df, os.path.join(df_dir, f'gut_mwas_input_c.df'))
     constant_covariate = False
     ret_cov_fields = True
     test_maf_cov_corr = False  # necessary
 
     # y
-    y_gen_f = lambda subjects_df: gen_f(subjects_df, P.y)
+    y_gen_f = lambda subjects_df: gen_f(subjects_df, os.path.join(df_dir, f'gut_mwas_input_y.df'))
     is_y_valid_f = is_y_valid  # Function that checks whether the analyzed y is valid
-    max_on_most_freq_val_in_col = 0.95
-    min_on_non_freq_val_for_y = 0.05
+    max_on_most_freq_val_in_col = 0.8
+    min_on_non_freq_val_for_y = 0.2
 
     # p-value
     max_pval_to_report = 0.1
@@ -162,20 +169,28 @@ if __name__ == '__main__':
     # work_dir = m.gen_mwas()
     # print(work_dir)
 
-    work_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas_gut_on_all_species_with_jupyter_filter'
+    work_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas_gut_small'
+
     # MBSNPAnalyses(P, work_dir).post_full_run_recovery_from_files()
-    df = pd.read_hdf(os.path.join(work_dir, 'mb_gwas.h5'))
-    df = df[df['Y_Bonferroni'] <= 0.05]
-    df.to_hdf(os.path.join(work_dir, 'mb_gwas_significant.h5'), key='sig')
+    # df = pd.read_hdf(os.path.join(work_dir, 'mb_gwas.h5'))
+    # df = df[df['Y_Bonferroni'] <= 0.05]
+    # df.to_hdf(os.path.join(work_dir, 'mb_gwas_significant.h5'), key='sig')
 
     # P.collect_data = True
-    # P.snp_set = pd.read_hdf(os.path.join(work_dir, 'mb_gwas.h5'))
-    # if not P.snp_set.empty:
-    #     P.snp_set = P.snp_set[P.snp_set['Global_FDR'] <= 0.1]
-    #     if not P.snp_set.empty:
-    #         P.snp_set.to_hdf(os.path.join(work_dir, 'mb_gwas_significant.h5'), key='snps')
-    #         print(P.snp_set.index.get_level_values('Y').value_counts())
-    #         print(P.snp_set.index.get_level_values('Species').value_counts())
-    #         P.work_dir_suffix = f'{P.work_dir_suffix}_data'
-    #         d = MWAS(P)
-    #         work_dir = d.gen_mwas()
+    # P.snp_set = pd.read_hdf(os.path.join(work_dir, 'mb_gwas_significant.h5'))
+    # P.work_dir_suffix = f'{P.work_dir_suffix}_data'
+    # print(P.snp_set.index.get_level_values('Y').value_counts())
+    # print(P.snp_set.index.get_level_values('Species').value_counts())
+    # d = MWAS(P)
+    # work_dir = d.gen_mwas()
+    # print(work_dir)
+
+    sig_results = pd.read_hdf(os.path.join(work_dir, 'mb_gwas_significant.h5'))
+    P.y = P.y[sig_results.index.get_level_values('Y').unique().tolist()]
+    max_pval_to_report = 1
+    P.work_dir_suffix = f'{P.work_dir_suffix}_all_pvals_subset_y'
+    d = MWAS(P)
+    work_dir = d.gen_mwas()
+    print(work_dir)
+
+    print('done')

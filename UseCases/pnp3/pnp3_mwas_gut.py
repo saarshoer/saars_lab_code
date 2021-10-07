@@ -1,12 +1,10 @@
 import os
-import glob
 import pandas as pd
 from analysis import get_delta_df
 from LabData import config_global as config
 from LabUtils.addloglevels import sethandlers
 from LabData.DataLoaders.Loader import LoaderData
 from LabData.DataAnalyses.MBSNPs.MWAS import MWAS
-from LabUtils.pandas_utils import filter_dataframe
 from LabData.DataAnalyses.MBSNPs.MBSNPAnalyses import MBSNPAnalyses
 
 df_dir = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3/data_frames'
@@ -51,7 +49,9 @@ def get_data(body_site, time_point, delta):
         return df
 
     # raw data frames
-    idx = get_df(f'{body_site.lower()}_species_abundance{df_suffix}.df', False)[[]]
+    idx = get_df(f'{body_site.lower()}_species_abundance{df_suffix}.df', False)
+    s = ['SGB_' + col.split('sSGB__')[-1] for col in idx.columns]
+    idx = idx[[]]
 
     blood = get_df(f'blood{df_suffix}.df', delta)
     metabolites = get_df(f'metabolites{df_suffix}.df', delta)
@@ -75,7 +75,7 @@ def get_data(body_site, time_point, delta):
     y = joined_df[joined_df.columns.difference(covariates)]
     c = joined_df[covariates]
 
-    return x, y, c
+    return x, y, c, s
 
 
 class P:
@@ -89,7 +89,7 @@ class P:
     for cov in covariates:
         output_cols = output_cols + [cov + '_Pval', cov + '_Coef']
 
-    x, y, c = None, None, None#get_data(body_site, time_point, delta)
+    x, y, c, s = None, None, None, None#get_data(body_site, time_point, delta)
 
     collect_data = False
 
@@ -98,18 +98,17 @@ class P:
     send_to_queue = True
     analyses_dir = config.analyses_dir
     work_dir_suffix = f'{"_".join(study_ids)}_mwas_{body_site.lower()}'
-    jobname = f'{body_site[0]}'
+    jobname = f'{body_site}'
     verbose = False
 
     # fake world for special mwas
     body_site = study_ids[0]
 
     # species
-    # possible_species = glob.glob('/net/mraid08/export/genie/LabData/Data/MBPipeline/PNP3_rerun_segata/MBSNP/MAFB/mb_snp_maf_SGB_*_R1_S20.h5')
-    # possible_species = ['SGB_' + os.path.basename(s).split('_')[4] for s in possible_species]
-    # done_species = pd.read_csv('/net/mraid08/export/genie/LabData/Analyses/saarsh/20210818_193841_PNP3_mwas_gut/finished.csv', index_col=0)
+    # done_species = pd.read_csv(
+    #     '/net/mraid08/export/genie/LabData/Analyses/saarsh/20210823_102933_PNP3_mwas_gut/finished.csv', index_col=0)
     # done_species = done_species.iloc[:, 0].to_list()
-    species_set = None#list(set(possible_species) - set(done_species))
+    species_set = None#list(set(s) - set(done_species))
     ignore_species = None
     filter_by_species_existence = False
     species_blocks = 1
@@ -147,7 +146,7 @@ class P:
     min_on_non_freq_val_for_y = 0.05
 
     # p-value
-    max_pval_to_report = 0.01
+    max_pval_to_report = 0.1
     max_pval_to_detailed = None
 
     # others
@@ -163,8 +162,11 @@ if __name__ == '__main__':
     # work_dir = m.gen_mwas()
     # print(work_dir)
 
-    work_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas_gut_on_all_species_with_mwas_filter'
+    work_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas_gut'
     MBSNPAnalyses(P, work_dir).post_full_run_recovery_from_files()
+    # df = pd.read_hdf(os.path.join(work_dir, 'mb_gwas.h5'))
+    # df = df[df['Y_Bonferroni'] <= 0.05]
+    # df.to_hdf(os.path.join(work_dir, 'mb_gwas_significant.h5'), key='sig')
 
     # P.collect_data = True
     # P.snp_set = pd.read_hdf(os.path.join(work_dir, 'mb_gwas.h5'))
@@ -177,3 +179,5 @@ if __name__ == '__main__':
     #         P.work_dir_suffix = f'{P.work_dir_suffix}_data'
     #         d = MWAS(P)
     #         work_dir = d.gen_mwas()
+
+    print('done')
