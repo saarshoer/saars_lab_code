@@ -6,10 +6,12 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib import rcParams
 from scipy.stats import pearsonr, spearmanr
+from mne.stats.multi_comp import fdr_correction
 from LabData.DataLoaders.MBSNPLoader import MAF_1_VALUE
 from LabData.DataAnalyses.MBSNPs.taxonomy import taxonomy_df
 from LabData.DataAnalyses.MBSNPs.Plots.manhattan_plot import draw_manhattan_plot
 
+ilegal_chars = [':', '*', '/', '(', ')']
 
 def draw_volcano_plot(df, title='volcano plot', figsize=(10, 6), out_file='volcano_plot',
                       pval_col='pval', pval_cutoff=0.05):
@@ -32,7 +34,9 @@ def draw_volcano_plot(df, title='volcano plot', figsize=(10, 6), out_file='volca
     ax.set_xlabel('coefficient')
     # y
     ax.set_yscale('log')
-    ax.set_ylim(1, pvals.min())
+    min_pval = pvals.min()
+    min_pval_in_fig = min_pval * 10 ** (0.1 * np.log10(min_pval)) # Add 10% white space above
+    ax.set_ylim(1, min_pval_in_fig)
     ax.set_ylabel('p-value')
 
     # text
@@ -72,16 +76,20 @@ def draw_qq_plot(df, title='qq plot', figsize=(6, 6), out_file='qq_plot', pval_c
     ax.scatter(x=expected_pvals, y=actual_pvals, marker='o', s=10, facecolors=black, edgecolors=None)
     # actual = expected
     ax.plot(expected_pvals, expected_pvals, '--', color='darkgray')
+    x_min = expected_pvals[1] if len(expected_pvals) > 1 else 10**-1
+    # 0 fails so it has to be the next smallest thing, but sometimes 0 is all you have
+    y_min = df[pval_col].min()
+    min_pval = min(x_min, y_min)
+    min_pval_in_fig = min_pval * 10 ** (0.1 * np.log10(min_pval)) # Add 10% white space above
     # x
     ax.set_xlabel('expected p-value')
     ax.set_xscale('log')
-    x_max = expected_pvals[1] if len(expected_pvals) > 1 else 10**-1
-    ax.set_xlim(1, x_max)  # 0 fails so it has to be the next smallest thing, but sometimes 0 is all you have
+    ax.set_xlim(1, min_pval_in_fig)
     # y
     ax.set_ylabel('actual p-value')
     ax.set_yscale('log')
     # intentionally pval_col and not 'Pval' so to be the same as in other graphs
-    ax.set_ylim(1, df[pval_col].min())
+    ax.set_ylim(1, min_pval_in_fig)
 
     # finish
     ax.set_title(title)
@@ -89,13 +97,21 @@ def draw_qq_plot(df, title='qq plot', figsize=(6, 6), out_file='qq_plot', pval_c
     plt.close()
 
 
-def draw_box_plot(df, title='box plot', figsize=(12, 6), out_file='box_plot'):
+def draw_box_plot(df, y_df=None, title='box plot', figsize=(12, 6), out_file='box_plot'):
 
     # figure
     fig, ax = plt.subplots(1, 1, figsize=figsize)
 
+    # add info for people without the snp
+    if y_df is not None:
+        y_col = df.index.get_level_values('Y').unique().values[0]
+        y_df = y_df.loc[y_df.index.difference(df.index.get_level_values('SampleName')), y_col] \
+            .to_frame().rename(columns={y_col: 'y'})
+        df = pd.concat([df.reset_index().set_index('SampleName'), y_df]).reset_index().set_index(df.index.names)
+
     # calculations
-    df['bin'] = pd.cut(df['MAF']/MAF_1_VALUE, bins=np.arange(0.0, 1.1, 0.1), include_lowest=True)
+    df['bin'] = pd.cut(df['MAF'].fillna(1.1*MAF_1_VALUE)/MAF_1_VALUE,
+                       bins=np.arange(0.0, 1.1 if y_df is None else 1.2, 0.1), include_lowest=True)
 
     n_colors = 51  # should be an odd number so to have white at zero
     cmap = sns.color_palette(palette='coolwarm', n_colors=n_colors)
@@ -103,24 +119,23 @@ def draw_box_plot(df, title='box plot', figsize=(12, 6), out_file='box_plot'):
                      df.groupby('bin')['y'].median().abs().max() + 1) * 0.5 * (n_colors - 1)
     colors = [cmap[i] for i in color_indices.astype(int)]
 
-    r_p, p_p = pearsonr(df['MAF']/MAF_1_VALUE, df['y'])
-    r_s, p_s = spearmanr(df['MAF']/MAF_1_VALUE, df['y'])
+    r_p, p_p = pearsonr(df['MAF'].dropna()/MAF_1_VALUE, df.dropna(subset=['MAF'])['y'])
+    r_s, p_s = spearmanr(df['MAF'].dropna()/MAF_1_VALUE, df.dropna(subset=['MAF'])['y'])
     corr_text = f"pearson: r={r_p:.2f} p={p_p:.2e}\nspearman: r={r_s:.2f} p={p_s:.2e}"
 
     # box plot
     sns.boxplot(x='bin', y='y', palette=colors, data=df, ax=ax)
     xlabels = ax.get_xticklabels()
+    d = df['bin'].value_counts()
+    d.index = d.index.astype(str)
+    d = d.to_dict()
+    for l in xlabels:
+        l.set_text(f'{l.get_text()}\nn={d[l.get_text()]}')
     xlabels[0].set_text(xlabels[0].get_text().replace('-0.001', '0.0'))
+    xlabels[-1].set_text(xlabels[-1].get_text().replace('(1.0, 1.1]', 'no snp'))
     ax.set_xticklabels(labels=xlabels, rotation=45)
     ax.set_xlabel('Major Allele Frequency')
-    if 'log2division' in out_file:
-        ax.set_ylabel(f"log2 fold change in {df.index.get_level_values('Y')[0]}")
-        ax.set_yticks(ax.get_yticks())  # necessary to prevent a warning
-        ax.set_yticklabels(labels=[f'2^{label:.2f}' for label in ax.get_yticks()])
-    elif 'subtraction' in title:
-        ax.set_ylabel(f"% change in {df.index.get_level_values('Y')[0]}")
-    else:
-        ax.set_ylabel(f"{df.index.get_level_values('Y')[0]}")
+    ax.set_ylabel(f"change in {df.index.get_level_values('Y')[0]}")
     ax.text(x=0.7, y=0.875, s=corr_text, transform=ax.transAxes)
 
     # finish
@@ -152,7 +167,8 @@ def draw_scatter_plot(df, title='scatter plot', figsize=(12, 6), out_file='scatt
     plt.close()
 
 
-def run(mwas_fname=None, data_fname=None, annotations_df=None, pval_col='Global_Bonferroni', pval_cutoff=0.05,  # input
+def run(mwas_fname=None, data_fname=None, annotations_df=None, y_df=None, # input
+        pval_col='Global_Bonferroni', pval_cutoff=0.05,  pval_func=None,  # input
         out_dir='.', fontsize=10, dpi=200,  # output
         manhattan_draw_func=None, manhattan_text_func=None):
 
@@ -161,42 +177,41 @@ def run(mwas_fname=None, data_fname=None, annotations_df=None, pval_col='Global_
 
     tax_df = taxonomy_df(level_as_numbers=False).set_index('SGB')['Species']
 
-    if data_fname:
+    if data_fname is not None:
         if type(data_fname) is str:
             data_df = pd.read_hdf(data_fname)
         else:
             data_df = data_fname
+        data_df['Position'] = data_df.index.get_level_values('Position').astype(int)
+        data_df = data_df.reset_index('Position', drop=True).set_index('Position', append=True)
         if annotations_df is not None:
-            data_df = data_df.join(annotations_df, on=['Species', 'Contig', 'Position']).dropna(subset=[pval_col])
+            data_df = data_df.join(annotations_df, on=['Y', 'Species', 'Contig', 'Position'])#.dropna(subset=[pval_col])
             # multiply rows in caller if there are multiple matches in other
 
         data_out_dir = os.path.join(out_dir, 'data')
         os.makedirs(data_out_dir, mode=0o744, exist_ok=True)
 
-        data_df = data_df.reset_index('Y')
-        data_df['Y'] = data_df['Y'].str.replace('bt__', '')
-        data_df['Y'][data_df['Y'].str.endswith('_')] = data_df['Y'][data_df['Y'].str.endswith('_')].str[:-1]
-        data_df = data_df.set_index('Y', append=True)
-
         for (y, species, contig, position), snp_df in data_df.groupby(['Y', 'Species', 'Contig', 'Position']):
-            snp_df = snp_df.copy().loc[:, [int(position), 'y']].rename(columns={int(position): 'MAF'})
-            title = f"{os.path.basename(os.path.dirname(data_fname)).split('_')[2]}\n{tax_df.loc[species].split('s__')[-1]} and {y}\n{species} {contig} {position}"
-            title = title[0].upper() + title[1:]
+            y_legal = y
+            for char in ilegal_chars:
+                y_legal = y_legal.replace(char, '')
+            title = f"{tax_df.loc[species].split('s__')[-1]} and {y}\n{species} {contig} {position}"
 
-            draw_box_plot(snp_df, title=title, out_file=os.path.join(data_out_dir,
-            f'box_plot_{os.path.basename(os.path.dirname(data_fname))[10:].replace("_0months", "")}_{species}_{contig}_{position}_{y}'))
+            snp_df = snp_df.rename(columns={position: 'MAF'})
+
+            draw_box_plot(snp_df.copy(), y_df=y_df.copy() if y_df is not None else None, title=title,
+                          out_file=os.path.join(data_out_dir, f'box_plot_{species}_{contig}_{position}_{y_legal}'))
 
             # draw_scatter_plot(snp_df.copy(), title=title,
-            #                   out_file=os.path.join(data_out_dir, f'scatter_plot_{species}_{contig}_{position}_{y}'))
+            #                   out_file=os.path.join(data_out_dir, f'scatter_plot_{species}_{contig}_{position}_{y_legal}'))
 
-    if mwas_fname:
+    if mwas_fname is not None:
         if type(mwas_fname) is str:
             mwas_df = pd.read_hdf(mwas_fname)
-            # mwas_df = mwas_df[mwas_df.index.get_level_values('Y') == 'Hips']
         else:
             mwas_df = mwas_fname
         if annotations_df is not None:
-            mwas_df = mwas_df.join(annotations_df, on=['Species', 'Contig', 'Position']).dropna(subset=[pval_col])
+            mwas_df = mwas_df.join(annotations_df, on=['Y', 'Species', 'Contig', 'Position'])#.dropna(subset=[pval_col])
             # multiply rows in caller if there are multiple matches in other
 
         # for qq plot - smallest round non-zero
@@ -208,21 +223,21 @@ def run(mwas_fname=None, data_fname=None, annotations_df=None, pval_col='Global_
         min_value = min_value if min_value > 1e-319 else 1e-319  # smaller number ends up to be zero
         mwas_df[pval_col] = mwas_df[pval_col].replace(to_replace=0, value=10**-(math.ceil(-np.log10(min_value)/10)*10))
 
-        # y = 'Hips'
         for y, y_df in mwas_df.groupby('Y'):
-            if (y_df[pval_col] <= pval_cutoff).sum() == 0:
-                continue
-
-            y_out_dir = os.path.join(out_dir, y)#f'{y}_{sp}')
+            y_legal = y
+            for char in ilegal_chars:
+                y_legal = y_legal.replace(char, '')
+            y_out_dir = os.path.join(out_dir, y_legal)
+            ys_pval_cutoff = pval_cutoff if pval_func is None else pval_func(pval_col, pval_cutoff, y_df)
             os.makedirs(y_out_dir, mode=0o744, exist_ok=True)
 
             title = f"{y}\n{tax_df.loc[y].split('s__')[-1]}" if 'SGB' in y else y
 
-            draw_qq_plot(df=y_df, title=title, out_file=os.path.join(y_out_dir, f'qq_{y}'), pval_col=pval_col)
+            draw_qq_plot(df=y_df, title=title, out_file=os.path.join(y_out_dir, f'qq_{y_legal}'), pval_col=pval_col)
 
-            draw_volcano_plot(df=y_df, title=title, out_file=os.path.join(y_out_dir, f'volcano_{y}'),
-                              pval_col=pval_col, pval_cutoff=pval_cutoff)
+            draw_volcano_plot(df=y_df, title=title, out_file=os.path.join(y_out_dir, f'volcano_{y_legal}'),
+                              pval_col=pval_col, pval_cutoff=ys_pval_cutoff)
 
-            draw_manhattan_plot(df=y_df, title=title, out_file=os.path.join(y_out_dir, f'manhattan_{y}'),
+            draw_manhattan_plot(df=y_df, title=title, out_file=os.path.join(y_out_dir, f'manhattan_{y_legal}'),
                                 draw_func=manhattan_draw_func, text_func=manhattan_text_func,
-                                pval_col=pval_col, pval_cutoff=pval_cutoff, rc=rcParams)
+                                pval_col=pval_col, pval_cutoff=ys_pval_cutoff, rc=rcParams)
