@@ -1492,22 +1492,25 @@ class Study:
             sub_data = kwargs.pop('data')
 
             # between individuals
-            p = sns.boxplot('dissimilarity', 'Species', minor,
+            if not sub_data.loc[~same_person & same_minor].empty:
+                sns.boxplot('dissimilarity', 'Species', minor,
                             data=sub_data.loc[~same_person & same_minor],
                             hue_order=np.unique(sub_data.loc[~same_person & same_minor, minor]),
                             width=0.5, whis=whis, showfliers=False, **kwargs)
 
             # within individuals
-            hue = major if not all(sub_data.loc[same_person, 'person1'].isin(list(self.params.colors.keys()))) else 'person1'
-            sns.scatterplot('dissimilarity', 'Species', hue,
-                            data=sub_data.loc[same_person],
-                            hue_order=np.unique(sub_data.loc[same_person, hue]), alpha=0.2, legend='brief', ax=p, **kwargs)
+            if not sub_data.loc[same_person].empty:
+                hue = major if not all(sub_data.loc[same_person, 'person1'].isin(list(self.params.colors.keys()))) else 'person1'
+                p = sns.scatterplot('dissimilarity', 'Species', hue,
+                                data=sub_data.loc[same_person],
+                                hue_order=np.unique(sub_data.loc[same_person, hue]),
+                                alpha=0.2, legend='brief', **kwargs)
 
-            # replacements
-            if 'replacement' in sub_data.columns:
-                n_replacements = sub_data.loc[same_person].groupby('Species')['replacement'].sum()
-                for s in n_replacements.index:
-                    p.text(1/20, s, n_replacements.loc[s])
+                # replacements
+                if 'replacement' in sub_data.columns:
+                    n_replacements = sub_data.loc[same_person].groupby('Species')['replacement'].sum()
+                    for s in n_replacements.index:
+                        p.text(1/20, s, n_replacements.loc[s])
 
             # between individuals - significance
             if minimal_between_comparisons is not None:
@@ -1518,7 +1521,7 @@ class Study:
                                                         stats_between_df[major].isin(np.unique(sub_data[major])) &
                                                         stats_between_df['Species'].isin(np.unique(sub_data['Species'])),
                                                         minor]),
-                                marker='*', s=120, legend=False, ax=p, **kwargs)
+                                marker='*', s=120, legend=False, **kwargs)
 
             # within individuals - significance
             if minimal_within_comparisons is not None:
@@ -1529,7 +1532,7 @@ class Study:
                                                         stats_within_df[major].isin(np.unique(sub_data[major])) &
                                                         stats_within_df['Species'].isin(np.unique(sub_data['Species'])),
                                                         major]),
-                                marker='*', s=120, legend=False, ax=p, **kwargs)
+                                marker='*', s=120, legend=False, **kwargs)
 
         # data manipulation
         df = obj.df
