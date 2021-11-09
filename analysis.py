@@ -1469,7 +1469,8 @@ class Study:
                     plt.savefig(os.path.join(self.dirs.figs, obj.type, title.replace('\n', ' ')), pad_inches=0.5)
                     plt.close()
 
-    def fig_snp_scatter_box(self, obj, subplot='group', minimal_between_comparisons=45, minimal_within_comparisons=10,
+    def fig_snp_scatter_box(self, obj, subplot='group', subplot_order=None,
+                            minimal_between_comparisons=45, minimal_within_comparisons=10,
                             species=25, height=12, aspect=0.5, whis=[5, 95]):
         """
         Plot a the dissimilarity distribution between and within people based on the SNP dissimilarity data frame
@@ -1655,11 +1656,11 @@ class Study:
             # if not type categorial there is a bug in y values order (https://github.com/mwaskom/seaborn/issues/1306)
 
             # plotting
-            g = sns.FacetGrid(sub_df, col=major, col_order=np.unique(df[major]),
+            g = sns.FacetGrid(sub_df, col=major, col_order=np.unique(df[major]) if subplot_order is None else subplot_order,
                               height=height, aspect=aspect, dropna=False)
             g = g.map_dataframe(scatter_box_plot, palette=self.params.colors)
 
-            g.add_legend()
+            # g.add_legend()
             plt.xscale('log')
             plt.xlim([self.params.detection_threshold/3, 10**-1])
 
@@ -1672,7 +1673,7 @@ class Study:
                     color = 'black'
                 ax.set_title(label=ax.get_title(), color=color)
             title = '{} distribution by {}'.format(obj.type, subplot)
-            g.add_legend()
+            # g.add_legend()
             plt.suptitle(title)
             plt.tight_layout()
             plt.subplots_adjust(top=0.88)
