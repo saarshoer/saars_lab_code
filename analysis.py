@@ -1199,7 +1199,7 @@ class Study:
         excel_writer.save()
         excel_writer.close()
 
-    def dim_reduction(self, obj, n_pca_comp=5, n_tsne_comp=2, pcs2remove=None):
+    def dim_reduction(self, obj, n_pca_comp=5, n_tsne_comp=2, perplexity='auto', pcs2remove=None):
         """
         Reduces the dimensionality of a samples X features data frame
         and save the best 2 components as figures, colored by each index
@@ -1208,6 +1208,7 @@ class Study:
         index levels are used to color and create different figures
         :param n_pca_comp: (int) number of desired components from pca
         :param n_tsne_comp: (int) number of desired components from tsne
+        :param perplexity: (int) related to the number of nearest neighbors or 'auto'
         :param pcs2remove: (lst) of pcs index to remove from data
 
         :return: pca_result, tsne_result, df (after removal of specified PCs)
@@ -1306,7 +1307,20 @@ class Study:
         pca_result = pca.fit_transform(df.values)
 
         # tsne
-        tsne = TSNE(n_components=n_tsne_comp, method='exact', init='random' if df.shape[0] <= 50 else 'pca')
+        if perplexity == 'auto':
+            print("Optimizing perplexity")
+            for p in range(1, df.shape[0]):
+                tsne = TSNE(n_components=n_tsne_comp, perplexity=p,
+                            method='exact', init='random' if df.shape[0] <= 50 else 'pca')  # needs to be identicalto below
+                _ = tsne.fit_transform(df.values)
+                if p == 1 or tsne.kl_divergence_ < min_value:
+                    perplexity = p
+                    min_value = tsne.kl_divergence_
+                    print("perplexity ", p, "kl divergence ", tsne.kl_divergence_)
+            print("Chose perplexity ", perplexity)
+
+        tsne = TSNE(n_components=n_tsne_comp, perplexity=perplexity,
+                    method='exact', init='random' if df.shape[0] <= 50 else 'pca')  # needs to be indentical to above
         tsne_result = tsne.fit_transform(df.values)
 
         fig_best_components()
