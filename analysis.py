@@ -1309,7 +1309,7 @@ class Study:
         # tsne
         if perplexity == 'auto':
             print("Optimizing perplexity")
-            for p in range(1, df.shape[0]):
+            for p in range(1, df.shape[0]):#np.arange(1, np.ceil(df.shape[0]**0.5)+1):
                 tsne = TSNE(n_components=n_tsne_comp, perplexity=p,
                             method='exact', init='random' if df.shape[0] <= 50 else 'pca')  # needs to be identicalto below
                 _ = tsne.fit_transform(df.values)
@@ -1506,48 +1506,68 @@ class Study:
             # retract the data
             sub_data = kwargs.pop('data')
 
-            # between individuals
-            if not sub_data.loc[~same_person & same_minor].empty:
-                sns.boxplot('dissimilarity', 'Species', minor,
-                            data=sub_data.loc[~same_person & same_minor],
-                            hue_order=np.unique(sub_data.loc[~same_person & same_minor, minor]),
-                            width=0.5, whis=whis, showfliers=False, **kwargs)
+            if not summary:
 
-            # within individuals
-            if not sub_data.loc[same_person].empty:
-                hue = major if not all(sub_data.loc[same_person, 'person1'].isin(list(self.params.colors.keys()))) else 'person1'
-                p = sns.scatterplot('dissimilarity', 'Species', hue,
-                                data=sub_data.loc[same_person],
-                                hue_order=np.unique(sub_data.loc[same_person, hue]),
-                                alpha=0.2, legend='brief', **kwargs)
+                # between individuals
+                if not sub_data.loc[~same_person & same_minor].empty:
+                    sns.boxplot('dissimilarity', 'Species', minor,
+                                data=sub_data.loc[~same_person & same_minor],
+                                hue_order=np.unique(sub_data.loc[~same_person & same_minor, minor]),
+                                width=0.5, whis=whis, showfliers=False, **kwargs)
 
-                # replacements
-                if 'replacement' in sub_data.columns:
-                    n_replacements = sub_data.loc[same_person].groupby('Species')['replacement'].sum()
-                    for s in n_replacements.index:
-                        p.text(1/20, s, n_replacements.loc[s])
+                # within individuals
+                if not sub_data.loc[same_person].empty:
+                    hue = major if not all(sub_data.loc[same_person, 'person1'].isin(list(self.params.colors.keys()))) else 'person1'
+                    p = sns.scatterplot('dissimilarity', 'Species', hue,
+                                    data=sub_data.loc[same_person],
+                                    hue_order=np.unique(sub_data.loc[same_person, hue]),
+                                    alpha=0.2, legend='brief', **kwargs)
 
-            # between individuals - significance
-            if minimal_between_comparisons is not None:
-                sns.scatterplot(1/15, 'Species', minor,
-                                data=stats_between_df.loc[stats_between_df[major].isin(np.unique(sub_data[major])) &
-                                                          stats_between_df['Species'].isin(np.unique(sub_data['Species']))],
-                                hue_order=np.unique(stats_between_df.loc[
-                                                        stats_between_df[major].isin(np.unique(sub_data[major])) &
-                                                        stats_between_df['Species'].isin(np.unique(sub_data['Species'])),
-                                                        minor]),
-                                marker='*', s=120, legend=False, **kwargs)
+                    # replacements
+                    if 'replacement' in sub_data.columns:
+                        n_replacements = sub_data.loc[same_person].groupby(['Species', 'person1'])['replacement'].any()\
+                            .groupby('Species').sum()
+                        for s in n_replacements.index:
+                            p.text(1/20, s, n_replacements.loc[s])
 
-            # within individuals - significance
-            if minimal_within_comparisons is not None:
-                sns.scatterplot(1/20, 'Species', major,
-                                data=stats_within_df.loc[stats_within_df[major].isin(np.unique(sub_data[major])) &
-                                                         stats_within_df['Species'].isin(np.unique(sub_data['Species']))],
-                                hue_order=np.unique(stats_within_df.loc[
-                                                        stats_within_df[major].isin(np.unique(sub_data[major])) &
-                                                        stats_within_df['Species'].isin(np.unique(sub_data['Species'])),
-                                                        major]),
-                                marker='*', s=120, legend=False, **kwargs)
+                # between individuals - significance
+                if minimal_between_comparisons is not None:
+                    sns.scatterplot(1/15, 'Species', minor,
+                                    data=stats_between_df.loc[stats_between_df[major].isin(np.unique(sub_data[major])) &
+                                                              stats_between_df['Species'].isin(np.unique(sub_data['Species']))],
+                                    hue_order=np.unique(stats_between_df.loc[
+                                                            stats_between_df[major].isin(np.unique(sub_data[major])) &
+                                                            stats_between_df['Species'].isin(np.unique(sub_data['Species'])),
+                                                            minor]),
+                                    marker='*', s=120, legend=False, **kwargs)
+
+                # within individuals - significance
+                if minimal_within_comparisons is not None:
+                    sns.scatterplot(1/20, 'Species', major,
+                                    data=stats_within_df.loc[stats_within_df[major].isin(np.unique(sub_data[major])) &
+                                                             stats_within_df['Species'].isin(np.unique(sub_data['Species']))],
+                                    hue_order=np.unique(stats_within_df.loc[
+                                                            stats_within_df[major].isin(np.unique(sub_data[major])) &
+                                                            stats_within_df['Species'].isin(np.unique(sub_data['Species'])),
+                                                            major]),
+                                    marker='*', s=120, legend=False, **kwargs)
+
+            else:
+
+                # within individuals
+                if not sub_data.loc[same_person].empty:
+                    matrix = sub_data.loc[same_person].copy()
+                    matrix = matrix.groupby(['Species', 'person1'])['replacement'].any().unstack(fill_value=False)
+                    matrix = matrix.apply(lambda col: col.replace(True, pd.to_numeric(col.name, errors='ignore')), axis=0).replace(False, 0)
+                    matrix.loc[:, set(all_same_person) - set(matrix.columns)] = 0
+                    matrix = matrix.loc[:, all_same_person]
+
+                    # TODO: this will be a problem if the person1 identifiers are not sequential and in equal distance
+                    cmap = None if not all(sub_data.loc[same_person, 'person1'].isin(list(self.params.colors.keys()))) \
+                        else ['white'] + [self.params.colors[str(k)] for k in matrix.columns]
+                    sns.heatmap(matrix, linewidths=1, linecolor='lightgrey', cbar=False, cmap=cmap)
+                    # annot=z for color debugging
+
 
         # data manipulation
         df = obj.df
@@ -1652,8 +1672,8 @@ class Study:
 
         # sorts species in df by their number of replacements
         if 'replacement' in df.columns:
-            species_order = list(df.loc[same_person].groupby('Species')['replacement'].sum()
-                                           .sort_values(ascending=False).index)
+            species_order = list(df.loc[same_person].groupby(['Species', 'person1'])['replacement'].any()
+                                 .groupby('Species').sum().sort_values(ascending=False).index)
         else:
             species_order = list(df.loc[same_person].groupby('Species').apply(len).sort_values(ascending=False).index)
         df['Species'] = df['Species'].astype('category').cat.set_categories(species_order)
@@ -1662,6 +1682,20 @@ class Study:
         # for unexplainable reason this effects the replacements decimal point in the figure
         # if not returned to type str will show all species in all figures
 
+        # this is just to know who are all the possible people in the same person comparisons
+        str_values = []
+        int_values = []
+        for v in df.loc[same_person, 'person1'].unique():
+            if v.isnumeric():
+                int_values.append(int(v))
+            else:
+                str_values.append(v)
+        all_same_person = sorted(str_values) + [str(v) for v in sorted(int_values)]
+
+        max_x = 10**-1
+        min_x = self.params.detection_threshold/3
+        df['dissimilarity'] = df['dissimilarity'].clip(lower=self.params.detection_threshold, upper=max_x)
+
         # split to multiple figures
         for i_figure in figures:
 
@@ -1669,30 +1703,35 @@ class Study:
             sub_df['Species'] = sub_df['Species'].astype('category').cat.set_categories(species_order[i_figure:i_figure+species])
             # if not type categorial there is a bug in y values order (https://github.com/mwaskom/seaborn/issues/1306)
 
-            # plotting
-            g = sns.FacetGrid(sub_df, col=major, col_order=np.unique(df[major]) if subplot_order is None else subplot_order,
-                              height=height, aspect=aspect, dropna=False)
-            g = g.map_dataframe(scatter_box_plot, palette=self.params.colors)
+            for summary in [False, True]:
 
-            # g.add_legend()
-            plt.xscale('log')
-            plt.xlim([self.params.detection_threshold/3, 10**-1])
+                # plotting
+                g = sns.FacetGrid(sub_df, col=major, col_order=np.unique(df[major]) if subplot_order is None else subplot_order,
+                                  height=height, aspect=aspect, dropna=False)
+                g = g.map_dataframe(scatter_box_plot, palette=self.params.colors)
 
-            g.set_axis_labels(x_var='dissimilarity', y_var='species')
-            g.set_titles(row_template='{row_name}', col_template='{col_name}')
-            for ax in g.axes.flatten():
-                if ax.get_title() in self.params.colors.keys():
-                    color = self.params.colors[ax.get_title()]
-                else:
-                    color = 'black'
-                ax.set_title(label=ax.get_title(), color=color)
-            title = '{} distribution by {}'.format(obj.type, subplot)
-            # g.add_legend()
-            plt.suptitle(title)
-            plt.tight_layout()
-            plt.subplots_adjust(top=0.88)
+                # g.add_legend()
+                if not summary:
+                    plt.xscale('log')
+                    plt.xlim([min_x, max_x])
 
-            plt.savefig(os.path.join(self.dirs.figs, '{} s{}-{}'.format(title, i_figure, i_figure+species)))
+                g.set_axis_labels(x_var='dissimilarity' if not summary else 'person', y_var='species')
+                g.set_titles(row_template='{row_name}', col_template='{col_name}')
+                for ax in g.axes.flatten():
+                    if ax.get_title() in self.params.colors.keys():
+                        color = self.params.colors[ax.get_title()]
+                    else:
+                        color = 'black'
+                    ax.set_title(label=ax.get_title(), color=color)
+                title = '{} distribution by {}'.format(obj.type, subplot)
+                # g.add_legend()
+                plt.suptitle(title)
+                plt.tight_layout()
+                plt.subplots_adjust(top=0.88)
+
+                title4saving = '{}{}s{}-{}'.format(title, ' ' if not summary else ' summary ', i_figure, i_figure+species)
+                plt.savefig(os.path.join(self.dirs.figs, title4saving))
+                plt.close()
 
     def fig_strain_replacements(self, obj, category='person1', hue='group1'):
         """
@@ -1967,16 +2006,18 @@ def get_delta_df(regular_df, control_time_point, divide=False):
     # subtract from each time point values the control time values
     for time_point in time_points:
         idx = delta_df.xs(time_point, level='time_point', drop_level=False).index
+        idx_person = idx.get_level_values('person')
+
+        curr_values = regular_df.xs(time_point, level='time_point')
+        control_values = regular_df.xs(control_time_point, level='time_point')
+
         if divide:
-            delta_df.loc[idx] = \
-                (regular_df.xs(time_point, level='time_point') /
-                 regular_df.xs(control_time_point, level='time_point')).values
+            delta_df.loc[idx] = (curr_values / control_values).loc[idx_person].values
             sign = '/'
         else:
-            delta_df.loc[idx] = \
-                (regular_df.xs(time_point, level='time_point') -
-                 regular_df.xs(control_time_point, level='time_point')).values
+            delta_df.loc[idx] = (curr_values - control_values).loc[idx_person].values
             sign = '-'
+
         delta_df = delta_df.rename(
             index={time_point: '{}{}{}'.format(time_point, sign, control_time_point)},
             level='time_point')
@@ -2587,22 +2628,51 @@ class _Parameters:
 
 if __name__ == '__main__':
     import matplotlib
-    AD = Study(study='AD_FMT2', controls=None, colors=None, base_directory='/home/saarsh/Analysis/atopic/AD_FMT2')
 
+    study = 'AD_FMT2'
+
+    AD = Study(study=study,
+               base_directory=os.path.join('/home/saarsh/Analysis/atopic', study),
+               controls={'time_point': 'week 0', 'group': 'Placebo'})
+
+    # colors
     AD.params.colors = {'FMT': 'brown', 'Placebo': 'green', 'Between individuals': 'lightgrey'}
     for g in ['FMT', 'Placebo']:
-        AD.params.colors[f'Baseline vs. {g}'] = AD.params.colors[g]
-        AD.params.colors[f'Baseline vs. {g} Follow-up'] = AD.params.colors[g]
-        AD.params.colors[f'Donor vs. {g}'] = AD.params.colors[g]
-        AD.params.colors[f'Donor vs. {g} Follow-up'] = AD.params.colors[g]
+        AD.params.colors[f'Pre {g}'] = AD.params.colors[g]
+        AD.params.colors[f'{g} Follow-up'] = AD.params.colors[g]
 
-    AD.params.colors['DONOR'] = 'yellow'
-    tab10 = matplotlib.cm.get_cmap('tab10')
-    for p in np.arange(1, 11):
-        AD.params.colors[p] = tab10(int(p) - 1)
+    if study == 'AD_FMT':
+        AD.params.colors['DONOR_A'] = 'green'
+        AD.params.colors['DONOR_M'] = 'red'
+        AD.params.colors['DONOR_N'] = 'blue'
+        AD.params.colors['2'] = 'cyan'
+        AD.params.colors['3'] = 'skyblue'
+        AD.params.colors['6'] = 'c'
+        AD.params.colors['7'] = 'salmon'
+        AD.params.colors['8'] = 'seagreen'
+        AD.params.colors['10'] = 'lime'
+        AD.params.colors['11'] = 'mediumseagreen'
+        AD.params.colors['12'] = 'olive'
+        AD.params.colors['13'] = 'darkseagreen'
+        AD.params.colors['15'] = 'yellowgreen'
 
-    combined_dist = pd.read_pickle(os.path.join(AD.dirs.data_frames, 'df.df'))
-    AD.objs['combined_dist'] = AD.Object(obj_type='combined_dist', df=combined_dist, columns=None)
-    AD.fig_snp_scatter_box(AD.objs['combined_dist'], subplot='group', minimal_between_comparisons=None,
-                           minimal_within_comparisons=None,
-                           species=25, height=12, aspect=0.5, whis=[5, 95])
+    elif study == 'AD_FMT2':
+        AD.params.colors['DONOR'] = 'yellow'
+        tab10 = matplotlib.cm.get_cmap('tab10')
+        for p in np.arange(1, 11):
+            AD.params.colors[str(p)] = tab10(int(p) - 1)
+
+    if study == 'AD_FMT':
+        groups_order = ['Placebo', 'FMT', 'Follow-up']
+    elif study == 'AD_FMT2':
+        groups_order = ['Pre FMT', 'FMT', 'FMT Follow-up', 'Pre Placebo', 'Placebo', 'Placebo Follow-up']
+
+    patient2donor = pd.read_pickle(os.path.join(AD.dirs.data_frames, 'patient2donor.df'))
+    AD.objs['patient2donor'] = AD.Object(obj_type='Patient to donor', df=patient2donor)
+
+    # plotting
+    AD.fig_snp_scatter_box(AD.objs['patient2donor'], subplot='group', subplot_order=[g for g in groups_order if
+                                                                                         g in patient2donor.index.get_level_values(
+                                                                                             'group1').unique()],
+                       minimal_between_comparisons=None, minimal_within_comparisons=None,
+                       species=25, height=12, aspect=0.5, whis=[5, 95])
