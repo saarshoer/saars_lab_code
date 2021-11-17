@@ -55,6 +55,8 @@ from LabData.DataLoaders import GutMBLoader, OralMBLoader, BloodTestsLoader, Bod
 segata_df = pd.read_csv('/net/mraid08/export/jafar/Microbiome/Analyses/Unicorn/Segata/'
                         'SupplementaryTable8-SGBsDescription.csv')
 
+segal_df = pd.read_excel('/net/mraid08/export/jafar/Microbiome/Analyses/saar/GutMBLoader.xlsx').set_index('sBin')
+
 
 # Main class
 class Study:
@@ -1526,7 +1528,7 @@ class Study:
                     # replacements
                     if 'replacement' in sub_data.columns:
                         n_replacements = sub_data.loc[same_person].groupby(['Species', 'person1'])['replacement'].any()\
-                            .groupby('Species').sum()
+                            .groupby('Species').sum().replace(False, 0).replace(True, 1)
                         for s in n_replacements.index:
                             p.text(1/20, s, n_replacements.loc[s])
 
@@ -1559,15 +1561,14 @@ class Study:
                     matrix = sub_data.loc[same_person].copy()
                     matrix = matrix.groupby(['Species', 'person1'])['replacement'].any().unstack(fill_value=False)
                     matrix = matrix.apply(lambda col: col.replace(True, pd.to_numeric(col.name, errors='ignore')), axis=0).replace(False, 0)
-                    matrix.loc[:, set(all_same_person) - set(matrix.columns)] = 0
-                    matrix = matrix.loc[:, all_same_person]
+                    matrix.loc[:, set(people_order.index) - set(matrix.columns)] = 0
+                    matrix = matrix.loc[:, list(people_order.index)]
 
                     # TODO: this will be a problem if the person1 identifiers are not sequential and in equal distance
                     cmap = None if not all(sub_data.loc[same_person, 'person1'].isin(list(self.params.colors.keys()))) \
                         else ['white'] + [self.params.colors[str(k)] for k in matrix.columns]
                     sns.heatmap(matrix, linewidths=1, linecolor='lightgrey', cbar=False, cmap=cmap)
                     # annot=z for color debugging
-
 
         # data manipulation
         df = obj.df
@@ -1600,12 +1601,6 @@ class Study:
             np.minimum(df['{}1'.format(minor)], df['{}2'.format(minor)]) + ' vs. ' + \
             np.maximum(df['{}1'.format(minor)], df['{}2'.format(minor)])
         df.loc[same_minor, minor] = df['{}1'.format(minor)]
-
-        # species argument
-        if type(species) == list:  # by specific species
-            df = df[df['Species'].isin(species)]
-            figures = [0]
-            species = len(species)
 
         # statistics
 
@@ -1666,32 +1661,41 @@ class Study:
             stats_between_df = stats_between_df[stats_between_df['Species'].isin(combined_species)]
             stats_within_df = stats_within_df[stats_within_df['Species'].isin(combined_species)]
 
-        # species argument
-        if type(species) == int:
-            figures = np.arange(0, len(np.unique(df['Species'])), species)
-
-        # sorts species in df by their number of replacements
+        # sorts species and people df by the number of replacements
         if 'replacement' in df.columns:
-            species_order = list(df.loc[same_person].groupby(['Species', 'person1'])['replacement'].any()
-                                 .groupby('Species').sum().sort_values(ascending=False).index)
+            people_order = df.loc[same_person].groupby(['Species', 'person1'])['replacement'].any()
+            species_order = list(people_order.groupby('Species').sum().sort_values(ascending=False).index)
+            people_order = people_order.groupby('person1').apply(lambda g:
+                [g.sum(), g.shape[0], g.sum()/g.shape[0], f'{g.sum()}/{g.shape[0]}'])
+            people_order = people_order.apply(pd.Series).rename(
+                columns={0: 'replacement', 1: 'compared', 2: 'percentage', 3: 'suffix'}). \
+                sort_values(by='percentage', ascending=False)
         else:
             species_order = list(df.loc[same_person].groupby('Species').apply(len).sort_values(ascending=False).index)
+            # this is just to know who are all the possible people in the same person comparisons
+            str_values = []
+            int_values = []
+            for v in df.loc[same_person, 'person1'].unique():
+                if v.isnumeric():
+                    int_values.append(int(v))
+                else:
+                    str_values.append(v)
+            people_order = sorted(str_values) + [str(v) for v in sorted(int_values)]
+
         df['Species'] = df['Species'].astype('category').cat.set_categories(species_order)
         df = df.sort_values(['Species'])
         df['Species'] = df['Species'].astype(str)
         # for unexplainable reason this effects the replacements decimal point in the figure
         # if not returned to type str will show all species in all figures
 
-        # this is just to know who are all the possible people in the same person comparisons
-        str_values = []
-        int_values = []
-        for v in df.loc[same_person, 'person1'].unique():
-            if v.isnumeric():
-                int_values.append(int(v))
-            else:
-                str_values.append(v)
-        all_same_person = sorted(str_values) + [str(v) for v in sorted(int_values)]
+        # species argument
+        figures = [0]
+        if type(species) == list:  # by specific species
+            df = df[df['Species'].isin(species)]
+            species = len(species)
+            figures = np.arange(0, len(np.unique(df['Species'])), species)
 
+        # x axis limits
         max_x = 10**-1
         min_x = self.params.detection_threshold/3
         df['dissimilarity'] = df['dissimilarity'].clip(lower=self.params.detection_threshold, upper=max_x)
@@ -1710,11 +1714,19 @@ class Study:
                                   height=height, aspect=aspect, dropna=False)
                 g = g.map_dataframe(scatter_box_plot, palette=self.params.colors)
 
-                # g.add_legend()
                 if not summary:
                     plt.xscale('log')
                     plt.xlim([min_x, max_x])
 
+                # ticks
+                ax = g.axes.flatten()[0]
+                if summary:
+                    ax.set_xticklabels([f'{tick.get_text()}\n{people_order.loc[tick.get_text(), "suffix"]}'
+                                        for tick in ax.get_xticklabels()])
+                ax.set_yticklabels([f'{tick.get_text()}\n{segal_name(tick.get_text())[0]}'
+                                    for tick in ax.get_yticklabels()])
+
+                # titles and labels
                 g.set_axis_labels(x_var='dissimilarity' if not summary else 'person', y_var='species')
                 g.set_titles(row_template='{row_name}', col_template='{col_name}')
                 for ax in g.axes.flatten():
@@ -1723,15 +1735,20 @@ class Study:
                     else:
                         color = 'black'
                     ax.set_title(label=ax.get_title(), color=color)
+
                 title = '{} distribution by {}'.format(obj.type, subplot)
-                # g.add_legend()
                 plt.suptitle(title)
+
+                # figure
                 plt.tight_layout()
                 plt.subplots_adjust(top=0.88)
 
+                # saving
                 title4saving = '{}{}s{}-{}'.format(title, ' ' if not summary else ' summary ', i_figure, i_figure+species)
                 plt.savefig(os.path.join(self.dirs.figs, title4saving))
                 plt.close()
+
+        return species_order
 
     def fig_strain_replacements(self, obj, category='person1', hue='group1'):
         """
@@ -2150,7 +2167,27 @@ def add_strain_replacement(test, control=None, quantile=0.05):
 
 # others
 
-def bac_full_name(SGB_ID):
+def segal_name(reps):
+    """
+    Get bacterias pretty name from Rep ID
+
+    :param reps: (string or int or list) bacterias Rep ID, 'Rep_123' or 123, or list of those
+
+    :return: (string) bacterias pretty name, 's. name'
+    """
+
+    if type(reps) == int or type(reps) == str:
+        reps = [reps]
+
+    for i in np.arange(len(reps)):
+        reps[i] = int(str(reps[i]).replace('Rep_', ''))
+
+    pretty_names = list(segal_df.loc[reps, 'pretty_name'].values)
+
+    return pretty_names
+
+
+def segata_name(SGB_ID):
     """
     Get bacterias full name from SGB ID
     
@@ -2663,16 +2700,14 @@ if __name__ == '__main__':
             AD.params.colors[str(p)] = tab10(int(p) - 1)
 
     if study == 'AD_FMT':
-        groups_order = ['Placebo', 'FMT', 'Follow-up']
+        groups_order = ['Placebo', 'FMT', 'Follow-up', 'DONOR']
     elif study == 'AD_FMT2':
-        groups_order = ['Pre FMT', 'FMT', 'FMT Follow-up', 'Pre Placebo', 'Placebo', 'Placebo Follow-up']
+        groups_order = ['Pre FMT', 'FMT', 'FMT Follow-up', 'Pre Placebo', 'Placebo', 'Placebo Follow-up', 'DONOR']
 
-    patient2donor = pd.read_pickle(os.path.join(AD.dirs.data_frames, 'patient2donor.df'))
+    patient2donor = pd.read_pickle('/home/saarsh/df.df')
     AD.objs['patient2donor'] = AD.Object(obj_type='Patient to donor', df=patient2donor)
 
     # plotting
-    AD.fig_snp_scatter_box(AD.objs['patient2donor'], subplot='group', subplot_order=[g for g in groups_order if
-                                                                                         g in patient2donor.index.get_level_values(
-                                                                                             'group1').unique()],
+    AD.fig_snp_scatter_box(AD.objs['patient2donor'], subplot='group',
                        minimal_between_comparisons=None, minimal_within_comparisons=None,
                        species=25, height=12, aspect=0.5, whis=[5, 95])
