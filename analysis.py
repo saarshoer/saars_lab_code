@@ -1561,14 +1561,19 @@ class Study:
                     matrix = sub_data.loc[same_person].copy()
                     matrix = matrix.groupby(['Species', 'person1'])['replacement'].any().unstack(fill_value=False)
                     matrix = matrix.apply(lambda col: col.replace(True, pd.to_numeric(col.name, errors='ignore')), axis=0).replace(False, 0)
-                    matrix.loc[:, set(people_order.index) - set(matrix.columns)] = 0
-                    matrix = matrix.loc[:, list(people_order.index)]
+                    matrix.loc[:, set(people_order) - set(matrix.columns)] = 0
+                    matrix = matrix.loc[:, people_order]
 
                     # TODO: this will be a problem if the person1 identifiers are not sequential and in equal distance
                     cmap = None if not all(sub_data.loc[same_person, 'person1'].isin(list(self.params.colors.keys()))) \
                         else ['white'] + [self.params.colors[str(k)] for k in matrix.columns]
-                    sns.heatmap(matrix, linewidths=1, linecolor='lightgrey', cbar=False, cmap=cmap)
+                    h = sns.heatmap(matrix, linewidths=1, linecolor='lightgrey', cbar=False, cmap=cmap)
                     # annot=z for color debugging
+
+                    idx = np.unique(sub_data.loc[same_person, major])[0]  # assuming there aren't any bugs with major
+                    h.set_xticklabels([f'{tick.get_text()}\n{people_info.loc[(tick.get_text(), idx)]}'
+                                       if (tick.get_text(), idx) in people_info.index else f'{tick.get_text()}'
+                                       for tick in h.get_xticklabels()])
 
         # data manipulation
         df = obj.df
@@ -1663,24 +1668,23 @@ class Study:
 
         # sorts species and people df by the number of replacements
         if 'replacement' in df.columns:
-            people_order = df.loc[same_person].groupby(['Species', 'person1'])['replacement'].any()
-            species_order = list(people_order.groupby('Species').sum().sort_values(ascending=False).index)
-            people_order = people_order.groupby('person1').apply(lambda g:
-                [g.sum(), g.shape[0], g.sum()/g.shape[0], f'{g.sum()}/{g.shape[0]}'])
-            people_order = people_order.apply(pd.Series).rename(
-                columns={0: 'replacement', 1: 'compared', 2: 'percentage', 3: 'suffix'}). \
-                sort_values(by='percentage', ascending=False)
+            species_order = list(df.loc[same_person].groupby(['Species', 'person1'])['replacement'].any().
+                                 groupby('Species').sum().sort_values(ascending=False).index)
         else:
             species_order = list(df.loc[same_person].groupby('Species').apply(len).sort_values(ascending=False).index)
-            # this is just to know who are all the possible people in the same person comparisons
-            str_values = []
-            int_values = []
-            for v in df.loc[same_person, 'person1'].unique():
-                if v.isnumeric():
-                    int_values.append(int(v))
-                else:
-                    str_values.append(v)
-            people_order = sorted(str_values) + [str(v) for v in sorted(int_values)]
+
+        # this is just to know who are all the possible people in the same person comparisons
+        str_values = []
+        int_values = []
+        for v in df.loc[same_person, 'person1'].unique():
+            if v.isnumeric():
+                int_values.append(int(v))
+            else:
+                str_values.append(v)
+        people_order = sorted(str_values) + [str(v) for v in sorted(int_values)]
+
+        people_info = df.loc[same_person].groupby(['Species', 'person1', 'group1'])['replacement'].any().\
+            groupby(['person1', 'group1']).apply(lambda g: f'({g.sum()}/{g.shape[0]})')
 
         df['Species'] = df['Species'].astype('category').cat.set_categories(species_order)
         df = df.sort_values(['Species'])
@@ -1710,8 +1714,9 @@ class Study:
             for summary in [False, True]:
 
                 # plotting
-                g = sns.FacetGrid(sub_df, col=major, col_order=np.unique(df[major]) if subplot_order is None else subplot_order,
-                                  height=height, aspect=aspect, dropna=False)
+                g = sns.FacetGrid(sub_df, col=major,
+                                  col_order=np.unique(df[major]) if subplot_order is None else subplot_order,
+                                  height=height, aspect=aspect, dropna=False, sharex=not summary)
                 g = g.map_dataframe(scatter_box_plot, palette=self.params.colors)
 
                 if not summary:
@@ -1720,15 +1725,13 @@ class Study:
 
                 # ticks
                 ax = g.axes.flatten()[0]
-                if summary:
-                    ax.set_xticklabels([f'{tick.get_text()}\n{people_order.loc[tick.get_text(), "suffix"]}'
-                                        for tick in ax.get_xticklabels()])
-                ax.set_yticklabels([f'{tick.get_text()}\n{segal_name(tick.get_text())[0]}'
+                ax.set_yticklabels([f'{segal_name(tick.get_text())[0]} ({tick.get_text()})'
                                     for tick in ax.get_yticklabels()])
 
                 # titles and labels
-                g.set_axis_labels(x_var='dissimilarity' if not summary else 'person', y_var='species')
-                g.set_titles(row_template='{row_name}', col_template='{col_name}')
+                g.set_axis_labels(x_var='dissimilarity' if not summary else
+                                        'person\n(# replaced species / # compared species)', y_var='species')
+                g.set_titles(row_template='{row_name}' if not summary else None, col_template='{col_name}')
                 for ax in g.axes.flatten():
                     if ax.get_title() in self.params.colors.keys():
                         color = self.params.colors[ax.get_title()]
