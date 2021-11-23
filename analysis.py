@@ -1701,8 +1701,8 @@ class Study:
 
         # x axis limits
         max_x = 10**-1
-        min_x = self.params.detection_threshold/3
-        df['dissimilarity'] = df['dissimilarity'].clip(lower=self.params.detection_threshold, upper=max_x)
+        min_x = self.params.dissimilarity_threshold/3
+        df['dissimilarity'] = df['dissimilarity'].clip(lower=self.params.dissimilarity_threshold, upper=max_x)
 
         # split to multiple figures
         for i_figure in figures:
