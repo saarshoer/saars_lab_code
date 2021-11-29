@@ -1233,14 +1233,14 @@ class Study:
 
                 # pca
                 sns.scatterplot(x=pca_result[:, 0], y=pca_result[:, 1],
-                                hue=hue, palette=palette, alpha=0.3, ax=axes[0])
+                                hue=hue, palette=palette, s=100, alpha=0.3, ax=axes[0])
                 axes[0].set_title('pca')
                 axes[0].set_xlabel('pca component 1 - {:.2%}'.format(pca.explained_variance_ratio_[0]))
                 axes[0].set_ylabel('pca component 2 - {:.2%}'.format(pca.explained_variance_ratio_[1]))
 
                 # tsne
                 sns.scatterplot(x=tsne_result[:, 0], y=tsne_result[:, 1],
-                                hue=hue, palette=palette, alpha=0.3, ax=axes[1])
+                                hue=hue, palette=palette, s=100, alpha=0.3, ax=axes[1])
                 axes[1].set_title('tsne')
                 axes[1].set_xlabel('tsne component 1')
                 axes[1].set_ylabel('tsne component 2')
@@ -1307,6 +1307,8 @@ class Study:
         # pca
         pca = PCA(n_components=n_pca_comp)
         pca_result = pca.fit_transform(df.values)
+        loadings = pca.components_.T * np.sqrt(pca.explained_variance_)
+        loadings = pd.DataFrame(loadings, index=df.columns)
 
         # tsne
         if perplexity == 'auto':
@@ -1330,9 +1332,9 @@ class Study:
         pca_result_in_original_values = pca.inverse_transform(pca_result)
         df = df.subtract(pca_result_in_original_values[:, pcs2remove].sum(axis=1), axis=0)
 
-        return pca_result, tsne_result, df
+        return (pca_result, loadings), tsne_result, df
 
-    def fig_snp_heatmap(self, obj, maximal_filling=0.25, minimal_samples=20,
+    def fig_snp_heatmap(self, obj, maximal_filling=0.25, minimal_samples=20, species=None,
                         annotations=None, cmap=None, log_colors=False, add_hist=True):
         """
         Plot a heatmap based on the SNP dissimilarity data frame for each species
@@ -1341,6 +1343,7 @@ class Study:
         :param maximal_filling: (float) maximal percentage of samples with missing values to fill with median value
         JUST for clustering, it will not appear in the heatmap!!
         :param minimal_samples: (int) minimal number of samples to have in order to draw
+        :param species: (list) species to plot
         :param annotations: (list of str) columns to annotate by
         :param cmap: (str) dissimilarity color map name
         :param log_colors: (bool) whether to set the heatmap colors to log scale
@@ -1349,26 +1352,30 @@ class Study:
         :return: None
         """
 
+        full_df = obj.df.copy()
         colors_df = None
         annotations_df = None
         annotations_labels = []
 
         if annotations is not None:
             # create all the annotation data for the colored bars
-            annotations_df = obj.df
+            annotations_df = full_df
             annotations_df = annotations_df.reset_index()[[s for s in annotations_df.index.names if '1' in s]] \
-                .set_index('SampleName1').drop_duplicates()  # take only sample1 metadata
+                .drop_duplicates().set_index('SampleName1')  # take only sample1 metadata
             annotations_df.columns = annotations_df.columns.str.rstrip('1')  # remove 1 suffix from the names
             annotations_df = annotations_df[annotations]  # limit the annotation to these categories
             annotations_df = annotations_df.iloc[~annotations_df.index.duplicated()]  # drop duplicated samples
             annotations_labels = np.unique(annotations_df.values)
             colors_df = annotations_df.replace(self.params.colors)  # replace values with corresponding colors
 
+        if species:
+            full_df = full_df[full_df.index.get_level_values('Species').isin(species)]
+
         # for each species
-        for species in obj.df.index.get_level_values('Species').unique():
+        for species in full_df.index.get_level_values('Species').unique():
 
             # create a square data matrix (drop metadata)
-            df = obj.df.loc[species].reset_index().pivot_table(index='SampleName2',
+            df = full_df.loc[species].reset_index().pivot_table(index='SampleName2',
                                                                columns='SampleName1',
                                                                values='dissimilarity')
 
@@ -1451,7 +1458,7 @@ class Study:
                         g.ax_col_colors.set_yticklabels(expanded_labels)
 
                     # title
-                    title = '{}\n{}'.format(obj.type, species)
+                    title = '{}\n{}\n{}'.format(obj.type, segal_name(species)[0], species)
                     g.fig.suptitle(title)
 
                     # annotations legend
@@ -1482,7 +1489,7 @@ class Study:
 
                     if not os.path.exists(os.path.join(self.dirs.figs, obj.type)):
                         os.makedirs(os.path.join(self.dirs.figs, obj.type))
-                    plt.savefig(os.path.join(self.dirs.figs, obj.type, title.replace('\n', ' ')), pad_inches=0.5)
+                    plt.savefig(os.path.join(self.dirs.figs, obj.type, species), pad_inches=0.5)
                     plt.close()
 
     def fig_snp_scatter_box(self, obj, subplot='group', subplot_order=None,
@@ -1683,8 +1690,11 @@ class Study:
                 str_values.append(v)
         people_order = sorted(str_values) + [str(v) for v in sorted(int_values)]
 
-        people_info = df.loc[same_person].groupby(['Species', 'person1', 'group1'])['replacement'].any().\
-            groupby(['person1', 'group1']).apply(lambda g: f'({g.sum()}/{g.shape[0]})')
+        title = '{} distribution by {}'.format(obj.type, subplot)
+
+        people_info = df.loc[same_person].groupby(['Species', 'person1', 'group1'])['replacement'].any()
+        people_info.reset_index().to_excel(os.path.join(self.dirs.excels, title + '.xlsx'))
+        people_info = people_info.groupby(['person1', 'group1']).apply(lambda g: f'({g.sum()}/{g.shape[0]})')
 
         df['Species'] = df['Species'].astype('category').cat.set_categories(species_order)
         df = df.sort_values(['Species'])
@@ -1739,7 +1749,6 @@ class Study:
                         color = 'black'
                     ax.set_title(label=ax.get_title(), color=color)
 
-                title = '{} distribution by {}'.format(obj.type, subplot)
                 plt.suptitle(title)
 
                 # figure
