@@ -5,6 +5,8 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib import rcParams
+from itertools import combinations
+from statannot import add_stat_annotation
 from scipy.stats import pearsonr, spearmanr
 from mne.stats.multi_comp import fdr_correction
 from LabData.DataLoaders.MBSNPLoader import MAF_1_VALUE
@@ -12,6 +14,7 @@ from LabData.DataAnalyses.MBSNPs.taxonomy import taxonomy_df
 from LabData.DataAnalyses.MBSNPs.Plots.manhattan_plot import draw_manhattan_plot
 
 ilegal_chars = [':', '*', '/', '(', ')']
+
 
 def draw_volcano_plot(df, title='volcano plot', figsize=(10, 6), out_file='volcano_plot',
                       pval_col='pval', pval_cutoff=0.05):
@@ -69,18 +72,15 @@ def draw_qq_plot(df, title='qq plot', figsize=(6, 6), out_file='qq_plot', pval_c
     # because rows can be multiplied if they have multiple genes
     actual_pvals = df['Pval'].dropna().sort_values()  # Pval is intentionally hard coded because it should be raw values
     n = len(actual_pvals)
-    expected_pvals = np.arange(n)/n
+    expected_pvals = np.arange(1, n+1)/n
 
     # qq
     black = (0.0, 0.0, 0.0, 0.7)
+    min_pval = min(expected_pvals[0], actual_pvals.iloc[0])
+    min_pval_in_fig = min_pval * 10 ** (0.1 * np.log10(min_pval))  # Add 10% white space above
+    ax.plot([min_pval_in_fig, 1], [min_pval_in_fig, 1], '--', color='darkgray')
     ax.scatter(x=expected_pvals, y=actual_pvals, marker='o', s=10, facecolors=black, edgecolors=None)
-    # actual = expected
-    ax.plot(expected_pvals, expected_pvals, '--', color='darkgray')
-    x_min = expected_pvals[1] if len(expected_pvals) > 1 else 10**-1
-    # 0 fails so it has to be the next smallest thing, but sometimes 0 is all you have
-    y_min = df[pval_col].min()
-    min_pval = min(x_min, y_min)
-    min_pval_in_fig = min_pval * 10 ** (0.1 * np.log10(min_pval)) # Add 10% white space above
+
     # x
     ax.set_xlabel('expected p-value')
     ax.set_xscale('log')
@@ -97,10 +97,10 @@ def draw_qq_plot(df, title='qq plot', figsize=(6, 6), out_file='qq_plot', pval_c
     plt.close()
 
 
-def draw_box_plot(df, y_df=None, title='box plot', figsize=(12, 6), out_file='box_plot'):
+def draw_box_plot(df, y_df=None, title='box plot', figsize=(12, 6), out_file='box_plot', per_bin=True):
 
     # figure
-    fig, ax = plt.subplots(1, 1, figsize=figsize)
+    fig, ax = plt.subplots(1, 1, figsize=(figsize[0] if per_bin else figsize[0]/3, figsize[1]))
 
     # add info for people without the snp
     if y_df is not None:
@@ -110,8 +110,13 @@ def draw_box_plot(df, y_df=None, title='box plot', figsize=(12, 6), out_file='bo
         df = pd.concat([df.reset_index().set_index('SampleName'), y_df]).reset_index().set_index(df.index.names)
 
     # calculations
-    df['bin'] = pd.cut(df['MAF'].fillna(1.1*MAF_1_VALUE)/MAF_1_VALUE,
-                       bins=np.arange(0.0, 1.1 if y_df is None else 1.2, 0.1), include_lowest=True)
+    labels = None if per_bin else ['minor', 'major']
+    bins = list(np.arange(0.0, 1.1, 0.1)) if per_bin else [0.0, 0.5, 1.0]
+    if y_df is not None:
+        bins = bins + [1.1]
+        if labels is not None:
+            labels = labels + ['no snp']
+    df['bin'] = pd.cut(df['MAF'].fillna(1.1*MAF_1_VALUE)/MAF_1_VALUE, bins=bins, labels=labels, include_lowest=True)
 
     n_colors = 51  # should be an odd number so to have white at zero
     cmap = sns.color_palette(palette='coolwarm', n_colors=n_colors)
@@ -119,24 +124,33 @@ def draw_box_plot(df, y_df=None, title='box plot', figsize=(12, 6), out_file='bo
                      df.groupby('bin')['y'].median().abs().max() + 1) * 0.5 * (n_colors - 1)
     colors = [cmap[i] for i in color_indices.astype(int)]
 
-    r_p, p_p = pearsonr(df['MAF'].dropna()/MAF_1_VALUE, df.dropna(subset=['MAF'])['y'])
-    r_s, p_s = spearmanr(df['MAF'].dropna()/MAF_1_VALUE, df.dropna(subset=['MAF'])['y'])
-    corr_text = f"pearson: r={r_p:.2f} p={p_p:.2e}\nspearman: r={r_s:.2f} p={p_s:.2e}"
-
     # box plot
     sns.boxplot(x='bin', y='y', palette=colors, data=df, ax=ax)
+
     xlabels = ax.get_xticklabels()
     d = df['bin'].value_counts()
     d.index = d.index.astype(str)
     d = d.to_dict()
     for l in xlabels:
         l.set_text(f'{l.get_text()}\nn={d[l.get_text()]}')
-    xlabels[0].set_text(xlabels[0].get_text().replace('-0.001', '0.0'))
-    xlabels[-1].set_text(xlabels[-1].get_text().replace('(1.0, 1.1]', 'no snp'))
     ax.set_xticklabels(labels=xlabels, rotation=45)
-    ax.set_xlabel('Major Allele Frequency')
     ax.set_ylabel(f"change in {df.index.get_level_values('Y')[0]}")
-    ax.text(x=0.7, y=0.875, s=corr_text, transform=ax.transAxes)
+
+    if per_bin:
+        xlabels = ax.get_xticklabels()
+        xlabels[0].set_text(xlabels[0].get_text().replace('-0.001', '0.0'))
+        xlabels[-1].set_text(xlabels[-1].get_text().replace('(1.0, 1.1]', 'no snp'))
+        ax.set_xlabel('Major Allele Frequency')
+
+        r_p, p_p = pearsonr(df['MAF'].dropna()/MAF_1_VALUE, df.dropna(subset=['MAF'])['y'])
+        r_s, p_s = spearmanr(df['MAF'].dropna()/MAF_1_VALUE, df.dropna(subset=['MAF'])['y'])
+        text = f"pearson: r={r_p:.2f} p={p_p:.2e}\nspearman: r={r_s:.2f} p={p_s:.2e}"
+        ax.text(x=0.7, y=0.875, s=text, transform=ax.transAxes)
+    else:
+        ax.set_xlabel('Allele')
+
+        ax, test_results = add_stat_annotation(ax, x='bin', y='y', data=df, box_pairs=list(combinations(labels, 2)),
+                                               test='Mann-Whitney', text_format='star')
 
     # finish
     ax.set_title(title)
@@ -200,7 +214,8 @@ def run(mwas_fname=None, data_fname=None, annotations_df=None, y_df=None, # inpu
             snp_df = snp_df.rename(columns={position: 'MAF'})
 
             draw_box_plot(snp_df.copy(), y_df=y_df.copy() if y_df is not None else None, title=title,
-                          out_file=os.path.join(data_out_dir, f'box_plot_{species}_{contig}_{position}_{y_legal}'))
+                          out_file=os.path.join(data_out_dir, f'box_plot_{species}_{contig}_{position}_{y_legal}'),
+                          per_bin=False)
 
             # draw_scatter_plot(snp_df.copy(), title=title,
             #                   out_file=os.path.join(data_out_dir, f'scatter_plot_{species}_{contig}_{position}_{y_legal}'))

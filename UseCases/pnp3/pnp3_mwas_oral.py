@@ -26,16 +26,18 @@ def is_y_valid(y, max_on_most_freq_val_in_col=0.99, min_on_non_freq_val_for_y=0.
     # return (major_count <= max_on_most_freq_val_in_col * len(y)) & (minor_count >= min_on_non_freq_val_for_y * len(y))
 
 
-def get_data(body_site, time_point, delta):
+def get_data(body_site, time_point, delta, permute):
 
     def get_df(df_name, df_delta):
         df = pd.read_pickle(os.path.join(df_dir, df_name))
 
         if df_delta:
             df = get_delta_df(df, '0months', divide=True if df_delta == '/' else False)
-            df = df.droplevel(df.index.names.difference(['person']))
         else:
             df = df.xs(time_point, level='time_point')
+
+        names = ['person', 'Age', 'Gender'] if 'abundance' not in df_name else ['sample', 'person', 'Age', 'Gender']
+        df = df.droplevel(df.index.names.difference(names))
 
         return df
 
@@ -75,6 +77,10 @@ def get_data(body_site, time_point, delta):
     joined_df = prep_df(joined_df)
 
     x = joined_df.index.tolist()
+    if permute:
+        org_idx = joined_df.index.copy()
+        joined_df = joined_df.sample(frac=1, replace=False, random_state=1)
+        joined_df.index = org_idx
     y = joined_df[joined_df.columns.difference(covariates)]
     c = joined_df[covariates]
 
@@ -87,15 +93,16 @@ def get_data(body_site, time_point, delta):
 class P:
     # data
     study_ids = ['PNP3']
-    body_site = 'Gut'
+    body_site = 'Oral'
     time_point = '0months'
-    delta = '-'  # alternative is '/' or False
+    delta = True#'-'  # alternative is '/' or False
+    permute = True
 
     output_cols = ['N', 'Coef', 'Pval', 'Coef_025', 'Coef_975']
     for cov in covariates:
         output_cols = output_cols + [cov + '_Pval', cov + '_Coef']
 
-    x, y, c, s = get_data(body_site, time_point, delta)
+    x, y, c, s = get_data(body_site, time_point, delta, permute)
 
     collect_data = False
 
@@ -104,7 +111,7 @@ class P:
     send_to_queue = True
     analyses_dir = config.analyses_dir
     work_dir_suffix = f'{"_".join(study_ids)}_mwas_{body_site.lower()}'
-    jobname = f'{body_site}'
+    jobname = f'M{body_site}'
     verbose = False
 
     # fake world for special mwas
@@ -112,7 +119,7 @@ class P:
 
     # species
     # done_species = pd.read_csv(
-    #     '/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas_gut_small/done_species.csv', index_col=0)
+    #     '/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas_oral_0months/done_species.csv', index_col=0)
     # done_species = done_species.iloc[:, 0].to_list()
     species_set = s#list(set(s) - set(done_species))
     # print(f'running on {len(species_set)} new species')
@@ -141,13 +148,13 @@ class P:
     snp_set = None
 
     # covariates
-    covariate_gen_f = lambda subjects_df: gen_f(subjects_df, os.path.join(df_dir, f'gut_mwas_input_c.df'))
+    covariate_gen_f = lambda subjects_df: gen_f(subjects_df, os.path.join(df_dir, f'oral_mwas_input_c.df'))
     constant_covariate = False
     ret_cov_fields = True
     test_maf_cov_corr = False  # necessary
 
     # y
-    y_gen_f = lambda subjects_df: gen_f(subjects_df, os.path.join(df_dir, f'gut_mwas_input_y.df'))
+    y_gen_f = lambda subjects_df: gen_f(subjects_df, os.path.join(df_dir, f'oral_mwas_input_y.df'))
     is_y_valid_f = is_y_valid  # Function that checks whether the analyzed y is valid
     max_on_most_freq_val_in_col = 0.8
     min_on_non_freq_val_for_y = 0.2
@@ -169,12 +176,12 @@ if __name__ == '__main__':
     # work_dir = m.gen_mwas()
     # print(work_dir)
 
-    work_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas_gut_small'
+    work_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas_oral_0months'
 
     # MBSNPAnalyses(P, work_dir).post_full_run_recovery_from_files()
-    # df = pd.read_hdf(os.path.join(work_dir, 'mb_gwas.h5'))
-    # df = df[df['Y_Bonferroni'] <= 0.05]
-    # df.to_hdf(os.path.join(work_dir, 'mb_gwas_significant.h5'), key='sig')
+    df = pd.read_hdf(os.path.join(work_dir, 'mb_gwas.h5'))
+    df = df[df['Y_Bonferroni'] <= 0.05]
+    df.to_hdf(os.path.join(work_dir, 'mb_gwas_significant.h5'), key='sig')
 
     # P.collect_data = True
     # P.snp_set = pd.read_hdf(os.path.join(work_dir, 'mb_gwas_significant.h5'))
@@ -185,12 +192,15 @@ if __name__ == '__main__':
     # work_dir = d.gen_mwas()
     # print(work_dir)
 
-    sig_results = pd.read_hdf(os.path.join(work_dir, 'mb_gwas_significant.h5'))
-    P.y = P.y[sig_results.index.get_level_values('Y').unique().tolist()]
-    max_pval_to_report = 1
-    P.work_dir_suffix = f'{P.work_dir_suffix}_all_pvals_subset_y'
-    d = MWAS(P)
-    work_dir = d.gen_mwas()
-    print(work_dir)
+    # sig_results = pd.read_hdf(os.path.join(work_dir, 'mb_gwas_significant.h5'))
+    # P.y = P.y[sig_results.index.get_level_values('Y').unique().tolist()]
+    # max_pval_to_report = 1
+    # P.work_dir_suffix = f'{P.work_dir_suffix}_all_pvals_subset_y'
+    # d = MWAS(P)
+    # work_dir = d.gen_mwas()
+    # print(work_dir)
+
+    # work_dir = os.path.join(work_dir, 'hdfs_all_pvals_sig_y')
+    # MBSNPAnalyses(P, work_dir).post_full_run_recovery_from_files()
 
     print('done')
