@@ -73,7 +73,7 @@ def get_data(body_site, time_point, delta, permute):
     # mwas data frames
     joined_df = idx.join(blood).join(metabolites).join(cytokines).join(body).join(diet)
     joined_df = joined_df.reset_index(['sample']).rename(columns={'sample': 'SampleName'}).set_index('SampleName')
-    joined_df.to_pickle(os.path.join(df_dir, f'{body_site.lower()}_mwas_input.df'))
+    joined_df.to_pickle(os.path.join(df_dir, 'mwas_perm', f'{body_site.lower()}_mwas_input.df'))
     joined_df = prep_df(joined_df)
 
     x = joined_df.index.tolist()
@@ -84,8 +84,8 @@ def get_data(body_site, time_point, delta, permute):
     y = joined_df[joined_df.columns.difference(covariates)]
     c = joined_df[covariates]
 
-    y.to_pickle(os.path.join(df_dir, f'{body_site.lower()}_mwas_input_y.df'))
-    c.to_pickle(os.path.join(df_dir, f'{body_site.lower()}_mwas_input_c.df'))
+    y.to_pickle(os.path.join(df_dir, 'mwas_perm', f'{body_site.lower()}_mwas_input_y.df'))
+    c.to_pickle(os.path.join(df_dir, 'mwas_perm', f'{body_site.lower()}_mwas_input_c.df'))
 
     return x, y, c, s
 
@@ -111,7 +111,7 @@ class P:
     send_to_queue = True
     analyses_dir = config.analyses_dir
     work_dir_suffix = f'{"_".join(study_ids)}_mwas_{body_site.lower()}'
-    jobname = f'M{body_site}'
+    jobname = f'P{body_site}'
     verbose = False
 
     # fake world for special mwas
@@ -148,19 +148,19 @@ class P:
     snp_set = None
 
     # covariates
-    covariate_gen_f = lambda subjects_df: gen_f(subjects_df, os.path.join(df_dir, f'oral_mwas_input_c.df'))
+    covariate_gen_f = lambda subjects_df: gen_f(subjects_df, os.path.join(df_dir, 'mwas_perm', f'oral_mwas_input_c.df'))
     constant_covariate = False
     ret_cov_fields = True
     test_maf_cov_corr = False  # necessary
 
     # y
-    y_gen_f = lambda subjects_df: gen_f(subjects_df, os.path.join(df_dir, f'oral_mwas_input_y.df'))
+    y_gen_f = lambda subjects_df: gen_f(subjects_df, os.path.join(df_dir, 'mwas_perm', f'oral_mwas_input_y.df'))
     is_y_valid_f = is_y_valid  # Function that checks whether the analyzed y is valid
     max_on_most_freq_val_in_col = 0.8
     min_on_non_freq_val_for_y = 0.2
 
     # p-value
-    max_pval_to_report = 0.1
+    max_pval_to_report = 0.05
     max_pval_to_detailed = None
 
     # others
@@ -176,9 +176,9 @@ if __name__ == '__main__':
     # work_dir = m.gen_mwas()
     # print(work_dir)
 
-    work_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas_oral_0months'
+    work_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas_oral_change_perm2'
 
-    # MBSNPAnalyses(P, work_dir).post_full_run_recovery_from_files()
+    MBSNPAnalyses(P, work_dir).post_full_run_recovery_from_files()
     df = pd.read_hdf(os.path.join(work_dir, 'mb_gwas.h5'))
     df = df[df['Y_Bonferroni'] <= 0.05]
     df.to_hdf(os.path.join(work_dir, 'mb_gwas_significant.h5'), key='sig')
