@@ -26,8 +26,8 @@ class P:
     # species
     # species_set = pd.read_csv('~/reps_by_time.csv').iloc[:, 0]
     # species_set = [f'Rep_{s}' for s in species_set]
-    # species_set = None
-    species_set = ['Rep_231']
+    species_set = None
+    # species_set = ['Rep_231']
     ignore_species = None
     filter_by_species_existence = False
     species_blocks = 1
