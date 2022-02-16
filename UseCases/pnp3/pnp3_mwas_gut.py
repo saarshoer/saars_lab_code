@@ -20,10 +20,8 @@ def gen_f(subjects_df, df_path):
 
 
 def is_y_valid(y, max_on_most_freq_val_in_col=0.99, min_on_non_freq_val_for_y=0.01, y_binary=None):#really effects the run time
-    return True
-    # major_count = y.value_counts().max()
-    # minor_count = len(y) - major_count
-    # return (major_count <= max_on_most_freq_val_in_col * len(y)) & (minor_count >= min_on_non_freq_val_for_y * len(y))
+    count_most = y.value_counts().max()
+    return (count_most <= max_on_most_freq_val_in_col * len(y)) & (len(y) - count_most >= min_on_non_freq_val_for_y)
 
 
 def get_data(body_site, time_point, delta, permute):
@@ -148,7 +146,7 @@ class P:
 
     # covariates
     covariate_gen_f = lambda subjects_df: gen_f(subjects_df, os.path.join(df_dir, 'mwas_change', f'gut_mwas_input_c.df'))
-    constant_covariate = False
+    constant_covariate = True
     ret_cov_fields = True
     test_maf_cov_corr = False  # necessary
 
@@ -171,17 +169,17 @@ class P:
 if __name__ == '__main__':
     sethandlers(file_dir=config.log_dir)
 
-    # m = MWAS(P)
-    # work_dir = m.gen_mwas()
-    # print(work_dir)
+    m = MWAS(P)
+    work_dir = m.gen_mwas()
+    print(work_dir)
 
-    work_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas_gut_change_R3'
-
-    MBSNPAnalyses(P, work_dir).post_full_run_recovery_from_files()
-    df = pd.read_hdf(os.path.join(work_dir, 'mb_gwas.h5'))
-    df = df[df['Y_Bonferroni'] <= 0.05]
-    df.to_hdf(os.path.join(work_dir, 'mb_gwas_significant.h5'), key='sig')
-    print(df.shape)
+    # work_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas_gut_change_R3'
+    #
+    # MBSNPAnalyses(P, work_dir).post_full_run_recovery_from_files()
+    # df = pd.read_hdf(os.path.join(work_dir, 'mb_gwas.h5'))
+    # df = df[df['Y_Bonferroni'] <= 0.05]
+    # df.to_hdf(os.path.join(work_dir, 'mb_gwas_significant.h5'), key='sig')
+    # print(df.shape)
 
     # P.collect_data = True
     # P.snp_set = pd.read_hdf(os.path.join(work_dir, 'mb_gwas_significant.h5'))
