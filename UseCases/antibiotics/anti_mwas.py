@@ -1,102 +1,119 @@
 import os
-import glob
 import pandas as pd
-from LabUtils.Utils import date2_dir
 from LabData import config_global as config
 from LabUtils.addloglevels import sethandlers
 from LabData.DataLoaders.Loader import LoaderData
 from LabData.DataAnalyses.MBSNPs.MWAS import MWAS
-from LabUtils.pandas_utils import filter_dataframe
 
-df = pd.read_pickle('/home/saarsh/Analysis/antibiotics/URA/dl.df')
-df_metadata = pd.read_pickle('/home/saarsh/Analysis/antibiotics/URA/dl.df_metadata')
+df_dir = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/data_frames'
 
 
-def gen_f(subjects_df, df):
-    # if subjects_df is not None:
-    #     df = filter_dataframe(df, subjects_df)
-    return LoaderData(pd.DataFrame(df), None)
+def gen_cov_f(species, within):
+    df = pd.read_pickle(os.path.join(df_dir, 'meta.df'))[['age', 'gender']]
+    if not within:
+        df2 = pd.read_pickle(os.path.join(df_dir, 'abundance.df'))[species]
+        df = df.\
+            join(df2.rename(columns={species[0]: 'abundance'})).\
+            join(df2.rename(columns={species[0]: 'MAF_abundance'}))
+    return LoaderData(df, None)
 
 
-def is_y_valid(y, max_on_most_freq_val_in_col=0.95):
-    return y.value_counts().max() <= max_on_most_freq_val_in_col * len(y)
+def gen_y_f(species, within):
+    df = pd.read_pickle(os.path.join(df_dir, 'abundance.df'))
+    if within:
+        df = df[species]
+    else:
+        if species[0] in df.columns:
+            df = df.drop(species[0], axis=1)
+    return LoaderData(df, None)
 
 
-class P:# run each time with one x and its corresponding abundance (if exist in URA!!! - if not what???) and perhaps already skip his y
+def is_y_valid(y, max_on_most_freq_val_in_col, min_on_non_freq_val_for_y):#really affects the run time
+    count_most = y.value_counts().max()
+    return (count_most <= max_on_most_freq_val_in_col * len(y)) & (len(y) - count_most >= min_on_non_freq_val_for_y)
 
-    def __init__(self, species):
-        self.species = species
 
-        # general
-        self.body_site = 'Gut'
-        self.study_ids = ['D2']
-        self.countries = ['IL']
+class P:
 
-        self.cov_cols = ['age', 'gender', 'abundance']
+    snps = pd.read_pickle(os.path.join(df_dir, 'snps.df'))
 
-        self.y = df[['SGB_10068']]  # only within
-        # self.y = df[[col != species for col in df.columns]]  # only between
-        # self.c = df_metadata[cov_cols].dropna(how='any')
-        self.c = df_metadata.join(df[[self.species]].rename(columns={self.species: 'abundance'}), how='inner')[self.cov_cols].dropna(how='any')
-        # TODO: fix because it currently takes the pray instead of predator abundance
-        # queue
-        self.max_jobs = 500  # so to take no more than half the cluster's memory
-        self.jobname = 'anti_mwas'
-        self.send_to_queue = True#False
-        self.work_dir = os.path.join(config.analyses_dir, 'anti_mwas_abundance', self.species)
-        self.work_dir_suffix = self.jobname
+    # general
+    body_site = 'Gut'
+    study_ids = ['10K']
 
-        # species
-        self.species_set = None#SGB_14399-1.61GB(smallest), SGB_4866-4.54GB, SGB_1815-50GB
-        self.ignore_species = None
-        self.filter_by_species_existence = False
-        self.species_blocks = 1
+    within = True#########don't forget to change the mem_def accordingly
+    cov_cols = ['age', 'gender'] if within else ['age', 'gender', 'abundance', 'MAF_abundance']
 
-        # subjects
-        self.subjects_loaders = ['SubjectLoader']
-        self.subjects_get_data_args = {'study_ids': self.study_ids, 'countries': self.countries, 'groupby_reg': 'first'}
+    countries = None
+    collect_data = False
 
-        # samples
-        self.samples_set = self.y.index.tolist()
-        self.largest_sample_per_user = True
-        self.min_positions_per_sample = 0
+    # queue
+    max_jobs = 120
+    verbose = False
+    send_to_queue = True
+    jobname = 'anti_mwas'
+    analyses_dir = config.analyses_dir
+    work_dir_suffix = jobname
 
-        # SNPs
-        self.min_reads_per_snp = 1  # in maf file name
-        self.min_subjects_per_snp_cached = 500  # in maf file name
-        self.max_on_fraq_major_per_snp = 0.98  # (Eran 0.98, Liron 0.99) Max fraction of major allele frequency in analyzed samples
-        self.min_on_minor_per_snp = 100  # (Liron 50) Min number of analyzed samples with a minor allele
-        self.min_subjects_per_snp = 1000  # (Liron 400)
-        # self.max_samples_per_snp = 10000
-        self.snp_set = None
+    # species
+    species_set = ['Rep_3278']#snps.columns.tolist()
+    ignore_species = None
+    filter_by_species_existence = False
+    species_blocks = 1
 
-        # covariates - required even if none
-        if self.cov_cols:
-            self.covariate_gen_f = lambda subjects_df: gen_f(subjects_df, self.c)
-        else:
-            self.covariate_gen_f = None
-        # self.covariate_loaders = None
-        # self.covariate_get_data_args = {}
-        self.test_maf_cov_corr = False  # necessary
+    # subjects
+    subjects_loaders = ['SubjectLoader']
+    subjects_get_data_args = {'study_ids': study_ids, 'groupby_reg': 'first'}
 
-        # y
-        self.y_gen_f = lambda subjects_df: gen_f(subjects_df, self.y)
-        self.is_y_valid_f = is_y_valid  # Function that checks whether the analyzed y is valid
-        self.max_on_most_freq_val_in_col = 0.95  # make sure it has the same value as in is_y_valid_f
+    # samples
+    samples_set = snps.index.tolist()
+    largest_sample_per_user = False
+    min_positions_per_sample = None
+    subsample_dir = '10K'
+    other_samples_set = None
+    select_n_rand_samples = None
 
-        # output
-        self.output_cols = ['N', 'Coef', 'Pval', 'Coef_025', 'Coef_975']
-        for cov in self.cov_cols:
-            self.output_cols = self.output_cols + [cov + '_Pval', cov + '_Coef']
+    # SNPs
+    min_reads_per_snp = 1  # in maf file name
+    min_subjects_per_snp_cached = 500  # in maf file name
+    max_on_fraq_major_per_snp = 0.9#also minor  # Max fraction of major allele frequency in analyzed samples
+    min_on_minor_per_snp = 50  # Min number of analyzed samples with a minor allele
+    min_subjects_per_snp = 500
+    max_samples_per_snp = None
+    snp_set = None
+
+    # covariates
+    covariate_gen_f = lambda species: gen_cov_f(species, P.within)
+    constant_covariate = True
+    ret_cov_fields = True
+    test_maf_cov_corr = False  # necessary
+
+    # y
+    y_gen_f = lambda species: gen_y_f(species, P.within)
+    is_y_valid_f = is_y_valid  # Function that checks whether the analyzed y is valid
+    max_on_most_freq_val_in_col = 0.9  # make sure it has the same value as in is_y_valid_f
+    min_on_non_freq_val_for_y = 50
+
+    # p-value
+    max_pval_to_report = 0.05
+    max_pval_to_detailed = None
+
+    # others
+    compute_pairwise_distances = False
+    mwas_data_clusterer = None
+    groupby_reg = None
+
+    # output
+    output_cols = ['N', 'Pval', 'Coef', 'Coef_025', 'Coef_975']
+    for cov in cov_cols:
+        output_cols = output_cols + [cov + '_Pval', cov + '_Coef', cov + '_Coef_025',  cov + '_Coef_975']
+
+    del snps
 
 
 if __name__ == '__main__':
+    
     sethandlers(file_dir=config.log_dir)
 
-    maf_species = glob.glob('/net/mraid08/export/genie/LabData/Data/MBPipeline/Analyses/MBSNP/Gut/MAF1/mb_snp_maf_SGB_*_R1_S500.h5')
-    maf_species = [s.split('maf_')[1].split('_R1')[0] for s in maf_species]
-    ura_species = df.columns
-    for s in set(maf_species) & set(ura_species):
-        # if s != 'SGB_10068':
-        m = MWAS(P(species=s))
-        work_dir = m.gen_mwas()
+    m = MWAS(P)
+    m.gen_mwas()
