@@ -30,7 +30,9 @@ def gen_y_f(species, within):
 
 def is_y_valid(y, max_on_most_freq_val_in_col, min_on_non_freq_val_for_y):#really affects the run time
     count_most = y.value_counts().max()
-    return (count_most <= max_on_most_freq_val_in_col * len(y)) & (len(y) - count_most >= min_on_non_freq_val_for_y)
+    return (count_most <= max_on_most_freq_val_in_col * len(y)) & \
+           (count_most >= (1 - max_on_most_freq_val_in_col) * len(y)) & \
+           (len(y) - count_most >= min_on_non_freq_val_for_y)
 
 
 class P:
@@ -56,7 +58,7 @@ class P:
     work_dir_suffix = jobname
 
     # species
-    species_set = ['Rep_3278']#snps.columns.tolist()
+    species_set = snps.columns.tolist()
     ignore_species = None
     filter_by_species_existence = False
     species_blocks = 1
@@ -76,7 +78,7 @@ class P:
     # SNPs
     min_reads_per_snp = 1  # in maf file name
     min_subjects_per_snp_cached = 500  # in maf file name
-    max_on_fraq_major_per_snp = 0.9#also minor  # Max fraction of major allele frequency in analyzed samples
+    max_on_fraq_major_per_snp = 0.95#also minor  # Max fraction of major allele frequency in analyzed samples
     min_on_minor_per_snp = 50  # Min number of analyzed samples with a minor allele
     min_subjects_per_snp = 500
     max_samples_per_snp = None
@@ -91,11 +93,11 @@ class P:
     # y
     y_gen_f = lambda species: gen_y_f(species, P.within)
     is_y_valid_f = is_y_valid  # Function that checks whether the analyzed y is valid
-    max_on_most_freq_val_in_col = 0.9  # make sure it has the same value as in is_y_valid_f
+    max_on_most_freq_val_in_col = 0.95  # make sure it has the same value as in is_y_valid_f
     min_on_non_freq_val_for_y = 50
 
     # p-value
-    max_pval_to_report = 0.05
+    max_pval_to_report = 1 if within else 10**(-5)
     max_pval_to_detailed = None
 
     # others
@@ -106,7 +108,9 @@ class P:
     # output
     output_cols = ['N', 'Pval', 'Coef', 'Coef_025', 'Coef_975']
     for cov in cov_cols:
-        output_cols = output_cols + [cov + '_Pval', cov + '_Coef', cov + '_Coef_025',  cov + '_Coef_975']
+        output_cols = output_cols + [cov + '_Pval', cov + '_Coef']
+        if cov not in ['age', 'gender']:
+            output_cols = output_cols + [cov + '_Coef_025',  cov + '_Coef_975']
 
     del snps
 
