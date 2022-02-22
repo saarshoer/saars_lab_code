@@ -43,7 +43,7 @@ class P:
     body_site = 'Gut'
     study_ids = ['10K']
 
-    within = True#########don't forget to change the mem_def accordingly
+    within = False#########don't forget to change the mem_def accordingly
     cov_cols = ['age', 'gender'] if within else ['age', 'gender', 'abundance', 'MAF_abundance']
 
     countries = None
@@ -97,7 +97,7 @@ class P:
     min_on_non_freq_val_for_y = 50
 
     # p-value
-    max_pval_to_report = 1 if within else 10**(-5)
+    max_pval_to_report = 1
     max_pval_to_detailed = None
 
     # others
