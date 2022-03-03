@@ -3,17 +3,26 @@ import math
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from Bio import SeqIO
 import matplotlib.pyplot as plt
 from matplotlib import rcParams
 from itertools import combinations
+from matplotlib.colors import LogNorm
+from matplotlib.gridspec import GridSpec
 from statannot import add_stat_annotation
 from scipy.stats import pearsonr, spearmanr
-from mne.stats.multi_comp import fdr_correction
 from LabData.DataLoaders.MBSNPLoader import MAF_1_VALUE
 from LabData.DataAnalyses.MBSNPs.taxonomy import taxonomy_df
+from LabData.DataAnalyses.MBSNPs.mwas_annots import add_sequences
 from LabData.DataAnalyses.MBSNPs.Plots.manhattan_plot import draw_manhattan_plot
 
+
 ilegal_chars = [':', '*', '/', '(', ')']
+
+mafft_exe = '/net/mraid08/export/genie/Bin/mafft/mafftdir/bin/mafft'
+mafft_binaries = '/net/mraid08/export/genie/Bin/mafft/mafftdir/libexec/'
+
+# tax_df = taxonomy_df(level_as_numbers=False).set_index('SGB')['Species']
 
 
 def draw_volcano_plot(df, title='volcano plot', figsize=(10, 6), out_file='volcano_plot',
@@ -181,6 +190,150 @@ def draw_scatter_plot(df, title='scatter plot', figsize=(12, 6), out_file='scatt
     plt.close()
 
 
+def draw_msa_plot(df, title='msa plot', figsize_porportion=(1/4, 4), out_file='msa_plot', rc=None,
+                  mafft_arguments='--localpair  --maxiterate 16 --reorder',
+                  nuc=False, drop_cols_without_snp=False):
+
+    global rcParams
+    rc_backup = rcParams.copy()
+    if rc is not None:
+        rcParams.update(rc)
+
+    # whether plotting nucleutides or amino acids
+    seq_col = 'nuc_seq' if nuc else 'aa_seq'
+    major_col = 'MajorAllele' if nuc else 'MajorAA'
+    minor_col = 'MinorAllele' if nuc else 'MinorAA'
+
+    # create folder for output files
+    out_dir = os.path.dirname(out_file)
+    os.makedirs(out_dir, exist_ok=True)
+
+    df['GeneID'] = df['GeneID'].astype(int)
+    df[['MajorAllele', 'MinorAllele']] = df[['MajorAllele', 'MinorAllele']].replace({0: 'a', 1: 'c', 2: 'g', 3: 't'})
+
+    seq_file = os.path.join(out_dir, f'{title}_sequences.fasta')
+    align_file = os.path.join(out_dir, f'{title}_sequences_alignment.fasta')
+    ref_file = os.path.join(out_dir, f'{title}_sequences_reference.fasta')
+
+    # retrieve reference sequences
+    if not os.path.exists(seq_file):
+        df = add_sequences(df)  # extremely slow in debug
+        # write to file
+        df['4fasta'] = '>' + df['GeneID'].astype(str)
+        df[['4fasta', seq_col]].drop_duplicates().set_index('4fasta').to_csv(
+            os.path.join(out_dir, f'{title}_sequences.fasta'), header=False, sep='\n')
+        df = df.drop('4fasta', axis=1)
+
+    # multiple sequence alignment
+    if not os.path.exists(align_file):
+        os.environ['MAFFT_BINARIES'] = mafft_binaries
+        if os.path.exists(ref_file):
+            cmd = f'echo "" >> {seq_file}'
+            os.system(cmd)
+            cmd = f'cat {ref_file} >> {seq_file}'
+            os.system(cmd)
+        cmd = f'{mafft_exe}  {mafft_arguments} {seq_file} > {align_file}'
+        os.system(cmd)
+    # read from file
+    align_order = []
+    references = dict()
+    seqs = SeqIO.parse(open(align_file), 'fasta')
+    with open(align_file) as file:
+        for seq in seqs:
+            try:
+                df.loc[df['GeneID'] == int(seq.id), f'aligned_{seq_col}'] = str(seq.seq)
+                align_order.append(int(seq.id))
+            except ValueError:
+                references[str(seq.description)] = str(seq.seq)
+
+    # data frames for plots
+    text = df.dropna(subset=['GeneID']).drop_duplicates(['GeneID']).reset_index().set_index('GeneID')
+    text = text[f'aligned_{seq_col}'].apply(lambda s: pd.Series([s[i] for i in np.arange(len(s))]))
+    references = pd.DataFrame.from_dict(references, orient='index', columns=[f'aligned_{seq_col}'])
+    references = references[f'aligned_{seq_col}'].apply(lambda s: pd.Series([s[i] for i in np.arange(len(s))]))
+
+    pvals = text.copy()
+    pvals.iloc[:, :] = np.nan
+
+    # add snp information to adjusted alignment position
+    for snp in df.index:
+        gene_id = df.loc[snp, 'GeneID']
+        pos_in_seq = int(df.loc[snp, 'GeneDistance'])
+        pos_in_align = pos_in_seq - 1
+        n_gaps = 0
+        while pos_in_align - n_gaps != pos_in_seq:
+            n_gaps = (text.loc[gene_id, :pos_in_align] == '-').sum()
+            pos_in_align = pos_in_align + 1
+        text.loc[gene_id, pos_in_align] = f'{df.loc[snp, major_col]}/{df.loc[snp, minor_col]}'
+        pvals.loc[gene_id, pos_in_align] = df.loc[snp, 'Pval']
+
+    pvals = pvals.loc[align_order] if not drop_cols_without_snp else pvals.loc[align_order].dropna(how='all', axis=1)
+    text = text.loc[align_order, pvals.columns]
+    references = references.loc[:, pvals.columns] if len(references) > 0 else references
+
+    # ylabels
+    pvals.index = pvals.index.map((df.reset_index().set_index('GeneID')['Species'] +
+                                   ' (' + df['GeneID'].astype(int).astype(str).values + ')').to_dict())
+
+    log_norm = LogNorm(pvals.min().min(), 1, clip=False)
+
+    conservation = text.apply(lambda col: int(100*(col == col.value_counts().index[0]).sum()/col.shape[0])). \
+        reset_index().rename(columns={'index': 'Position in Gene', 0: 'Allele\nconservation'})
+
+    # plot
+    fig, ax = plt.subplots(1, 1, figsize=(df.shape[0]*figsize_porportion[0],
+                                          df.shape[1]/df.shape[0]*figsize_porportion[1]))
+    ax.axis('off')
+    gs = GridSpec(20, 40, hspace=1)
+    ax_conservation: plt.Axes = fig.add_subplot(gs[:3, :39])
+    ax_heatmap: plt.Axes = fig.add_subplot(gs[3:17, :39])
+    ax_cbar: plt.Axes = fig.add_subplot(gs[3:17, 39])
+    ax_reference: plt.Axes = fig.add_subplot(gs[17:17+max(1, len(references)), :39])
+
+    # ax_conservation
+    sns.barplot(x='Position in Gene', y='Allele\nconservation', data=conservation,
+                color='lightgrey',
+                ax=ax_conservation)
+    ax_conservation.set_title(title)
+    ax_conservation.tick_params(top=False, bottom=False, left=False, right=True,
+                                labeltop=False, labelbottom=False, labelleft=False, labelright=True)
+    ax_conservation.set_xlabel('')
+    ax_conservation.yaxis.set_label_position('right')
+    ax_conservation.set_ylim(0, 100)
+
+    # ax_heatmap
+    sns.heatmap(data=pvals.fillna(1), norm=log_norm, cmap='afmhot',
+                cbar=True, cbar_kws={'label': 'p-value'}, cbar_ax=ax_cbar,
+                annot=text, fmt='',
+                ax=ax_heatmap)
+    ax_heatmap.tick_params(top=False, bottom=False, left=False, right=False,
+                           labeltop=False, labelbottom=False if len(references) > 0 else True,
+                           labelleft=True, labelright=False)
+    ax_heatmap.set_ylabel('')
+
+    # ax_reference
+    if len(references) > 0:
+        sns.heatmap(data=references.isna(),
+                    cbar=False, cmap=['grey'],
+                    annot=references, fmt='',
+                    ax=ax_reference)
+        # TODO: domains
+        ax_reference.tick_params(top=False, bottom=False, left=False, right=False,
+                                 labeltop=False, labelbottom=True, labelleft=True, labelright=False)
+        ax_reference.set_xlabel('Position in Gene')
+        ax_reference.set_yticklabels(ax_reference.get_yticklabels(), rotation=0)
+    else:
+        ax_reference.axis('off')
+        ax_heatmap.set_xlabel('Position in Gene')
+
+    # finish
+    plt.savefig(out_file, bbox_inches='tight')
+    plt.close()
+
+    rcParams.clear()
+    rcParams.update(rc_backup)
+
+
 def run(mwas_fname=None, data_fname=None, annotations_df=None, y_df=None, # input
         pval_col='Global_Bonferroni', pval_cutoff=0.05,  pval_func=None,  # input
         out_dir='.', fontsize=10, dpi=200,  # output
@@ -188,8 +341,6 @@ def run(mwas_fname=None, data_fname=None, annotations_df=None, y_df=None, # inpu
 
     rcParams['font.size'] = fontsize
     rcParams['savefig.dpi'] = dpi
-
-    tax_df = taxonomy_df(level_as_numbers=False).set_index('SGB')['Species']
 
     if data_fname is not None:
         if type(data_fname) is str:
@@ -233,10 +384,6 @@ def run(mwas_fname=None, data_fname=None, annotations_df=None, y_df=None, # inpu
         min_value = mwas_df.loc[mwas_df['Pval'] != 0, 'Pval'].min()
         min_value = min_value if min_value > 1e-319 else 1e-319  # smaller number ends up to be zero
         mwas_df['Pval'] = mwas_df['Pval'].replace(to_replace=0, value=10**-(math.ceil(-np.log10(min_value)/10)*10))
-        # for all the rest - smallest round non-zero
-        min_value = mwas_df.loc[mwas_df['Pval'] != 0, 'Pval'].min()
-        min_value = min_value if min_value > 1e-319 else 1e-319  # smaller number ends up to be zero
-        mwas_df[pval_col] = mwas_df[pval_col].replace(to_replace=0, value=10**-(math.ceil(-np.log10(min_value)/10)*10))
 
         for y, y_df in mwas_df.groupby('Y'):
             y_legal = y
@@ -246,7 +393,7 @@ def run(mwas_fname=None, data_fname=None, annotations_df=None, y_df=None, # inpu
             ys_pval_cutoff = pval_cutoff if pval_func is None else pval_func(pval_col, pval_cutoff, y_df)
             os.makedirs(y_out_dir, mode=0o744, exist_ok=True)
 
-            title = f"{y}\n{tax_df.loc[y].split('s__')[-1]}" if 'SGB' in y else y
+            title = f"{y}\n{tax_df.loc[y].split('s__')[-1]}" if 'SGB' in y or 'Rep' in y else y
 
             draw_qq_plot(df=y_df, title=title, out_file=os.path.join(y_out_dir, f'qq_{y_legal}'), pval_col=pval_col)
 
@@ -256,3 +403,25 @@ def run(mwas_fname=None, data_fname=None, annotations_df=None, y_df=None, # inpu
             draw_manhattan_plot(df=y_df, title=title, out_file=os.path.join(y_out_dir, f'manhattan_{y_legal}'),
                                 draw_func=manhattan_draw_func, text_func=manhattan_text_func,
                                 pval_col=pval_col, pval_cutoff=ys_pval_cutoff, rc=rcParams)
+
+
+if __name__ == '__main__':
+    run_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas_within'
+    alpha = 0.01 / pd.read_hdf(os.path.join(run_dir, 'mb_gwas_counts.h5')).sum().values[0]
+    sig = pd.read_hdf(os.path.join(run_dir, 'mb_gwas_significant.h5'))
+    sig = sig[sig['Pval'] < alpha]
+    annots = pd.read_hdf(os.path.join(run_dir, 'snps_gene_annotations.h5'))
+    annots = annots[annots['Pval'] < alpha]
+    annots.loc[:, 'gene'] = annots['gene'].fillna(annots['Preferred_name'].replace('-', np.nan))
+    annots = annots[annots['GeneRelation'] == 'Current'].dropna(subset=['gene'])
+    gene = 'ssrA'
+    df = annots[annots['gene'] == gene]
+    out_file = os.path.join('/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/figs/within_genes', gene, gene)
+
+    fontsize = 6
+    dpi = 200
+
+    rcParams['font.size'] = fontsize
+    rcParams['savefig.dpi'] = dpi
+
+    draw_msa_plot(df, title=gene, out_file=out_file, nuc=True, drop_cols_without_snp=True)
