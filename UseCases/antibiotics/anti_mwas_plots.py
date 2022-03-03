@@ -1,11 +1,11 @@
 import os
 import glob
-import mwas_plots
 import numpy as np
 import pandas as pd
 from LabQueue.qp import qp, fakeqp
 from matplotlib.lines import Line2D
 from LabUtils.addloglevels import sethandlers
+from LabData.DataAnalyses.MBSNPs import mwas_plots
 
 
 def color_by_coef(sp_df: pd.DataFrame, **kwargs):
@@ -21,10 +21,12 @@ def color_by_coef(sp_df: pd.DataFrame, **kwargs):
 
     d['marker'] = 'o'
     d['s'] = -np.log10(sp_df[kwargs['pval_col']]).values/2  # to not divide by max because than it is species subjective
-    d['facecolor'] = (sp_df['Coef'] > 0).map(color_dict).values
+    d['facecolor'] = (sp_df[kwargs['coef_col']] > 0).map(color_dict).values
     d['edgecolor'] = black
     d['linewidths'] = 1
     d['alpha'] = 0.5
+    if 'text' in sp_df.columns:
+        d['text'] = sp_df['text']
 
     if kwargs['legend_elements'] is None:
         legend_coefficient = [Line2D([0], [0], linewidth=0, label=color_label_dict[k], alpha=d['alpha'],
@@ -55,32 +57,48 @@ def text_func_annotated_within(df: pd.DataFrame, **kwargs):
     return text
 
 
-run_type = 'between_species'
+if __name__ == '__main__':
 
-input_dir = os.path.join('/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas_processed', run_type)
-output_dir = os.path.join('/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/figs/new', run_type)
-jobs_dir = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/jobs/'
+    run_type = 'between'
 
-# queue
-os.chdir(jobs_dir)
-sethandlers(file_dir=jobs_dir)
+    input_dir = f'/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas_{run_type}'
+    output_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/figs/{run_type}_species'
+    jobs_dir = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/jobs/'
 
-with qp(jobname=run_type, _tryrerun=True) as q:
-    q.startpermanentrun()
-    tkttores = {}
+    # annotations_df = pd.read_hdf(os.path.join(input_dir, 'snps_gene_annotations.h5'))
+    # annotations_df = annotations_df.set_index('Y', append=True).reorder_levels(['Y', 'Species', 'Contig', 'Position'])
+    # annotations_df['text'] = annotations_df['gene'].fillna(annotations_df['Preferred_name'].replace('-', np.nan))
+    # annotations_df = annotations_df.loc[annotations_df['GeneRelation'] == 'Current', 'text'].dropna().str[:3]
+    annotations_df = None
 
-    print('start sending jobs')
-    for file in glob.glob(os.path.join(input_dir, 'SGB_*.h5')):  # 9710, 10068
-        kwargs = {'mwas_fname': file, 'out_dir': output_dir,
-                  'manhattan_draw_func': color_by_coef,
-                  'manhattan_text_func': text_func_annotated_between if run_type == 'between_species' else text_func_annotated_within,
-                  'pval_col': 'Pval', 'pval_cutoff': 0.05/26068850133}
-        tkttores[file] = q.method(mwas_plots.run, kwargs=kwargs)
-    print('finished sending jobs')
+    alpha = 0.01/pd.read_hdf(os.path.join(input_dir, 'mb_gwas_counts.h5')).sum().values[0]
 
-    print('start waiting for jobs')
-    for k, v in tkttores.items():
-        q.waitforresult(v)
-    print('finished waiting for jobs')
+    # queue
+    os.chdir(jobs_dir)
+    sethandlers(file_dir=jobs_dir)
 
-print('done')
+    with qp(jobname=run_type, _tryrerun=True) as q:
+        q.startpermanentrun()
+        tkttores = {}
+
+        print('start sending jobs')
+        for file in glob.glob(os.path.join(input_dir, 'raw_hdfs', 'mb_gwas_Rep_*_Rep_*.h5')):
+            kwargs = {'mwas_fname': file,
+                      'out_dir': output_dir,
+                      'annotations_df': annotations_df,
+                      'manhattan_draw_func': color_by_coef,
+                      'manhattan_text_func': text_func_annotated_within if run_type == 'within' else
+                                             text_func_annotated_between,
+                      'maf_col': 'MAF' if run_type == 'within' else 'MAF_abundance',
+                      'coef_col': 'Coef' if run_type == 'within' else 'MAF_abundance_Coef',
+                      'pval_col': 'Pval' if run_type == 'within' else 'MAF_abundance_Pval',
+                      'pval_cutoff': alpha}
+            tkttores[file] = q.method(mwas_plots.run, kwargs=kwargs)
+        print('finished sending jobs')
+
+        print('start waiting for jobs')
+        for k, v in tkttores.items():
+            q.waitforresult(v)
+        print('finished waiting for jobs')
+
+    print('done')
