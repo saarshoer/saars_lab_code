@@ -41,8 +41,9 @@ from scipy.cluster.hierarchy import linkage, fcluster
 
 # plots
 import seaborn as sns
+import matplotlib as mpl
 import matplotlib.pyplot as plt
-from matplotlib import rcParams
+from matplotlib import rcParams, cm
 from matplotlib.colors import LogNorm
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
@@ -1335,7 +1336,7 @@ class Study:
         return (pca_result, loadings), tsne_result, df
 
     def fig_snp_heatmap(self, obj, maximal_filling=0.25, minimal_samples=20, species=None,
-                        annotations=None, cmap=None, log_colors=False, add_hist=True):
+                        annotations=None, cmap=None, log_colors=False, add_hist=True, strain_var=None):
         """
         Plot a heatmap based on the SNP dissimilarity data frame for each species
 
@@ -1348,6 +1349,7 @@ class Study:
         :param cmap: (str) dissimilarity color map name
         :param log_colors: (bool) whether to set the heatmap colors to log scale
         :param add_hist: (bool) whether to add dissimilarity histograms with colored peaks
+        :param strain_var: (str) path to strain variability data frame
 
         :return: None
         """
@@ -1356,6 +1358,7 @@ class Study:
         colors_df = None
         annotations_df = None
         annotations_labels = []
+        strain_var = pd.read_hdf(strain_var) if strain_var is not None else None
 
         if annotations is not None:
             # create all the annotation data for the colored bars
@@ -1409,10 +1412,20 @@ class Study:
                     # the clustermap and the heatmap are separated because the clustermap does not pass the norm
                     # to the heatmap well as it should
                     # https://github.com/mwaskom/seaborn/pull/1830/files
+
+                    if strain_var is not None:
+                        m = cm.ScalarMappable(
+                            norm=mpl.colors.Normalize(vmin=0, vmax=strain_var[species].max()), cmap=cm.binary)
+                        species_colors_df = strain_var[species].map(m.to_rgba).to_frame().rename(columns={species: ' '})
+                        if colors_df is not None:
+                            species_colors_df = colors_df.join(species_colors_df)
+                    else:
+                        species_colors_df = colors_df
+
                     g = sns.clustermap(df, mask=(df >= 0),  # the mask here is for everything
                                        xticklabels=False, yticklabels=False,
                                        row_linkage=df_linkage, col_linkage=df_linkage,
-                                       row_colors=colors_df, col_colors=colors_df)
+                                       row_colors=species_colors_df, col_colors=species_colors_df)
 
                     norm = LogNorm(g.data2d.min().min(), g.data2d.max().max(), clip=False) if log_colors else None
 
@@ -1423,12 +1436,12 @@ class Study:
                                 cbar_kws={'label': 'dissimilarity', 'orientation': 'horizontal', 'ticks': None})
                     # cbar ticks are None because otherwise in log scale there are no ticks
 
+                    expanded_labels = []
+
                     # statistical test
                     if annotations:
                         stats_df = annotations_df.loc[df.iloc[g.dendrogram_col.reordered_ind].index]
                         stats_df['rank'] = np.arange(stats_df.shape[0])
-
-                        expanded_labels = []
 
                         for anno in annotations:
 
@@ -1455,10 +1468,13 @@ class Study:
 
                             expanded_labels.append('{} (p={}, RI={})'.format(anno, p, RI))
 
+                    if strain_var is not None:
+                        expanded_labels.append(f'variable positions (max {int(strain_var[species].max() * 100)}%)')
+                    if len(expanded_labels) > 0:
                         g.ax_col_colors.set_yticklabels(expanded_labels)
 
                     # title
-                    title = '{}\n{}\n{}'.format(obj.type, segal_name(species)[0], species)
+                    title = '{}\n{}\n{}'.format(obj.type, segata_name(species)[0], species)
                     g.fig.suptitle(title)
 
                     # annotations legend
@@ -2676,50 +2692,55 @@ class _Parameters:
 
 
 if __name__ == '__main__':
-    import matplotlib
 
-    study = 'AD_FMT2'
+    PNP3 = Study(
 
-    AD = Study(study=study,
-               base_directory=os.path.join('/home/saarsh/Analysis/atopic', study),
-               controls={'time_point': 'week 0', 'group': 'Placebo'})
+        base_directory='/home/saarsh/',
 
-    # colors
-    AD.params.colors = {'FMT': 'brown', 'Placebo': 'green', 'Between individuals': 'lightgrey'}
-    for g in ['FMT', 'Placebo']:
-        AD.params.colors[f'Pre {g}'] = AD.params.colors[g]
-        AD.params.colors[f'{g} Follow-up'] = AD.params.colors[g]
+        study='PNP3',
 
-    if study == 'AD_FMT':
-        AD.params.colors['DONOR_A'] = 'green'
-        AD.params.colors['DONOR_M'] = 'red'
-        AD.params.colors['DONOR_N'] = 'blue'
-        AD.params.colors['2'] = 'cyan'
-        AD.params.colors['3'] = 'skyblue'
-        AD.params.colors['6'] = 'c'
-        AD.params.colors['7'] = 'salmon'
-        AD.params.colors['8'] = 'seagreen'
-        AD.params.colors['10'] = 'lime'
-        AD.params.colors['11'] = 'mediumseagreen'
-        AD.params.colors['12'] = 'olive'
-        AD.params.colors['13'] = 'darkseagreen'
-        AD.params.colors['15'] = 'yellowgreen'
+        controls={'time_point': '0months',
+                  'group': 'mediterranean'},
 
-    elif study == 'AD_FMT2':
-        AD.params.colors['DONOR'] = 'yellow'
-        tab10 = matplotlib.cm.get_cmap('tab10')
-        for p in np.arange(1, 11):
-            AD.params.colors[str(p)] = tab10(int(p) - 1)
+        colors={  # time_points
+            '0months': 'orchid',
+            '6months': 'darkorchid',
+            '6months-0months': 'deeppink',
+            '0months vs. 6months': 'deeppink',
+            # groups
+            'mediterranean': 'mediumblue',
+            'algorithm': 'orange',
+            'model': 'green',
+            # abundance
+            'gut abundance': 'brown',
+            'oral abundance': 'green',
+            # dissimilarity
+            'gut snp dissimilarity': 'brown',
+            'oral snp dissimilarity': 'green',
+            # batches - # if something fails because of this make a copy as floats
+            '0': 'yellow',
+            '1': 'cyan',
+            '2': 'pink',
+            # diet
+            'mostly carbohydrates': 'purple',
+            'mostly lipids': 'yellow',
+            # general
+            'increased': 'red',
+            'decreased': 'green',
+            'True': 'red',
+            'False': 'black'}
 
-    if study == 'AD_FMT':
-        groups_order = ['Placebo', 'FMT', 'Follow-up', 'DONOR']
-    elif study == 'AD_FMT2':
-        groups_order = ['Pre FMT', 'FMT', 'FMT Follow-up', 'Pre Placebo', 'Placebo', 'Placebo Follow-up', 'DONOR']
+    )
 
-    patient2donor = pd.read_pickle('/home/saarsh/df.df')
-    AD.objs['patient2donor'] = AD.Object(obj_type='Patient to donor', df=patient2donor)
+    PNP3.objs[f'diss'] = PNP3.Object(obj_type=f'diss')
 
-    # plotting
-    AD.fig_snp_scatter_box(AD.objs['patient2donor'], subplot='group',
-                       minimal_between_comparisons=None, minimal_within_comparisons=None,
-                       species=25, height=12, aspect=0.5, whis=[5, 95])
+    species = 'SGB_1797'
+    PNP3.objs[f'diss'].df = pd.read_hdf('/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_diss/mb_dists.h5', key=f'/{species}')
+    PNP3.objs[f'diss'].df['Species'] = species
+    PNP3.objs[f'diss'].df = PNP3.objs[f'diss'].df.set_index('Species', append=True)
+    PNP3.objs[f'diss'].df.index = PNP3.objs[f'diss'].df.index.reorder_levels(['Species', 'SampleName1', 'SampleName2'])
+
+    PNP3.fig_snp_heatmap(PNP3.objs[f'diss'], species=[species],
+                         maximal_filling=0.5, minimal_samples=20, cmap='summer', log_colors=False,
+                         strain_var='/net/mraid08/export/genie/LabData/Data/MBPipeline/PNP3_rerun_segata/MBSNP/mb_snb_strain_variability_R3.h5')
+
