@@ -169,17 +169,17 @@ class P:
 if __name__ == '__main__':
     sethandlers(file_dir=config.log_dir)
 
-    m = MWAS(P)
-    work_dir = m.gen_mwas()
-    print(work_dir)
+    # m = MWAS(P)
+    # work_dir = m.gen_mwas()
+    # print(work_dir)
 
-    # work_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas_gut_change_R3'
-    #
-    # MBSNPAnalyses(P, work_dir).post_full_run_recovery_from_files()
-    # df = pd.read_hdf(os.path.join(work_dir, 'mb_gwas.h5'))
-    # df = df[df['Y_Bonferroni'] <= 0.05]
-    # df.to_hdf(os.path.join(work_dir, 'mb_gwas_significant.h5'), key='sig')
-    # print(df.shape)
+    work_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas_gut_change_R3_constant'
+
+    MBSNPAnalyses(P, work_dir).post_full_run_recovery_from_files()
+    df = pd.read_hdf(os.path.join(work_dir, 'mb_gwas.h5'))
+    df = df[df['Y_Bonferroni'] <= 0.05]
+    df.to_hdf(os.path.join(work_dir, 'mb_gwas_significant.h5'), key='sig')
+    print(df.shape)
 
     # P.collect_data = True
     # P.snp_set = pd.read_hdf(os.path.join(work_dir, 'mb_gwas_significant.h5'))
