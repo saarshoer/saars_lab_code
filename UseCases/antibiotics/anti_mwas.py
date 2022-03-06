@@ -5,13 +5,14 @@ from LabUtils.addloglevels import sethandlers
 from LabData.DataLoaders.Loader import LoaderData
 from LabData.DataAnalyses.MBSNPs.MWAS import MWAS
 
-df_dir = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/data_frames'
+df_dir = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/data_frames'#/permuted  # for both types of permutations
 
 
 def gen_cov_f(species, within):
     df = pd.read_pickle(os.path.join(df_dir, 'meta.df'))[['age', 'gender']]
     if not within:
         df2 = pd.read_pickle(os.path.join(df_dir, 'abundance.df'))[species]
+        # df2 = pd.read_pickle(os.path.join(os.path.dirname(df_dir), 'abundance.df'))[species]  # for second type of permutation
         df = df.\
             join(df2.rename(columns={species[0]: 'abundance'})).\
             join(df2.rename(columns={species[0]: 'MAF_abundance'}))
