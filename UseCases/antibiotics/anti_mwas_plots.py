@@ -6,9 +6,15 @@ from LabQueue.qp import qp, fakeqp
 from matplotlib.lines import Line2D
 from LabUtils.addloglevels import sethandlers
 from LabData.DataAnalyses.MBSNPs import mwas_plots
+from LabData.DataLoaders.MBSNPLoader import MAF_1_VALUE
 
 
 def color_by_coef(sp_df: pd.DataFrame, **kwargs):
+
+    if not kwargs['draw_pval']:
+        sp_df = sp_df[sp_df[kwargs['pval_col']] < kwargs['pval_cutoff']]
+    sp_df[kwargs['coef_col']] = sp_df[kwargs['coef_col']]*MAF_1_VALUE
+
     d = dict()
 
     black = (0.0, 0.0, 0.0, 0.7)
@@ -59,17 +65,13 @@ def text_func_annotated_within(df: pd.DataFrame, **kwargs):
 
 if __name__ == '__main__':
 
-    run_type = 'between'
+    run_type = 'within'
 
     input_dir = f'/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas_{run_type}'
     output_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/figs/{run_type}_species'
     jobs_dir = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/jobs/'
 
-    # annotations_df = pd.read_hdf(os.path.join(input_dir, 'snps_gene_annotations.h5'))
-    # annotations_df = annotations_df.set_index('Y', append=True).reorder_levels(['Y', 'Species', 'Contig', 'Position'])
-    # annotations_df['text'] = annotations_df['gene'].fillna(annotations_df['Preferred_name'].replace('-', np.nan))
-    # annotations_df = annotations_df.loc[annotations_df['GeneRelation'] == 'Current', 'text'].dropna().str[:3]
-    annotations_df = None
+    annotations_df = pd.read_hdf(os.path.join(input_dir, 'snps_gene_annotations_short.h5'))[['text']]
 
     alpha = 0.01/pd.read_hdf(os.path.join(input_dir, 'mb_gwas_counts.h5')).sum().values[0]
 
