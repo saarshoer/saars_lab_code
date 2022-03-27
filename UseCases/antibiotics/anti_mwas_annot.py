@@ -8,14 +8,14 @@ base_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas_between'
 
 mwas_file_path = os.path.join(base_dir, 'mb_gwas_significant.h5')
 
-jobs_path = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/jobs'
+jobs_path = os.path.join(base_dir, 'jobs')
 
 
 # run
 os.chdir(jobs_path)
 sethandlers()
 
-with qp(jobname='annot', _delete_csh_withnoerr=True, q=['himem7.q'], max_r=1, _mem_def='50G') as q:
+with qp(jobname='annot', _delete_csh_withnoerr=True, q=['himem7.q'], max_r=1, _mem_def='10G') as q:
     q.startpermanentrun()
 
     snps = q.method(mwas_annots.run, (mwas_file_path, base_dir))
