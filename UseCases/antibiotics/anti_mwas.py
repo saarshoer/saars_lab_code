@@ -1,4 +1,5 @@
 import os
+import numpy as np
 import pandas as pd
 from LabData import config_global as config
 from LabUtils.addloglevels import sethandlers
@@ -6,13 +7,17 @@ from LabData.DataLoaders.Loader import LoaderData
 from LabData.DataAnalyses.MBSNPs.MWAS import MWAS
 
 df_dir = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/data_frames'#/permuted  # for both types of permutations
+pca_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_pca'
 
 
 def gen_cov_f(species, within):
     df = pd.read_pickle(os.path.join(df_dir, 'meta.df'))[['age', 'gender']]
+    # pca = pd.read_pickle(os.path.join(pca_dir, f'{species[0]}.df'))
+    # df = df.join(pca)
     if not within:
-        df2 = pd.read_pickle(os.path.join(df_dir, 'abundance.df'))[species]
-        # df2 = pd.read_pickle(os.path.join(os.path.dirname(df_dir), 'abundance.df'))[species]  # for second type of permutation
+        df2 = pd.read_pickle(os.path.join(df_dir, 'abundance.df')).replace(np.log2(0.0001), np.nan)[species]
+        # for second type of permutation
+        # df2 = pd.read_pickle(os.path.join(os.path.dirname(df_dir), 'abundance.df')).replace(np.log2(0.0001), np.nan)[species]
         df = df.\
             join(df2.rename(columns={species[0]: 'abundance'})).\
             join(df2.rename(columns={species[0]: 'MAF_abundance'}))
@@ -20,7 +25,7 @@ def gen_cov_f(species, within):
 
 
 def gen_y_f(species, within):
-    df = pd.read_pickle(os.path.join(df_dir, 'abundance.df'))
+    df = pd.read_pickle(os.path.join(df_dir, 'abundance.df')).replace(np.log2(0.0001), np.nan)
     if within:
         df = df[species]
     else:
@@ -29,11 +34,11 @@ def gen_y_f(species, within):
     return LoaderData(df, None)
 
 
-def is_y_valid(y, max_on_most_freq_val_in_col, min_on_non_freq_val_for_y):#really affects the run time
-    count_most = y.value_counts().max()
-    return (count_most <= max_on_most_freq_val_in_col * len(y)) & \
-           (count_most >= (1 - max_on_most_freq_val_in_col) * len(y)) & \
-           (len(y) - count_most >= min_on_non_freq_val_for_y)
+# def is_y_valid(y, max_on_most_freq_val_in_col, min_on_non_freq_val_for_y):
+#     count_most = y.value_counts().max()
+#     return (count_most <= max_on_most_freq_val_in_col * len(y)) & \
+#            (count_most >= (1 - max_on_most_freq_val_in_col) * len(y)) & \
+#            (len(y) - count_most >= min_on_non_freq_val_for_y)
 
 
 class P:
@@ -51,10 +56,10 @@ class P:
     collect_data = False
 
     # queue
-    max_jobs = 120
+    max_jobs = 260
     verbose = False
     send_to_queue = True
-    jobname = 'anti_mwas'
+    jobname = 'anti'
     analyses_dir = config.analyses_dir
     work_dir_suffix = jobname
 
@@ -62,7 +67,7 @@ class P:
     species_set = snps.columns.tolist()
     ignore_species = None
     filter_by_species_existence = False
-    species_blocks = 1
+    species_blocks = 1  # most be 1 for this analysis, do not change!
 
     # subjects
     subjects_loaders = ['SubjectLoader']
@@ -93,7 +98,7 @@ class P:
 
     # y
     y_gen_f = lambda species: gen_y_f(species, P.within)
-    is_y_valid_f = is_y_valid  # Function that checks whether the analyzed y is valid
+    is_y_valid_f = None  # Function that checks whether the analyzed y is valid
     max_on_most_freq_val_in_col = 0.95  # make sure it has the same value as in is_y_valid_f
     min_on_non_freq_val_for_y = 50
 
@@ -107,7 +112,7 @@ class P:
     groupby_reg = None
 
     # output
-    output_cols = ['N', 'Pval', 'Coef', 'Coef_025', 'Coef_975']
+    output_cols = ['N', 'R2', 'Pval', 'Coef', 'Coef_025', 'Coef_975']
     for cov in cov_cols:
         output_cols = output_cols + [cov + '_Pval', cov + '_Coef']
         if cov not in ['age', 'gender']:
