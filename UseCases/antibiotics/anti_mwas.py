@@ -7,7 +7,7 @@ from LabData.DataLoaders.Loader import LoaderData
 from LabData.DataAnalyses.MBSNPs.MWAS import MWAS
 
 df_dir = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/data_frames'#/permuted  # for both types of permutations
-pca_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_pca'
+# pca_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_pca'
 
 
 def gen_cov_f(species, within):
@@ -19,8 +19,8 @@ def gen_cov_f(species, within):
         # for second type of permutation
         # df2 = pd.read_pickle(os.path.join(os.path.dirname(df_dir), 'abundance.df')).replace(np.log2(0.0001), np.nan)[species]
         df = df.\
-            join(df2.rename(columns={species[0]: 'abundance'})).\
-            join(df2.rename(columns={species[0]: 'MAF_abundance'}))
+            join(df2.rename(columns={species[0]: 'abundance'}))#.\
+            # join(df2.rename(columns={species[0]: 'MAF_abundance'}))
     return LoaderData(df, None)
 
 
@@ -49,8 +49,9 @@ class P:
     body_site = 'Gut'
     study_ids = ['10K']
 
-    within = False#########don't forget to change the mem_def accordingly
-    cov_cols = ['age', 'gender'] if within else ['age', 'gender', 'abundance', 'MAF_abundance']
+    within = True#########don't forget to change the mem_def accordingly
+    cov_cols = ['CONSTANT', 'age', 'gender'] if within else ['CONSTANT', 'age', 'gender', 'abundance']
+    permute = 'permute' in df_dir
 
     countries = None
     collect_data = False
@@ -59,7 +60,8 @@ class P:
     max_jobs = 260
     verbose = False
     send_to_queue = True
-    jobname = 'anti'
+    jobname = 'anti_mwas_within' if within else 'anti_mwas_between'
+    jobname = jobname + '_permuted' if permute else jobname
     analyses_dir = config.analyses_dir
     work_dir_suffix = jobname
 
@@ -84,11 +86,11 @@ class P:
     # SNPs
     min_reads_per_snp = 1  # in maf file name
     min_subjects_per_snp_cached = 500  # in maf file name
-    max_on_fraq_major_per_snp = 0.95#also minor  # Max fraction of major allele frequency in analyzed samples
+    max_on_fraq_major_per_snp = 0.95  # Max fraction of major AND minor allele frequency in analyzed samples
     min_on_minor_per_snp = 50  # Min number of analyzed samples with a minor allele
     min_subjects_per_snp = 500
     max_samples_per_snp = None
-    snp_set = None
+    snp_set = None#pd.read_hdf(os.path.join(config.analyses_dir, jobname, 'mb_gwas_significant.h5'))[[]]
 
     # covariates
     covariate_gen_f = lambda species: gen_cov_f(species, P.within)
@@ -103,7 +105,7 @@ class P:
     min_on_non_freq_val_for_y = 50
 
     # p-value
-    max_pval_to_report = 1
+    max_pval_to_report = 10**-8 if permute else 1
     max_pval_to_detailed = None
 
     # others
@@ -115,7 +117,7 @@ class P:
     output_cols = ['N', 'R2', 'Pval', 'Coef', 'Coef_025', 'Coef_975']
     for cov in cov_cols:
         output_cols = output_cols + [cov + '_Pval', cov + '_Coef']
-        if cov not in ['age', 'gender']:
+        if 'abundance' in cov:
             output_cols = output_cols + [cov + '_Coef_025',  cov + '_Coef_975']
 
     del snps
