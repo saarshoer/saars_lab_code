@@ -65,11 +65,11 @@ def text_func_annotated_within(df: pd.DataFrame, **kwargs):
 
 if __name__ == '__main__':
 
-    run_type = 'within'
+    run_type = 'between'
 
     input_dir = f'/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas_{run_type}'
     output_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/figs/{run_type}_species'
-    jobs_dir = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/jobs/'
+    jobs_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/jobs'
 
     annotations_df = pd.read_hdf(os.path.join(input_dir, 'snps_gene_annotations_short.h5'))[['text']]
 
@@ -91,9 +91,9 @@ if __name__ == '__main__':
                       'manhattan_draw_func': color_by_coef,
                       'manhattan_text_func': text_func_annotated_within if run_type == 'within' else
                                              text_func_annotated_between,
-                      'maf_col': 'MAF' if run_type == 'within' else 'MAF_abundance',
-                      'coef_col': 'Coef' if run_type == 'within' else 'MAF_abundance_Coef',
-                      'pval_col': 'Pval' if run_type == 'within' else 'MAF_abundance_Pval',
+                      'maf_col': 'MAF',
+                      'coef_col': 'Coef',
+                      'pval_col': 'Pval',
                       'pval_cutoff': alpha}
             tkttores[file] = q.method(mwas_plots.run, kwargs=kwargs)
         print('finished sending jobs')
