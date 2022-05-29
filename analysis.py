@@ -1335,8 +1335,8 @@ class Study:
 
         return (pca_result, loadings), tsne_result, df
 
-    def fig_snp_heatmap(self, obj, maximal_filling=0.25, minimal_samples=20, species=None,
-                        annotations=None, cmap=None, log_colors=False, add_hist=True, strain_var=None):
+    def fig_snp_heatmap(self, obj, maximal_filling=0.25, minimal_samples=20, species=None, cmap=None, log_colors=False,
+                        annotations=None, add_hist=True, add_pairs=True, strain_var=None):
         """
         Plot a heatmap based on the SNP dissimilarity data frame for each species
 
@@ -1345,10 +1345,11 @@ class Study:
         JUST for clustering, it will not appear in the heatmap!!
         :param minimal_samples: (int) minimal number of samples to have in order to draw
         :param species: (list) species to plot
-        :param annotations: (list of str) columns to annotate by
         :param cmap: (str) dissimilarity color map name
         :param log_colors: (bool) whether to set the heatmap colors to log scale
+        :param annotations: (list of str) columns to annotate by
         :param add_hist: (bool) whether to add dissimilarity histograms with colored peaks
+        :param add_hist: (bool) whether to add arrows between pairs of samples of the same individual
         :param strain_var: (str) path to strain variability data frame
 
         :return: None
@@ -1359,6 +1360,7 @@ class Study:
         annotations_df = None
         annotations_labels = []
         strain_var = pd.read_hdf(strain_var) if strain_var is not None else None
+        pairs = None
 
         if annotations is not None:
             # create all the annotation data for the colored bars
@@ -1370,6 +1372,12 @@ class Study:
             annotations_df = annotations_df.iloc[~annotations_df.index.duplicated()]  # drop duplicated samples
             annotations_labels = np.unique(annotations_df.values)
             colors_df = annotations_df.replace(self.params.colors)  # replace values with corresponding colors
+
+        if add_pairs and 'person1' in list(full_df.index.names) and 'time_point1' in list(full_df.index.names):
+            pairs = full_df[(full_df.index.get_level_values('person1') == full_df.index.get_level_values('person2')) &
+                            (full_df.index.get_level_values('time_point1') == self.params.controls['time_point']) &
+                            (full_df.index.get_level_values('time_point2') != self.params.controls['time_point'])]
+            pairs = pairs.reset_index().set_index('Species')[['SampleName1', 'SampleName2']]
 
         if species:
             full_df = full_df[full_df.index.get_level_values('Species').isin(species)]
@@ -1436,6 +1444,17 @@ class Study:
                                 cbar_kws={'label': 'dissimilarity', 'orientation': 'horizontal', 'ticks': None})
                     # cbar ticks are None because otherwise in log scale there are no ticks
 
+                    if pairs is not None:
+                        pairs2plot = pairs.loc[species]
+                        pairs2plot = pairs2plot[(pairs2plot['SampleName1'].isin(samples_mask)) &
+                                                (pairs2plot['SampleName2'].isin(samples_mask))]
+
+                        for _, (s1, s2) in pairs2plot.iterrows():
+                            s1i = g.data2d.index.tolist().index(s1)
+                            s2i = g.data2d.index.tolist().index(s2)
+                            g.ax_heatmap.arrow(x=s1i, y=s1i, dx=s2i-s1i, dy=0,
+                                               color='orange', head_width=3, head_length=2)
+
                     expanded_labels = []
 
                     # statistical test
@@ -1458,9 +1477,9 @@ class Study:
                             # rand index between the annotation and the clusters
                             org_clusters = annotations_df.loc[df.index, anno].values.flatten()
                             new_clusters = fcluster(df_linkage, t=len(np.unique(org_clusters)),
-                                                    criterion='maxclust')
+                                                    criterion='maxclust')  # TODO: optimize parameters
 
-                            RI = round(adjusted_rand_score(org_clusters, new_clusters), 3)
+                            RI = round(adjusted_rand_score(org_clusters, new_clusters), 3)  # TODO: optimize parameters
 
                             # TODO: think what should be the t for inconsistent fcluster
                             # new_clusters2 = fcluster(df_linkage, t=1, criterion='inconsistent')
@@ -1474,7 +1493,7 @@ class Study:
                         g.ax_col_colors.set_yticklabels(expanded_labels)
 
                     # title
-                    title = '{}\n{}\n{}'.format(obj.type, segata_name(species)[0], species)
+                    title = '{}\n{}\n{}'.format(obj.type, segata_name(species), species)
                     g.fig.suptitle(title)
 
                     # annotations legend
@@ -1497,7 +1516,7 @@ class Study:
 
                         special_ax = inset_axes(g.ax_heatmap, width="40%", height=1.0, loc='lower left')
                         bins_freq, _, patches = special_ax.hist(diss_tril, bins='auto')
-                        peaks_bin, _ = find_peaks(bins_freq)
+                        peaks_bin, _ = find_peaks(bins_freq)  # TODO: optimize
                         [patches[bin].set_color('orange') for bin in peaks_bin]
                         special_ax.set_title('dissimilarity distribution', color='white')
                         special_ax.set_xticklabels([])
@@ -1631,7 +1650,7 @@ class Study:
         df.loc[same_minor, minor] = df['{}1'.format(minor)]
 
         # statistics
-
+        # TODO: fix bug in saving excel
         # between individuals
         if minimal_between_comparisons is not None:
             obj4stats_between = Study.Object(obj_type='{}_'.format(obj.type), columns='bacteria')
@@ -1751,7 +1770,7 @@ class Study:
 
                 # ticks
                 ax = g.axes.flatten()[0]
-                ax.set_yticklabels([f'{segal_name(tick.get_text())[0]} ({tick.get_text()})'
+                ax.set_yticklabels([f'{segata_name(tick.get_text())} ({tick.get_text()})'
                                     for tick in ax.get_yticklabels()])
 
                 # titles and labels
@@ -1982,47 +2001,6 @@ def decompress_files(file_type, input_dir=os.getcwd(), output_dir=os.getcwd(), r
 
 
 # data frame computations
-def get_diversity_df(abundance_df):
-    """
-    Compute the Shanon's alpha diversity index (using log2) based on an "abundance_df"
-
-    :param abundance_df: (pd.DataFrame) data frame to compute on
-
-    :return: (pd.DataFrame) "diversity_df"
-    (same as abundance_df just instead of bacteria columns there is a single diversity column)
-    """
-
-    # Shannon's alpha diversity index = -sum(Pi*log2(Pi))
-
-    # revert values to their pre log state
-    if not (0 <= abundance_df.min().min() and abundance_df.max().max() <= 1):
-        abundance_df = (10 ** abundance_df)
-
-    diversity_df = pd.DataFrame(-(abundance_df * np.log2(abundance_df)).sum(axis=1))
-    diversity_df.columns = ['diversity']
-
-    return diversity_df
-
-
-def get_richness_df(abundance_df):
-    """
-    Compute the richness based on an "abundance_df"
-
-    :param abundance_df: (pd.DataFrame) data frame to compute on
-
-    :return: (pd.DataFrame) "richness_df"
-    (same as abundance_df just instead of bacteria columns there is a single richness column)
-    """
-
-    if abundance_df.isna().sum().sum() > 0:
-        richness_df = pd.DataFrame((~abundance_df.isna()).sum(axis=1))
-    else:
-        richness_df = pd.DataFrame((abundance_df != abundance_df.min().min()).sum(axis=1))
-    richness_df.columns = ['richness']
-
-    return richness_df
-
-
 def get_delta_df(regular_df, control_time_point, divide=False):
     """
     Subtract from each time point values the self.params.control_time values
@@ -2138,6 +2116,49 @@ def add_cgm(samples_df, cgm_df, delta_days=-7, glucose_threshold=140):
     return samples_df
 
 
+# microbiome abundance
+def get_diversity_df(abundance_df):
+    """
+    Compute the Shanon's alpha diversity index (using log2) based on an "abundance_df"
+
+    :param abundance_df: (pd.DataFrame) data frame to compute on
+
+    :return: (pd.DataFrame) "diversity_df"
+    (same as abundance_df just instead of bacteria columns there is a single diversity column)
+    """
+
+    # Shannon's alpha diversity index = -sum(Pi*log2(Pi))
+
+    # revert values to their pre log state
+    if not (0 <= abundance_df.min().min() and abundance_df.max().max() <= 1):
+        abundance_df = (10 ** abundance_df)
+
+    diversity_df = pd.DataFrame(-(abundance_df * np.log2(abundance_df)).sum(axis=1))
+    diversity_df.columns = ['diversity']
+
+    return diversity_df
+
+
+def get_richness_df(abundance_df):
+    """
+    Compute the richness based on an "abundance_df"
+
+    :param abundance_df: (pd.DataFrame) data frame to compute on
+
+    :return: (pd.DataFrame) "richness_df"
+    (same as abundance_df just instead of bacteria columns there is a single richness column)
+    """
+
+    if abundance_df.isna().sum().sum() > 0:
+        richness_df = pd.DataFrame((~abundance_df.isna()).sum(axis=1))
+    else:
+        richness_df = pd.DataFrame((abundance_df != abundance_df.min().min()).sum(axis=1))
+    richness_df.columns = ['richness']
+
+    return richness_df
+
+
+# microbiome strains
 def add_strain_replacement(test, control=None, quantile=0.05):
     """
     Adds "replacement column that represents strain replacement to a dissimilarity data frame
@@ -2193,6 +2214,28 @@ def add_strain_replacement(test, control=None, quantile=0.05):
     return test
 
 
+def add_unshared_pos(df):
+    """
+    Adds "unshared_pos1/2" columns of the unique avilable positions in each sample
+
+    :param df: (pd.DataFrame) dissimilarity data frame with 'SampleName1/2' and 'shared_pos' columns
+
+    :return: df (pd.DataFrame)
+    """
+
+    same_sample = df[df.index.get_level_values('SampleName1') == df.index.get_level_values('SampleName2')]
+    same_sample = same_sample.reset_index().set_index(['Species', 'SampleName1'])[['shared_pos']].\
+                              rename(columns={'SampleName1': 'SampleName', 'shared_pos': 'unshared_pos'})
+
+    df = df.join(same_sample, on=['Species', 'SampleName1']).join(same_sample, on=['Species', 'SampleName2'],
+            lsuffix='1', rsuffix='2')
+
+    df['unshared_pos1'] = df['unshared_pos1'] - df['shared_pos']
+    df['unshared_pos2'] = df['unshared_pos2'] - df['shared_pos']
+
+    return df
+
+
 # others
 
 def segal_name(reps):
@@ -2226,9 +2269,9 @@ def segata_name(SGB_ID):
     
     SGB_ID = int(str(SGB_ID).replace('SGB_', ''))
 
-    full_name = segata_df.loc[segata_df['SGB ID'] == SGB_ID, 'Estimated taxonomy'].iloc[0]
+    full_name = segata_df.loc[segata_df['SGB ID'] == SGB_ID, 'Estimated taxonomy'].iloc[0].split('|')[-1]
 
-    return 'SGB_{} {}'.format(SGB_ID, full_name)
+    return full_name
 
 
 def cat2binary(y):
@@ -2733,14 +2776,10 @@ if __name__ == '__main__':
     )
 
     PNP3.objs[f'diss'] = PNP3.Object(obj_type=f'diss')
+    PNP3.objs[f'diss'].df = pd.read_pickle('/home/saarsh/Analysis/PNP3/data_frames/diss_20_corrected.df')
+    PNP3.objs[f'diss'].df['dissimilarity'] = PNP3.objs[f'diss'].df['dissimilarity'].clip(lower=PNP3.params.dissimilarity_threshold)
 
-    species = 'SGB_1797'
-    PNP3.objs[f'diss'].df = pd.read_hdf('/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_diss/mb_dists.h5', key=f'/{species}')
-    PNP3.objs[f'diss'].df['Species'] = species
-    PNP3.objs[f'diss'].df = PNP3.objs[f'diss'].df.set_index('Species', append=True)
-    PNP3.objs[f'diss'].df.index = PNP3.objs[f'diss'].df.index.reorder_levels(['Species', 'SampleName1', 'SampleName2'])
-
-    PNP3.fig_snp_heatmap(PNP3.objs[f'diss'], species=[species],
+    PNP3.fig_snp_heatmap(PNP3.objs[f'diss'], species=['SGB_6007'], annotations=None,#['group'],
                          maximal_filling=0.5, minimal_samples=20, cmap='summer', log_colors=False,
                          strain_var='/net/mraid08/export/genie/LabData/Data/MBPipeline/PNP3_rerun_segata/MBSNP/mb_snb_strain_variability_R3.h5')
 
