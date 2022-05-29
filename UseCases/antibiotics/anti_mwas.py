@@ -6,7 +6,7 @@ from LabUtils.addloglevels import sethandlers
 from LabData.DataLoaders.Loader import LoaderData
 from LabData.DataAnalyses.MBSNPs.MWAS import MWAS
 
-df_dir = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/data_frames'#/permuted  # for both types of permutations
+df_dir = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/data_frames'#/permuted'  # for both types of permutations
 # pca_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_pca'
 
 
@@ -49,12 +49,12 @@ class P:
     body_site = 'Gut'
     study_ids = ['10K']
 
-    within = True#########don't forget to change the mem_def accordingly
+    within = False#########don't forget to change the mem_def accordingly
     cov_cols = ['CONSTANT', 'age', 'gender'] if within else ['CONSTANT', 'age', 'gender', 'abundance']
     permute = 'permute' in df_dir
 
     countries = None
-    collect_data = False
+    collect_data = True
 
     # queue
     max_jobs = 260
@@ -90,7 +90,8 @@ class P:
     min_on_minor_per_snp = 50  # Min number of analyzed samples with a minor allele
     min_subjects_per_snp = 500
     max_samples_per_snp = None
-    snp_set = None#pd.read_hdf(os.path.join(config.analyses_dir, jobname, 'mb_gwas_significant.h5'))[[]]
+    snp_set = pd.read_hdf(os.path.join(config.analyses_dir, jobname, 'mb_gwas_significant.h5'))[[]] if collect_data else None
+    ##### failed due to memory limitation between analysis: 3079, 3087, 449, 81
 
     # covariates
     covariate_gen_f = lambda species: gen_cov_f(species, P.within)
