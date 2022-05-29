@@ -13,14 +13,14 @@ class P:
 
     # queue
     max_jobs = 250
-    send_to_queue = True
+    send_to_queue = False
     jobname = f'diss'
     verbose = False
     analyses_dir = config.analyses_dir
     work_dir_suffix = f'{"_".join(study_ids)}_diss_{body_site.lower()}'
 
     # species
-    species_set = None
+    species_set = ['SGB_4197']
     ignore_species = None
     filter_by_species_existence = False
     species_blocks = 1
