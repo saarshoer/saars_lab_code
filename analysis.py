@@ -1601,16 +1601,16 @@ class Study:
                 # within individuals
                 if not sub_data.loc[same_person].empty:
                     matrix = sub_data.loc[same_person].copy()
-                    matrix = matrix.groupby(['Species', 'person1'])['replacement'].any().unstack(fill_value=False)
-                    matrix = matrix.apply(lambda col: col.replace(True, pd.to_numeric(col.name, errors='ignore')), axis=0).replace(False, 0)
+                    matrix = matrix.groupby(['Species', 'person1'])['replacement'].any().unstack().fillna(False)
+                    matrix = matrix.apply(lambda col: col.replace(True, pd.to_numeric(col.name, errors='ignore')),
+                                          axis=0).replace(False, 0)
                     matrix.loc[:, set(people_order) - set(matrix.columns)] = 0
                     matrix = matrix.loc[:, people_order]
 
-                    # TODO: this will be a problem if the person1 identifiers are not sequential and in equal distance
+                    # TODO: bug and a problem if the person1 identifiers are not sequential and in equal distance
                     cmap = None if not all(sub_data.loc[same_person, 'person1'].isin(list(self.params.colors.keys()))) \
                         else ['white'] + [self.params.colors[str(k)] for k in matrix.columns]
                     h = sns.heatmap(matrix, linewidths=1, linecolor='lightgrey', cbar=False, cmap=cmap)
-                    # annot=z for color debugging
 
                     idx = np.unique(sub_data.loc[same_person, major])[0]  # assuming there aren't any bugs with major
                     h.set_xticklabels([f'{tick.get_text()}\n{people_info.loc[(tick.get_text(), idx)]}'
@@ -1620,6 +1620,12 @@ class Study:
         # data manipulation
         df = obj.df
         df = df.reset_index()
+
+        # species argument
+        if type(species) == list:  # by specific species
+            df = df[df['Species'].isin(species)]
+            species = len(species)
+
         df = df[df['SampleName1'] != df['SampleName2']]
         df['s1'] = np.minimum(df['SampleName1'], df['SampleName2'])
         df['s2'] = np.maximum(df['SampleName1'], df['SampleName2'])
@@ -1737,20 +1743,13 @@ class Study:
         # for unexplainable reason this effects the replacements decimal point in the figure
         # if not returned to type str will show all species in all figures
 
-        # species argument
-        figures = [0]
-        if type(species) == list:  # by specific species
-            df = df[df['Species'].isin(species)]
-            species = len(species)
-            figures = np.arange(0, len(np.unique(df['Species'])), species)
-
         # x axis limits
         max_x = 10**-1
         min_x = self.params.dissimilarity_threshold/3
         df['dissimilarity'] = df['dissimilarity'].clip(lower=self.params.dissimilarity_threshold, upper=max_x)
 
         # split to multiple figures
-        for i_figure in figures:
+        for i_figure in np.arange(0, len(np.unique(df['Species'])), species):
 
             sub_df = df[df['Species'].isin(species_order[i_figure:i_figure+species])]
             sub_df['Species'] = sub_df['Species'].astype('category').cat.set_categories(species_order[i_figure:i_figure+species])
@@ -1792,7 +1791,9 @@ class Study:
 
                 # saving
                 title4saving = '{}{}s{}-{}'.format(title, ' ' if not summary else ' summary ', i_figure, i_figure+species)
-                plt.savefig(os.path.join(self.dirs.figs, title4saving))
+                if not os.path.exists(os.path.join(self.dirs.figs, obj.type)):
+                    os.makedirs(os.path.join(self.dirs.figs, obj.type))
+                plt.savefig(os.path.join(self.dirs.figs, obj.type, title4saving))
                 plt.close()
 
         return species_order
@@ -2738,7 +2739,7 @@ if __name__ == '__main__':
 
     PNP3 = Study(
 
-        base_directory='/home/saarsh/',
+        base_directory='/home/saarsh/Analysis/PNP3/debug',
 
         study='PNP3',
 
@@ -2754,6 +2755,10 @@ if __name__ == '__main__':
             'mediterranean': 'mediumblue',
             'algorithm': 'orange',
             'model': 'green',
+            # body sites
+            'gut': 'brown',
+            'oral': 'green',
+            'gut vs. oral': 'grey',
             # abundance
             'gut abundance': 'brown',
             'oral abundance': 'green',
