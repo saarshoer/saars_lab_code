@@ -1456,6 +1456,7 @@ class Study:
                                                color='orange', head_width=3, head_length=2)
 
                     expanded_labels = []
+                    is_significant = []
 
                     # statistical test
                     if annotations:
@@ -1486,6 +1487,7 @@ class Study:
                             # rand_index2 = adjusted_rand_score(org_clusters, new_clusters2)
 
                             expanded_labels.append('{} (p={}, RI={})'.format(anno, p, RI))
+                            is_significant.append(p)
 
                     if strain_var is not None:
                         expanded_labels.append(f'variable positions (max {int(strain_var[species].max() * 100)}%)')
@@ -1525,6 +1527,12 @@ class Study:
                     if not os.path.exists(os.path.join(self.dirs.figs, obj.type)):
                         os.makedirs(os.path.join(self.dirs.figs, obj.type))
                     plt.savefig(os.path.join(self.dirs.figs, obj.type, species), pad_inches=0.5)
+
+                    if any([p < self.params.alpha for p in is_significant]):
+                        if not os.path.exists(os.path.join(self.dirs.figs, obj.type, 'significant')):
+                            os.makedirs(os.path.join(self.dirs.figs, obj.type, 'significant'))
+                        plt.savefig(os.path.join(self.dirs.figs, obj.type, 'significant', species), pad_inches=0.5)
+
                     plt.close()
 
     def fig_snp_scatter_box(self, obj, subplot='group', subplot_order=None,
@@ -1840,6 +1848,14 @@ class Study:
         plt.title('{}strain replacements per {} histogram'.format(obj_type, category))
         plt.xlabel('number of replacements')
         plt.ylabel('number of {}'.format(category))
+
+        # statistical test
+        hues = n_replacements.index.get_level_values(hue).unique()
+        if len(hues) == 2:
+            _, p = mannwhitneyu(x=n_replacements.xs(hues[0], level=hue).dropna().tolist(),
+                                y=n_replacements.xs(hues[1], level=hue).dropna().tolist(),
+                                use_continuity=True, alternative="two-sided", axis=0, method="auto")
+            plt.text(x=0.9, y=0.9, s=f'p={p:.2f}', transform=g.ax.transAxes)
 
         plt.savefig(os.path.join(self.dirs.figs, 'replacements per {}{}'.format(obj_type, category)))
 
@@ -2784,7 +2800,4 @@ if __name__ == '__main__':
     PNP3.objs[f'diss'].df = pd.read_pickle('/home/saarsh/Analysis/PNP3/data_frames/diss_20_corrected.df')
     PNP3.objs[f'diss'].df['dissimilarity'] = PNP3.objs[f'diss'].df['dissimilarity'].clip(lower=PNP3.params.dissimilarity_threshold)
 
-    PNP3.fig_snp_heatmap(PNP3.objs[f'diss'], species=['SGB_6007'], annotations=None,#['group'],
-                         maximal_filling=0.5, minimal_samples=20, cmap='summer', log_colors=False,
-                         strain_var='/net/mraid08/export/genie/LabData/Data/MBPipeline/PNP3_rerun_segata/MBSNP/mb_snb_strain_variability_R3.h5')
-
+    PNP3.fig_strain_replacements(PNP3.objs[f'diss'])
