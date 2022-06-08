@@ -3,7 +3,7 @@ import glob
 import datetime
 import pandas as pd
 from Bio import SeqIO
-from LabQueue.qp import qp, fakeqp
+from LabQueue.qp import qp
 from LabUtils.Utils import shell_command
 from LabUtils.addloglevels import sethandlers
 from LabData.config_global import analyses_dir
@@ -21,7 +21,8 @@ from LabData.CentralizedGenerators.prokka import prokka
 # in python -
 reference_fasta = '/net/mraid08/export/jafar/Microbiome/Analyses/Unicorn/URS/URS_Build/Rep_all/single_fastas'  # Segal
 # reference_fasta = '/net/mraid08/export/jafar/Microbiome/Data/Databases/URA_IndicesAndScores/LargeOrNewGenusSGBs/SegataIndexLargeOrNewGenusSGBs.fa'  # Segata
-# reference_fasta = '/net/mraid08/export/jafar/Microbiome/Analyses/Unicorn/URA_DBs/SegataAll/other_single_fasta'  # Segata all
+# reference_fasta = '/net/mraid08/export/jafar/Microbiome/Analyses/Unicorn/URA_DBs/SegataAll/other_single_fasta'  # Segata all - genomes that were in the original Segata paper but were not used by the lab
+# reference_fasta = '/net/mraid08/export/jafar/Microbiome/Analyses/Unicorn/URA_DBs/UHGG/all_reps_fasta' # UHGG - another genomes reference set that was published in 2021
 output_dir = analyses_dir
 
 jobs_dir = os.path.join(output_dir, 'jobs')
@@ -57,14 +58,6 @@ elif os.path.isdir(reference_fasta):  # in case each species has its own fasta f
         os.mkdir(species_dir)
         os.chdir(species_dir)
         shell_command(f"ln -s {rep} {os.path.basename(rep)}")
-        # in case you need to edit contig names
-        # reference_file = open(rep, 'r')
-        # species_file = open(os.path.basename(rep), 'w')
-        # for i, species_object in enumerate(SeqIO.parse(reference_file, 'fasta')):
-        #     species_file.write(f">{os.path.basename(rep).replace('.fa', '')}_{i}\n{species_object.seq}\n")
-#     species_file.close()
-#     prev_rep = rep
-# reference_file.close()
 
 
 # annotate
