@@ -1537,7 +1537,8 @@ class Study:
 
     def fig_snp_scatter_box(self, obj, subplot='group', subplot_order=None,
                             minimal_between_comparisons=45, minimal_within_comparisons=10,
-                            species=25, height=12, aspect=0.5, whis=[5, 95]):
+                            species=25, height=12, aspect=0.5, whis=[5, 95],
+                            sum_not_mean=True):
         """
         Plot a the dissimilarity distribution between and within people based on the SNP dissimilarity data frame
         for each species
@@ -1550,6 +1551,7 @@ class Study:
         :param height: (int) sns.FacetGrid height argument
         :param aspect: (float) sns.FacetGrid aspect argument
         :param whis: () sns.bosxplot whis argument
+        :param sum_not_mean: (bool) sum (True) or mean (False) replacements
 
         :return: None
         """
@@ -1577,10 +1579,14 @@ class Study:
 
                     # replacements
                     if 'replacement' in sub_data.columns:
-                        n_replacements = sub_data.loc[same_person].groupby(['Species', 'person1'])['replacement'].any()\
-                            .groupby('Species').sum().replace(False, 0).replace(True, 1)
+                        if sum_not_mean:
+                            n_replacements = sub_data.loc[same_person].groupby(['Species', 'person1'])['replacement'].any()\
+                                .groupby('Species').sum().replace(False, 0).replace(True, 1)
+                        else:
+                            n_replacements = sub_data.loc[same_person].groupby(['Species', 'person1'])['replacement'].any() \
+                                .replace(False, 0).replace(True, 1).groupby('Species').mean()
                         for s in n_replacements.index:
-                            p.text(1/20, s, n_replacements.loc[s])
+                            p.text(1/20, s, f'{n_replacements.loc[s]:.0%}')
 
                 # between individuals - significance
                 if minimal_between_comparisons is not None:
@@ -1724,8 +1730,14 @@ class Study:
 
         # sorts species and people df by the number of replacements
         if 'replacement' in df.columns:
-            species_order = list(df.loc[same_person].groupby(['Species', 'person1'])['replacement'].any().
-                                 groupby('Species').sum().sort_values(ascending=False).index)
+            df['replacement'] = df['replacement'].map({True: 1, False: 0})
+            if sum_not_mean:
+                species_order = list(df.loc[same_person].groupby(['Species', 'person1'])['replacement'].any().
+                                     groupby('Species').sum().sort_values(ascending=False).index)
+            else:
+                species_order = list(df.loc[same_person].groupby(['Species', 'person1'])['replacement'].any() \
+                                .replace(False, 0).replace(True, 1).groupby('Species').mean().sort_values(ascending=False).index)
+
         else:
             species_order = list(df.loc[same_person].groupby('Species').apply(len).sort_values(ascending=False).index)
 
@@ -1806,11 +1818,12 @@ class Study:
 
         return species_order
 
-    def fig_strain_replacements(self, obj, category='person1', hue='group1'):
+    def fig_strain_replacements(self, obj, sum_not_mean=True, category='person1', hue='group1'):
         """
-        Count and plot (histogram) the number of replacements per category
+        Sum/mean and plot (histogram) replacements per category
 
-        :param df: (pd.DataFrame) dissimilarity df
+        :param obj: (Object) with SNP dissimilarity data frame and replacements
+        :param sum_not_mean: (bool) sum (True) or mean (False) replacements
         :param category: (str) index level name to count by
         :param hue: (str) index level name to color by
 
@@ -1823,9 +1836,14 @@ class Study:
         df['s2'] = np.maximum(df['SampleName1'], df['SampleName2'])
         df = df.drop_duplicates(['Species', 's1', 's2'])
         df = df.dropna(subset=['replacement'])
+        df['replacement'] = df['replacement'].map({True: 1, False: 0})
 
         groups = [category, hue] if hue is not None else [category]
-        n_replacements = df.groupby(groups)['replacement'].sum().sort_values(ascending=False)
+        if sum_not_mean:
+            replacements = df.groupby(groups)['replacement'].sum().sort_values(ascending=False)
+        else:
+            replacements = df.groupby(groups)['replacement'].mean().sort_values(ascending=False)
+
         if category[-1] in ['1', '2']:
             category = category[:-1]
         category = category.lower()
@@ -1833,12 +1851,12 @@ class Study:
             if hue[-1] in ['1', '2']:
                 hue = hue[:-1]
             hue = hue.lower()
-            n_replacements.index.names = [category, hue]
+            replacements.index.names = [category, hue]
         else:
-            n_replacements.index.name = category
+            replacements.index.name = category
 
         # histogram
-        g = sns.FacetGrid(n_replacements.reset_index(), hue=hue, palette=self.params.colors,
+        g = sns.FacetGrid(replacements.reset_index(), hue=hue, palette=self.params.colors,
                           sharex=False, sharey=False, margin_titles=True)
         g = g.map(sns.distplot, 'replacement', hist=True, kde=False, norm_hist=True)  # norm_hist=False does not work as expected
         g = g.add_legend()
@@ -1846,20 +1864,23 @@ class Study:
         obj_type = obj.type.split(' ')[0].lower()
         obj_type = obj_type + ' ' if obj_type in ['oral', 'gut'] else ''
         plt.title('{}strain replacements per {} histogram'.format(obj_type, category))
-        plt.xlabel('number of replacements')
+        if sum_not_mean:
+            plt.xlabel('number of replacements')
+        else:
+            plt.xlabel('mean replacements')
         plt.ylabel('number of {}'.format(category))
 
         # statistical test
-        hues = n_replacements.index.get_level_values(hue).unique()
+        hues = replacements.index.get_level_values(hue).unique()
         if len(hues) == 2:
-            _, p = mannwhitneyu(x=n_replacements.xs(hues[0], level=hue).dropna().tolist(),
-                                y=n_replacements.xs(hues[1], level=hue).dropna().tolist(),
+            _, p = mannwhitneyu(x=replacements.xs(hues[0], level=hue).dropna().tolist(),
+                                y=replacements.xs(hues[1], level=hue).dropna().tolist(),
                                 use_continuity=True, alternative="two-sided", axis=0, method="auto")
             plt.text(x=0.9, y=0.9, s=f'p={p:.2f}', transform=g.ax.transAxes)
 
-        plt.savefig(os.path.join(self.dirs.figs, 'replacements per {}{}'.format(obj_type, category)))
+        plt.savefig(os.path.join(self.dirs.figs, 'replacements per {}{} {}'.format(obj_type, category, 'sum' if sum_not_mean else 'mean')))
 
-        return n_replacements
+        return replacements
 
     def fig_correlation_heatmap(self, xobj, yobj, minimal_samples=20):
         """
