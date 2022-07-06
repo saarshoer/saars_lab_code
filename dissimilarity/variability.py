@@ -31,12 +31,12 @@ def func(species_fname, output_fname):
 if __name__ == '__main__':
 
     # PNP3
-    # counts_dir = '/net/mraid08/export/genie/LabData/Data/MBPipeline/PNP3_rerun_segata/MBSNP/CountsB/'
-    # species = 'SGB'
+    counts_dir = '/net/mraid08/export/genie/LabData/Data/MBPipeline/PNP3_rerun_segata/MBSNP/CountsB/'
+    species3letters = 'SGB'
 
     # Everything else
-    counts_dir = '/net/mraid08/export/mb/MBPipeline/Analyses/MBSNP/Gut/CountsS/'
-    species3letters = 'Rep'
+    # counts_dir = '/net/mraid08/export/mb/MBPipeline/Analyses/MBSNP/Gut/CountsS/'
+    # species3letters = 'Rep'
 
     counts_fname = f'mb_snp_counts_{species3letters}_*.h5'
     summary_fname = 'mb_snb_strain_variability_R{}.h5'
