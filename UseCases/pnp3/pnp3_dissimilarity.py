@@ -8,19 +8,19 @@ from LabData.DataAnalyses.MBSNPs.MBSNPAnalyses import MBSNPPairwiseDistances
 
 class P:
     # data
-    study_ids = ['PNP3']
+    study_ids = ['PNP3', '10K']
     body_site = 'PNP3'
 
     # queue
     max_jobs = 250
-    send_to_queue = False
+    send_to_queue = True
     jobname = f'diss'
     verbose = False
     analyses_dir = config.analyses_dir
     work_dir_suffix = f'{"_".join(study_ids)}_diss_{body_site.lower()}'
 
     # species
-    species_set = ['SGB_4197']
+    species_set = None
     ignore_species = None
     filter_by_species_existence = False
     species_blocks = 1
