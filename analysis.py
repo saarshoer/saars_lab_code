@@ -43,8 +43,8 @@ from scipy.cluster.hierarchy import linkage, fcluster
 import seaborn as sns
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from matplotlib import rcParams, cm
 from matplotlib.colors import LogNorm
+from matplotlib import rcParams, cm, colors
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 # lab
@@ -1336,7 +1336,7 @@ class Study:
         return (pca_result, loadings), tsne_result, df
 
     def fig_snp_heatmap(self, obj, maximal_filling=0.25, minimal_samples=20, species=None, cmap=None, log_colors=False,
-                        annotations=None, add_hist=True, add_pairs=True, strain_var=None):
+                        annotations=None, annotations_cmaps=None, add_hist=True, add_pairs=True, strain_var=None):
         """
         Plot a heatmap based on the SNP dissimilarity data frame for each species
 
@@ -1348,6 +1348,7 @@ class Study:
         :param cmap: (str) dissimilarity color map name
         :param log_colors: (bool) whether to set the heatmap colors to log scale
         :param annotations: (list of str) columns to annotate by
+        :param annotations_cmaps: (dict) key; annotation column name, value: color map name
         :param add_hist: (bool) whether to add dissimilarity histograms with colored peaks
         :param add_hist: (bool) whether to add arrows between pairs of samples of the same individual
         :param strain_var: (str) path to strain variability data frame
@@ -1370,14 +1371,27 @@ class Study:
             annotations_df.columns = annotations_df.columns.str.rstrip('1')  # remove 1 suffix from the names
             annotations_df = annotations_df[annotations]  # limit the annotation to these categories
             annotations_df = annotations_df.iloc[~annotations_df.index.duplicated()]  # drop duplicated samples
-            annotations_labels = np.unique(annotations_df.values)
-            colors_df = annotations_df.replace(self.params.colors)  # replace values with corresponding colors
+            annotations_labels = []
+            colors_df = annotations_df.copy()
+            # replace values with corresponding colors
+            for col in colors_df.columns:
+                if len(set(colors_df[col]) - set(self.params.colors.keys())) > 0:  # most probably continuous
+                    m = cm.ScalarMappable(
+                        norm=colors.Normalize(vmin=-colors_df[col].abs().max(), vmax=colors_df[col].abs().max()),
+                        cmap=annotations_cmaps[col] if (annotations_cmaps is not None) & (col in annotations_cmaps.keys())
+                             else None)
+                    colors_df[col] = colors_df[col].apply(m.to_rgba).to_frame()
+                else:  # discrete
+                    annotations_labels = annotations_labels + list(np.unique(colors_df[col].values))
+                    colors_df[col] = colors_df[col].replace(self.params.colors)
 
-        if add_pairs and 'person1' in list(full_df.index.names) and 'time_point1' in list(full_df.index.names):
+        if add_pairs and 'person1' in list(full_df.index.names) \
+                     and 'time_point1' in list(full_df.index.names) \
+                     and 'group1' in list(full_df.index.names):
             pairs = full_df[(full_df.index.get_level_values('person1') == full_df.index.get_level_values('person2')) &
                             (full_df.index.get_level_values('time_point1') == self.params.controls['time_point']) &
                             (full_df.index.get_level_values('time_point2') != self.params.controls['time_point'])]
-            pairs = pairs.reset_index().set_index('Species')[['SampleName1', 'SampleName2']]
+            pairs = pairs.reset_index().set_index('Species')[['SampleName1', 'SampleName2', 'group1']]
 
         if species:
             full_df = full_df[full_df.index.get_level_values('Species').isin(species)]
@@ -1405,7 +1419,7 @@ class Study:
                 if df.shape[0] > 1:  # because otherwise you cannot cluster
 
                     df_linkage = linkage(squareform(df, force='tovector', checks=False),
-                                         method='average', optimal_ordering=True)
+                                         method='average', metric='euclidean', optimal_ordering=True)
                     # TODO: consider method='max' so to be like in assemblies
 
                     # necessary to define explicitly otherwise there are differences between the rows and columns
@@ -1449,11 +1463,11 @@ class Study:
                         pairs2plot = pairs2plot[(pairs2plot['SampleName1'].isin(samples_mask)) &
                                                 (pairs2plot['SampleName2'].isin(samples_mask))]
 
-                        for _, (s1, s2) in pairs2plot.iterrows():
+                        for _, (s1, s2, group) in pairs2plot.iterrows():
                             s1i = g.data2d.index.tolist().index(s1)
                             s2i = g.data2d.index.tolist().index(s2)
                             g.ax_heatmap.arrow(x=s1i, y=s1i, dx=s2i-s1i, dy=0,
-                                               color='orange', head_width=3, head_length=2)
+                                               color=self.params.colors[group], head_width=3, head_length=2)
 
                     expanded_labels = []
                     is_significant = []
@@ -1467,26 +1481,27 @@ class Study:
 
                             # statistics
                             if len(np.unique(stats_df[anno])) == 2:
-                                s, p = mannwhitneyu(
+                                r, p = mannwhitneyu(
                                     x=stats_df.loc[stats_df[anno] == np.unique(stats_df[anno])[0], 'rank'].values,
                                     y=stats_df.loc[stats_df[anno] == np.unique(stats_df[anno])[1], 'rank'].values,
                                     use_continuity=True, alternative='two-sided')  # TODO: think about use_continuity
-                                p = round(p, 3)
                             else:
-                                p = 'NA'
+                                r, p = spearmanr(stats_df[anno], stats_df['rank'])
+                            r = round(r, 2)
+                            p = round(p, 2)
 
                             # rand index between the annotation and the clusters
                             org_clusters = annotations_df.loc[df.index, anno].values.flatten()
                             new_clusters = fcluster(df_linkage, t=len(np.unique(org_clusters)),
                                                     criterion='maxclust')  # TODO: optimize parameters
 
-                            RI = round(adjusted_rand_score(org_clusters, new_clusters), 3)  # TODO: optimize parameters
+                            RI = round(adjusted_rand_score(org_clusters, new_clusters), 2)  # TODO: optimize parameters
 
                             # TODO: think what should be the t for inconsistent fcluster
                             # new_clusters2 = fcluster(df_linkage, t=1, criterion='inconsistent')
                             # rand_index2 = adjusted_rand_score(org_clusters, new_clusters2)
 
-                            expanded_labels.append('{} (p={}, RI={})'.format(anno, p, RI))
+                            expanded_labels.append('{} (r={}, p={}, RI={})'.format(anno, r, p, RI))
                             is_significant.append(p)
 
                     if strain_var is not None:
@@ -2322,6 +2337,7 @@ def cat2binary(y):
 
 def mantel_test(s1, s2, s1_dis=True, s2_dis=False, maximal_filling=0.25, minimal_samples=20,
                 method='pearson', permutations=100, alternative='two-sided'):
+    # TODO: double check not sure logic make sense
     """
     Calculates the mantel test between two dissimilarity matrices
 
@@ -2347,230 +2363,7 @@ def mantel_test(s1, s2, s1_dis=True, s2_dis=False, maximal_filling=0.25, minimal
         between the distances in the lower (or upper) triangular portions of the
         symmetric distance matrices. Correlation can be computed using Pearson's
         product-moment correlation coefficient or Spearman's rank correlation
-        coefficient.
-
-        As defined in [1]_, the Mantel test computes a test statistic :math:`r_M`
-        given two symmetric distance matrices :math:`D_X` and :math:`D_Y`.
-        :math:`r_M` is defined as
-
-        .. math::
-
-           r_M=\\frac{1}{d-1}\\sum_{i=1}^{n-1}\\sum_{j=i+1}^{n}
-           stand(D_X)_{ij}stand(D_Y)_{ij}
-
-        where
-
-        .. math::
-
-           d=\\frac{n(n-1)}{2}
-
-        and :math:`n` is the number of rows/columns in each of the distance
-        matrices. :math:`stand(D_X)` and :math:`stand(D_Y)` are distance matrices
-        with their upper triangles containing standardized distances. Note that
-        since :math:`D_X` and :math:`D_Y` are symmetric, the lower triangular
-        portions of the matrices could equivalently have been used instead of the
-        upper triangular portions (the current function behaves in this manner).
-
-        If ``method='spearman'``, the above equation operates on ranked distances
-        instead of the original distances.
-
-        Statistical significance is assessed via a permutation test. The rows and
-        columns of the first distance matrix (`x`) are randomly permuted a
-        number of times (controlled via `permutations`). A correlation coefficient
-        is computed for each permutation and the p-value is the proportion of
-        permuted correlation coefficients that are equal to or more extreme
-        than the original (unpermuted) correlation coefficient. Whether a permuted
-        correlation coefficient is "more extreme" than the original correlation
-        coefficient depends on the alternative hypothesis (controlled via
-        `alternative`).
-
-        Parameters
-        ----------
-        x, y : DistanceMatrix or array_like
-            Input distance matrices to compare. If `x` and `y` are both
-            ``DistanceMatrix`` instances, they will be reordered based on matching
-            IDs (see `strict` and `lookup` below for handling matching/mismatching
-            IDs); thus they are not required to be in the same ID order. If `x` and
-            `y` are ``array_like``, no reordering is applied and both matrices must
-            have the same shape. In either case, `x` and `y` must be at least 3x3
-            in size *after* reordering and matching of IDs.
-        method : {'pearson', 'spearman','kendalltau'}
-            Method used to compute the correlation between distance matrices.
-        permutations : int, optional
-            Number of times to randomly permute `x` when assessing statistical
-            significance. Must be greater than or equal to zero. If zero,
-            statistical significance calculations will be skipped and the p-value
-            will be ``np.nan``.
-        alternative : {'two-sided', 'greater', 'less'}
-            Alternative hypothesis to use when calculating statistical
-            significance. The default ``'two-sided'`` alternative hypothesis
-            calculates the proportion of permuted correlation coefficients whose
-            magnitude (i.e. after taking the absolute value) is greater than or
-            equal to the absolute value of the original correlation coefficient.
-            ``'greater'`` calculates the proportion of permuted coefficients that
-            are greater than or equal to the original coefficient. ``'less'``
-            calculates the proportion of permuted coefficients that are less than
-            or equal to the original coefficient.
-        strict : bool, optional
-            If ``True``, raises a ``ValueError`` if IDs are found that do not exist
-            in both distance matrices. If ``False``, any nonmatching IDs are
-            discarded before running the test. See `n` (in Returns section below)
-            for the number of matching IDs that were used in the test. This
-            parameter is ignored if `x` and `y` are ``array_like``.
-        lookup : dict, optional
-            Maps each ID in the distance matrices to a new ID. Used to match up IDs
-            across distance matrices prior to running the Mantel test. If the IDs
-            already match between the distance matrices, this parameter is not
-            necessary. This parameter is disallowed if `x` and `y` are
-            ``array_like``.
-
-        Returns
-        -------
-        corr_coeff : float
-            Correlation coefficient of the test (depends on `method`).
-        p_value : float
-            p-value of the test.
-        n : int
-            Number of rows/columns in each of the distance matrices, after any
-            reordering/matching of IDs. If ``strict=False``, nonmatching IDs may
-            have been discarded from one or both of the distance matrices prior to
-            running the Mantel test, so this value may be important as it indicates
-            the *actual* size of the matrices that were compared.
-
-        Raises
-        ------
-        ValueError
-            If `x` and `y` are not at least 3x3 in size after reordering/matching
-            of IDs, or an invalid `method`, number of `permutations`, or
-            `alternative` are provided.
-        TypeError
-            If `x` and `y` are not both ``DistanceMatrix`` instances or
-            ``array_like``.
-
-        See Also
-        --------
-        DistanceMatrix
-        scipy.stats.pearsonr
-        scipy.stats.spearmanr
-        pwmantel
-
-        Notes
-        -----
-        The Mantel test was first described in [2]_. The general algorithm and
-        interface are similar to ``vegan::mantel``, available in R's vegan
-        package [3]_.
-
-        ``np.nan`` will be returned for the p-value if `permutations` is zero or if
-        the correlation coefficient is ``np.nan``. The correlation coefficient will
-        be ``np.nan`` if one or both of the inputs does not have any variation
-        (i.e. the distances are all constant) and ``method='spearman'``.
-
-        References
-        ----------
-        .. [1] Legendre, P. and Legendre, L. (2012) Numerical Ecology. 3rd English
-           Edition. Elsevier.
-
-        .. [2] Mantel, N. (1967). "The detection of disease clustering and a
-           generalized regression approach". Cancer Research 27 (2): 209-220. PMID
-           6018555.
-
-        .. [3] http://cran.r-project.org/web/packages/vegan/index.html
-
-        Examples
-        --------
-        Import the functionality we'll use in the following examples:
-
-        >>> from skbio import DistanceMatrix
-        >>> from skbio.stats.distance import mantel
-
-        Define two 3x3 distance matrices:
-
-        >>> x = DistanceMatrix([[0, 1, 2],
-        ...                     [1, 0, 3],
-        ...                     [2, 3, 0]])
-        >>> y = DistanceMatrix([[0, 2, 7],
-        ...                     [2, 0, 6],
-        ...                     [7, 6, 0]])
-
-        Compute the Pearson correlation between them and assess significance using
-        a two-sided test with 999 permutations:
-
-        >>> coeff, p_value, n = mantel(x, y)
-        >>> print(round(coeff, 4))
-        0.7559
-
-        Thus, we see a moderate-to-strong positive correlation (:math:`r_M=0.7559`)
-        between the two matrices.
-
-        In the previous example, the distance matrices (``x`` and ``y``) have the
-        same IDs, in the same order:
-
-        >>> x.ids
-        ('0', '1', '2')
-        >>> y.ids
-        ('0', '1', '2')
-
-        If necessary, ``mantel`` will reorder the distance matrices prior to
-        running the test. The function also supports a ``lookup`` dictionary that
-        maps distance matrix IDs to new IDs, providing a way to match IDs between
-        distance matrices prior to running the Mantel test.
-
-        For example, let's reassign the distance matrices' IDs so that there are no
-        matching IDs between them:
-
-        >>> x.ids = ('a', 'b', 'c')
-        >>> y.ids = ('d', 'e', 'f')
-
-        If we rerun ``mantel``, we get the following error notifying us that there
-        are nonmatching IDs (this is the default behavior with ``strict=True``):
-
-        >>> mantel(x, y)
-        Traceback (most recent call last):
-            ...
-        ValueError: IDs exist that are not in both distance matrices.
-
-        If we pass ``strict=False`` to ignore/discard nonmatching IDs, we see that
-        no matches exist between `x` and `y`, so the Mantel test still cannot be
-        run:
-
-        >>> mantel(x, y, strict=False)
-        Traceback (most recent call last):
-            ...
-        ValueError: No matching IDs exist between the distance matrices.
-
-        To work around this, we can define a ``lookup`` dictionary to specify how
-        the IDs should be matched between distance matrices:
-
-        >>> lookup = {'a': 'A', 'b': 'B', 'c': 'C',
-        ...           'd': 'A', 'e': 'B', 'f': 'C'}
-
-        ``lookup`` maps each ID to ``'A'``, ``'B'``, or ``'C'``. If we rerun
-        ``mantel`` with ``lookup``, we get the same results as the original
-        example where all distance matrix IDs matched:
-
-        >>> coeff, p_value, n = mantel(x, y, lookup=lookup)
-        >>> print(round(coeff, 4))
-        0.7559
-
-        ``mantel`` also accepts input that is ``array_like``. For example, if we
-        redefine `x` and `y` as nested Python lists instead of ``DistanceMatrix``
-        instances, we obtain the same result:
-
-        >>> x = [[0, 1, 2],
-        ...      [1, 0, 3],
-        ...      [2, 3, 0]]
-        >>> y = [[0, 2, 7],
-        ...      [2, 0, 6],
-        ...      [7, 6, 0]]
-        >>> coeff, p_value, n = mantel(x, y)
-        >>> print(round(coeff, 4))
-        0.7559
-
-        It is import to note that reordering/matching of IDs (and hence the
-        ``strict`` and ``lookup`` parameters) do not apply when input is
-        ``array_like`` because there is no notion of IDs.
-
-        """
+        coefficient."""
 
         # This is the skbio.stats.distance.mantel function with variations to accommodate missing values
 
