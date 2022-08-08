@@ -1335,7 +1335,8 @@ class Study:
 
         return (pca_result, loadings), tsne_result, df
 
-    def fig_snp_heatmap(self, obj, maximal_filling=0.25, minimal_samples=20, species=None, cmap=None, log_colors=False,
+    def fig_snp_heatmap(self, obj, maximal_filling=0.25, minimal_samples=20, method='average',
+                        species=None, cmap=None, log_colors=False,
                         annotations=None, annotations_cmaps=None, add_hist=True, add_pairs=True, strain_var=None):
         """
         Plot a heatmap based on the SNP dissimilarity data frame for each species
@@ -1344,6 +1345,7 @@ class Study:
         :param maximal_filling: (float) maximal percentage of samples with missing values to fill with median value
         JUST for clustering, it will not appear in the heatmap!!
         :param minimal_samples: (int) minimal number of samples to have in order to draw
+        :param method: (str) the linkage algorithm to use
         :param species: (list) species to plot
         :param cmap: (str) dissimilarity color map name
         :param log_colors: (bool) whether to set the heatmap colors to log scale
@@ -1362,6 +1364,7 @@ class Study:
         annotations_labels = []
         strain_var = pd.read_hdf(strain_var) if strain_var is not None else None
         pairs = None
+        # cluster_optimization = []
 
         if annotations is not None:
             # create all the annotation data for the colored bars
@@ -1419,7 +1422,7 @@ class Study:
                 if df.shape[0] > 1:  # because otherwise you cannot cluster
 
                     df_linkage = linkage(squareform(df, force='tovector', checks=False),
-                                         method='average', metric='euclidean', optimal_ordering=True)
+                                         method=method, optimal_ordering=True)
                     # TODO: consider method='max' so to be like in assemblies
 
                     # necessary to define explicitly otherwise there are differences between the rows and columns
@@ -1487,6 +1490,7 @@ class Study:
                                     use_continuity=True, alternative='two-sided')  # TODO: think about use_continuity
                             else:
                                 r, p = spearmanr(stats_df[anno], stats_df['rank'])
+                                # cluster_optimization.append([method, species, r, p, stats_df.shape[0]])
                             r = round(r, 2)
                             p = round(p, 2)
 
@@ -1549,6 +1553,8 @@ class Study:
                         plt.savefig(os.path.join(self.dirs.figs, obj.type, 'significant', species), pad_inches=0.5)
 
                     plt.close()
+
+        # return cluster_optimization
 
     def fig_snp_scatter_box(self, obj, subplot='group', subplot_order=None,
                             minimal_between_comparisons=45, minimal_within_comparisons=10,
