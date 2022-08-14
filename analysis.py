@@ -22,10 +22,9 @@ from scipy.stats import mannwhitneyu, wilcoxon, ttest_ind, ttest_rel, ttest_1sam
 from statannot import add_stat_annotation
 
 # models
-from statsmodels.api import Logit
+from statsmodels.api import Logit, OLS
 from sklearn.preprocessing import LabelEncoder
 from xgboost import XGBClassifier, XGBRegressor
-from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score, accuracy_score
 from sklearn.model_selection import RepeatedKFold, train_test_split, GridSearchCV
 
@@ -823,152 +822,175 @@ class Study:
         else:
             return stats_df_list
 
-    def score_models(self, xobj, yobj, cobj, delta=True, minimal_samples=0.9,
-                     model_type='linear', n_repeats=1, n_splits=5, random_state=None, hyper_parameters=None,
+    def score_models(self, xobj, yobj, cobj, join_on=['person', 'time_point'],
+                     all_features=False, delta=True, add_constant=False, minimal_samples=0.9,
+                     model_type='linear', n_repeats=1, n_splits=5, random_state=42, hyper_parameters=None,
                      send2queue=False, save=False):
         """
-        Calculate n_iterations prediction models or grid search for the hyper parameters for the yobj based on the xobj
-        and return the summary statistics on the models scores
+        Creates models and calculates summary statistics
 
         :param xobj: (object) the features object
         :param yobj: (object) the label object
-        :param cobj: (object) the covariates object
+        :param cobj: (object) the covariates object, notice delta applies
+        :param join_on: (lst) of indices to join objects' dfs on
+        :param all_features: (bool) whether to use all the features in the model at once or one by one
         :param delta: (bool) whether or not to calculate the models based on the difference between time_point values
-        :param minimal_samples: (percentage or int) that needs to be included in the models
-        and therefore cannot be deleted in the missing values filtering process
+        :param add_constant: (bool) whether to add constant covariet 1
+        :param minimal_samples: (percentage or int) that needs to be included in order to train a model
         :param model_type: (str) 'linear' or 'xgb'
-        :param n_repeats: (int) number of models to be created for each target
-        :param n_splits: (int) number of times to split the data in the KFold or -1 for leave one out
-        :param random_state: (int) seed for the random process used for splitting the data
+        :param n_repeats: (int) number of models to create for each target
+        :param n_splits: (int) number of parts to split the data in the KFold, -1 for leave one out
+        :param random_state: (int) seed for the random process used in splitting the data
         :param hyper_parameters: (dict) dictionary with hyper parameters for the model {key: [value/s]}
         if value is single will be set directly, if values are multiple will perform a grid search
         :param send2queue: (bool) whether to send the jobs to the queue or run locally
-        :param save: (bool) whether or not to save the models
+        :param save: (bool) whether to save the models
 
         :return: (pd.DataFrame) scores_df
         """
 
         # TODO: add model evaluation (ROC, PR, calibration)
-        # TODO: add SHAP analysis
-        def score_model(x, y, n_splits=1):
-            # TODO: not relay on person - maybe x.join(y, how='inner) and then x= joined[:, :-1], y=joined([:, -1])
+        # TODO: add SHAP analysis, feature importance
+
+        def score_model(x, y):
+            if model_type == 'linear':
+                x = x.dropna()
+
             # find the indices that exists in the x_df, y_df
-            combined_indices = x.dropna().index.get_level_values('person').\
-                  intersection(y.dropna().index.get_level_values('person'))
+            combined_indices = x.index.intersection(y.dropna().index)
 
             if len(combined_indices) < minimal_samples:
                 print(f'{x_col} {y_col} does not have enough samples')
                 return [np.nan]*5
 
             # filter the data frames to only include these indices
-            x = x[x.index.isin(combined_indices, level='person')].sort_values('person')
-            y = y[y.index.isin(combined_indices, level='person')].sort_values('person')
-
-            if x.shape[0] != y.shape[0]:
-                print(f'{x_col} {y_col} are not the same shape')
-                return [np.nan]*5
+            x = x.loc[combined_indices]
+            y = y.loc[combined_indices]
 
             # conversion
             x = np.array(x)
             y = np.array(y)
 
             # check if column is classifiable in order to know which model to use
-            if sorted(np.unique(y)) == [0, 1] or sorted(np.unique(y)) == [False, True]:# \
-                    # or not all(np.issubdtype(val, np.number) for val in y):
+            if sorted(np.unique(y)) == [0, 1] or sorted(np.unique(y)) == [False, True] \
+                    or not all([np.issubdtype(val[0], np.number) for val in y]):
                 classifiable = True
+                score_func = accuracy_score
             else:
                 classifiable = False
+                score_func = r2_score
 
             scores = []
             y_pred = []
             y_true = []
 
-
             # linear model
-            if model_type == 'linear':
-                model_instance = LinearRegression(**direct_hyper_params)
-                score = 'r2'
-
-            # TODO: add logistic model
+            if model_type == 'linear' and classifiable:
+                model_instance = Logit
+            elif model_type == 'linear' and not classifiable:
+                model_instance = OLS
 
             # xgb model
             elif model_type == 'xgb' and classifiable:
                 model_instance = XGBClassifier(**direct_hyper_params)
-                score = 'roc_auc'
             elif model_type == 'xgb' and not classifiable:
                 model_instance = XGBRegressor(objective='reg:squarederror', **direct_hyper_params)
                 # objective='reg:squarederror' is the default and is written explicitly just to avoid a warning
-                score = 'r2'
+
+            # TODO: add LDA
+
             else:
-                raise Exception('model not valid')
+                raise Exception('invalid model_type')
 
             # create K folds of the data and do for each fold
             number_of_splits = len(x) if n_splits == -1 else n_splits
 
-            kf = RepeatedKFold(n_splits=number_of_splits, n_repeats=n_repeats, random_state=random_state)  # shuffle=True
+            kf = RepeatedKFold(n_splits=number_of_splits, n_repeats=n_repeats, random_state=random_state) \
+                if number_of_splits != 1 else None  # TODO: not sure if this is good for xgb
 
             # grid search mode
-            if len(search_hyper_params) != 0:
+            if len(search_hyper_params) != 0:  # TODO: will probably not work with linear models
 
-                model = GridSearchCV(model_instance, search_hyper_params, scoring=score, cv=kf)
+                model = GridSearchCV(model_instance, search_hyper_params, cv=kf, scoring=score_func)
 
-                x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.5, random_state=random_state)
+                x_train, x_test, y_train, y_test = train_test_split(x, y,
+                                                                    test_size=1/number_of_splits,
+                                                                    random_state=random_state)
 
                 model.fit(x_train, y_train)
-
-                if n_splits == -1:
-                    y_true.append(y_test)
-                    y_pred.append(model.predict(x_test))
-                else:
-                    scores.append(model.score(x_test, y_test))
+                scores.append(model.score(x_test, y_test))
 
             # not grid search mode
             else:
 
-                model = model_instance
-
-                for train_index, test_index in kf.split(x):
+                for train_index, test_index in kf.split(x) \
+                        if number_of_splits != 1 else [[np.arange(len(y)), np.arange(len(y))]]:
                     x_train, x_test = x[train_index], x[test_index]
                     y_train, y_test = y[train_index], y[test_index]
 
-                    model.fit(x_train, y_train)
+                    model = copy.deepcopy(model_instance)
 
-                    if n_splits == -1:
+                    if model_type == 'linear':
+                        model = model(y, x).fit()
+                    else:
+                        model.fit(x_train, y_train)
+
+                    if abs(n_splits) == 1:
                         y_true.append(y_test)
                         y_pred.append(model.predict(x_test))
                     else:
-                        scores.append(model.score(x_test, y_test))
+                        scores.append(score_func(y_test, model.predict(x_test)))
 
-            if n_splits == -1:
-                if score == 'r2':
-                    scores = r2_score(np.array(y_true).flatten(), np.array(y_pred).flatten())
-                    r_pearson, p_pearson = pearsonr(np.array(y_true).flatten(), np.array(y_pred).flatten())
-                    r_spearman, p_spearman = spearmanr(np.array(y_true).flatten(), np.array(y_pred).flatten())
-            # save/load the model
-            # if save:
-            #     pickle.dump(model, open(os.path.join(self.dirs.models,
-            #                                          f'model_{xobj.type}_{x_col}_{yobj.type}_{y_col}_' +
-            #                                          f'{delta_str}_{model_type}.sav'), 'wb'))
-                # model = pickle.load(open('model.sav', 'rb'))
+            r_pearson = p_pearson = r_spearman = p_spearman = None
+            if abs(n_splits) == 1:
+                y_true = np.array(y_true).flatten()
+                y_pred = np.array(y_pred).flatten()
+                scores = score_func(y_true, y_pred)
+                if not classifiable:
+                    r_pearson, p_pearson = pearsonr(y_true, y_pred)
+                    r_spearman, p_spearman = spearmanr(y_true, y_pred)
+
+            # save the model
+            if save:
+
+                model = copy.deepcopy(model_instance)
+
+                # TODO: if tuning hyper parameters best params should be used here
+                if model_type == 'linear':
+                    model = model(y, x).fit()
+                else:
+                    model.fit(x, y)
+
+                pickle.dump(model, open(os.path.join(self.dirs.models,
+                                                     f'model_' +
+                                                     f'{xobj.type}_{x_col if not all_features else "all_features"}' \
+                                                     f'{yobj.type}_{y_col}_' +
+                                                     f'{saving_str}_{model_type}.sav'), 'wb'))
+                # model = pickle.load(open('model.sav', 'rb'))  # this is how you read a model
 
             return [scores, r_pearson, p_pearson, r_spearman, p_spearman]
 
         # retrieving the data frames from the objects
-        if (cobj is None or type(cobj) == self.Object) and type(xobj) == self.Object and type(yobj) == self.Object:
-            # TODO: check what happnes if cobj is None
-            x_df = cobj.df.join(xobj.df, how='inner') if cobj else xobj.df
-            y_df = yobj.df
+        if type(xobj) == self.Object and type(yobj) == self.Object and (cobj is None or type(cobj) == self.Object):
+            x_df = xobj.df.reset_index(join_on).set_index(join_on)
+            y_df = yobj.df.reset_index(join_on).set_index(join_on)
+            c_df = cobj.df.reset_index(join_on).set_index(join_on) if cobj is not None else None
+
+            x_df = c_df.join(x_df, how='inner', on=join_on) if c_df is not None else x_df
         else:
-            raise Exception('cobj, xobj or yobj type is not object')
+            raise Exception('xobj, yobj or cobj type is not object')
 
         # change the values in the data frames to be the change in value between two time points:
         # any time point and the control time point
         if delta:
-            x_df = get_delta_df(x_df, self.params.controls['time_point'])
-            y_df = get_delta_df(y_df, self.params.controls['time_point'])
-            delta_str = ' delta'  # for file names
+            x_df = get_delta_df(x_df.astype(float), self.params.controls['time_point'])
+            y_df = get_delta_df(y_df.astype(float), self.params.controls['time_point'])
+            saving_str = ' delta'  # for file names
         else:
-            delta_str = ''  # for file names
+            saving_str = ''  # for file names
+
+        if add_constant:
+            x_df = x_df.assign(constant=1)
 
         # convert the minimal_samples percentage from the argument to the number of samples
         if minimal_samples < 1:  # meaning minimal_samples is in percentage
@@ -982,11 +1004,6 @@ class Study:
         direct_hyper_params = {key: value[0] for key, value in hyper_parameters.items() if len(value) == 1}
         search_hyper_params = {key: value for key, value in hyper_parameters.items() if len(value) != 1}
 
-        # random_state is used by the xgb model to split the data the same way in the KFold
-        # if random_state is not None:
-        #     np.random.seed(random_state)
-        # random_state = np.random.randint(100, size=n_repeats)  # the 100 is arbitrary
-
         # queue
         original_dir = os.getcwd()
         os.chdir(self.dirs.jobs)
@@ -999,17 +1016,20 @@ class Study:
 
             # create a model for each combination of x an y
             # intentionally taken from object otherwise x includes covariates
-            c_cols = cobj.df.columns.tolist() if cobj else []
-            for x_col in xobj.df.columns:
+            c_cols = cobj.df.columns.tolist() if cobj is not None else []
+            c_cols = ['constant'] + c_cols if add_constant else c_cols
+            x_cols = [list(xobj.df.columns)] if all_features else xobj.df.columns
+            for x_col in x_cols:
                 for y_col in yobj.df.columns:
                 # send job
-                    tkttores[f'{x_col}_{y_col}'] = q.method(score_model, (x_df[c_cols+[x_col]], y_df[[y_col]], n_splits))
+                    tkttores[(x_col if not all_features else 'all_features', y_col)] = \
+                        q.method(score_model, (x_df[c_cols+list(x_col)], y_df[[y_col]]))
 
             # summarize the scores using the iterations scores distribution if exist
-            scores_df = pd.DataFrame(index=tkttores.keys(), columns=['R2', 'r_pearson', 'p_pearson', 'r_spearman', 'p_spearman'])
-
+            scores_df = pd.DataFrame(index=tkttores.keys(),
+                                     columns=['score', 'r_pearson', 'p_pearson', 'r_spearman', 'p_spearman'])
             for k, v in tkttores.items():
-                scores_df.loc[k, ['R2', 'r_pearson', 'p_pearson', 'r_spearman', 'p_spearman']] = q.waitforresult(v)
+                scores_df.loc[k, scores_df.columns] = q.waitforresult(v)
 
         os.chdir(original_dir)
 
@@ -1017,12 +1037,12 @@ class Study:
         scores_df = scores_df.dropna(axis=0, how='all')
 
         # sort values by score
-        scores_df = scores_df.sort_values('R2', ascending=False)
+        scores_df = scores_df.sort_values('score', ascending=False)
 
         # save the data frame as excel
         # create excel writer to fill up
         excel_path = os.path.join(self.dirs.excels,
-                                  'models {} {}{} {}.xlsx'.format(xobj.type, yobj.type, delta_str, model_type))
+                                  'models {} {}{} {}.xlsx'.format(xobj.type, yobj.type, saving_str, model_type))
         excel_writer = pd.ExcelWriter(excel_path)
         scores_df.to_excel(excel_writer, freeze_panes=(1, 1))
         excel_writer.save()
