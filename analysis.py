@@ -1898,7 +1898,7 @@ class Study:
         if sum_not_mean:
             replacements = df.groupby(groups)['replacement'].sum().sort_values(ascending=False)
         else:
-            replacements = df.groupby(groups)['replacement'].mean().sort_values(ascending=False)
+            replacements = df.groupby(groups)['replacement'].mean().sort_values(ascending=False)*100
 
         if category[-1] in ['1', '2']:
             category = category[:-1]
@@ -1912,19 +1912,25 @@ class Study:
             replacements.index.name = category
 
         # histogram
-        g = sns.FacetGrid(replacements.reset_index(), hue=hue, palette=self.params.colors,
+        hue_order = sorted(replacements.index.get_level_values(hue).unique().tolist())[::-1]
+        g = sns.FacetGrid(replacements.reset_index(), hue=hue, hue_order=hue_order, palette=self.params.colors,
                           sharex=False, sharey=False, margin_titles=True)
-        g = g.map(sns.distplot, 'replacement', hist=True, kde=False, norm_hist=True)  # norm_hist=False does not work as expected
-        g = g.add_legend()
+        g = g.map(sns.histplot, 'replacement', kde=False, element='step', binwidth=10, alpha=0.5,
+                  common_norm=sum_not_mean, stat='count' if sum_not_mean else 'percent')
+        for ax in g.axes.flatten():
+            ax.legend(title=False, loc='upper right', fontsize='xx-small', frameon=True)
 
         obj_type = obj.type.split(' ')[0].lower()
         obj_type = obj_type + ' ' if obj_type in ['oral', 'gut'] else ''
         plt.title('{}strain replacements per {} histogram'.format(obj_type, category))
         if sum_not_mean:
-            plt.xlabel('number of replacements')
+            plt.xlabel('Number of strain replacements')
+            plt.ylabel('Number of {}'.format(category))
         else:
-            plt.xlabel('mean replacements')
-        plt.ylabel('number of {}'.format(category))
+            plt.xlabel('% Strain replacements')
+            plt.ylabel('% {}'.format(category[0].upper() + category.replace('person', 'participants')[1:]))
+            plt.xlim([0, 100])
+            plt.ylim([0, 100])
 
         # statistical test
         hues = replacements.index.get_level_values(hue).unique()
@@ -2607,4 +2613,218 @@ class _Parameters:
 
 
 if __name__ == '__main__':
-    pass
+    PNP3 = Study(
+
+        study='PNP3',
+
+        controls={'time_point': '0months',
+                  'group': 'mediterranean'},
+
+        colors={  # time_points
+            '0months': 'orchid',
+            '6months': 'darkorchid',
+            '6months-0months': 'deeppink',
+            '0months vs. 6months': 'deeppink',
+            '24months': 'darkorchid',
+            # groups
+            'mediterranean': 'mediumblue',
+            'algorithm': 'orange',
+            'model': 'green',
+            '6months mediterranean': 'mediumblue',
+            '6months algorithm': 'orange',
+            'no-intervention': 'yellow',
+            'pre-diabetic': 'red',
+            'normo-glycamic': 'yellow',
+            # body sites
+            'gut': 'brown',
+            'oral': 'green',
+            'gut vs. oral': 'grey',
+            # abundance
+            'gut abundance': 'brown',
+            'oral abundance': 'green',
+            # dissimilarity
+            'gut snp dissimilarity': 'brown',
+            'oral snp dissimilarity': 'green',
+            # batches - # if something fails because of this make a copy as floats
+            '0': 'yellow',
+            '1': 'cyan',
+            '2': 'pink',
+            # diet
+            'mostly carbohydrates': 'purple',
+            'mostly lipids': 'yellow',
+            # general
+            'increased': 'red',
+            'decreased': 'green',
+            'True': 'red',
+            'False': 'black'},
+
+        base_directory='/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3'
+    )
+
+    min_samples = 20  # if changed filter feature and batch effects need to be recalculated
+
+    ura_levels = ['species']  # , 'genera', 'families']
+
+    for body_site in ['gut', 'oral']:
+        for ura_level in ura_levels:
+            PNP3.objs[f'{body_site}_{ura_level}_abundance'] = PNP3.Object(obj_type=f'{body_site} {ura_level} abundance',
+                                                                          columns=ura_level)
+            PNP3.objs[f'{body_site}_{ura_level}_extra'] = PNP3.Object(obj_type=f'{body_site} {ura_level} extra',
+                                                                      columns='measurment')
+
+    PNP3.objs['metabolites'] = PNP3.Object(obj_type='metabolites', columns='measurements')
+    PNP3.objs['cytokines'] = PNP3.Object(obj_type='cytokines', columns='measurements')
+
+    PNP3.objs['blood'] = PNP3.Object(obj_type='blood', columns='measurements')
+    PNP3.objs['diet'] = PNP3.Object(obj_type='diet', columns='nutrients')
+    PNP3.objs['body'] = PNP3.Object(obj_type='body', columns='measurements')
+
+    PNP3.objs['diss'] = PNP3.Object(obj_type='strain dissimilarity', columns='species')
+
+    for key in PNP3.objs.keys():
+
+        file = os.path.join(PNP3.dirs.data_frames, f'{key}_{min_samples}_corrected.df')
+        PNP3.objs[key].df = pd.read_pickle(file)
+        print(key, PNP3.objs[key].df.shape)
+
+        # reducing column levels to one
+        if key == 'metabolites':
+            #         pd.DataFrame.from_records(PNP3.objs['metabolites'].df.columns.values, columns=PNP3.objs['metabolites'].df.columns.names).set_index('BIOCHEMICAL').to_excel(os.path.join(PNP3.dirs.excels, 'metablites_metadata.xlsx'))
+            PNP3.objs[key].df.columns = PNP3.objs[key].df.columns.get_level_values('BIOCHEMICAL')
+        elif key == 'cytokines':
+            PNP3.objs[key].df.columns = PNP3.objs[key].df.columns.get_level_values('ID')
+
+        # required for models
+        elif 'species_abundance' in key:
+            PNP3.objs[key].df.columns = ['SGB_' + col.split('|sSGB__')[-1] for col in PNP3.objs[key].df.columns]
+
+    org_models_dir = PNP3.dirs.models
+    org_excels_dir = PNP3.dirs.excels
+    org_figs_dir = PNP3.dirs.figs
+
+    model_type = 'linear'
+    #####TODO: if model_type == 'xgb' no need to fill missing values
+
+    add_constant = model_type == 'linear' or model_type == 'linear_stats'
+    minimal_samples = 100
+    random_state = 42
+    send2queue = False  # works faster locally
+
+    objs = ['gut_species_abundance', 'oral_species_abundance', 'metabolites', 'cytokines', 'blood', 'diet', 'body']
+
+
+    def fill_missing_values(obj_name, df, maximal_missing_values_in_feature=5):
+
+        if obj_name not in ['blood', 'diet', 'body', 'all']:
+            df = df.fillna(df.min())
+        elif obj_name == 'diet':
+            df = df.fillna(0)
+        # elif obj_name == 'body':
+        #     df = df.reset_index(['Age', 'Gender']).dropna().astype(float)
+        elif obj_name in ['blood', 'body']:
+            df = df.loc[:, df.isna().sum() <= maximal_missing_values_in_feature].dropna()
+
+        return df
+
+
+    def plot_coef(model, n_features2plot=10000, title='', columns=[]):
+
+        try:
+            data = model.coef_[[0]]
+            try:
+                data = np.array([model.coef_])
+            except:
+                data = np.array([model.feature_importances_])
+        except:
+            5 / 0
+        data = pd.DataFrame(data, index=['Coefficient'], columns=columns).T.sort_values('Coefficient')
+        norm = colors.Normalize(vmin=-data.abs().max(), vmax=data.abs().max())
+
+        if data.shape[0] > n_features2plot * 2:
+            data = data.iloc[list(np.arange(n_features2plot)) + list(np.arange(-n_features2plot, 0))]
+
+        plt.figure()
+        sns.barplot(x='Coefficient', y='index', data=data.reset_index(),
+                    palette=plt.cm.coolwarm(norm(data['Coefficient'])))
+        plt.ylabel('')
+        plt.legend([], [], frameon=False)
+
+        plt.title(title)
+        plt.savefig(os.path.join(PNP3.dirs.figs, title))
+        plt.close()
+
+
+    def plot_summary(data, x='xobj', y='score', hue='xs', title=''):
+
+        sns.barplot(data=data, x=x, y=y, hue=hue, palette=PNP3.params.colors)
+        plt.xlabel('')
+        plt.xticks(rotation=90)
+        plt.legend(title=None)
+
+        plt.title(title)
+        plt.savefig(os.path.join(os.path.dirname(PNP3.dirs.figs), title))
+        plt.close()
+
+
+    def update_folders(subdir):
+
+        PNP3.dirs.models = os.path.join(org_models_dir, subdir)
+        PNP3.dirs.excels = os.path.join(org_excels_dir, 'models', subdir)
+        PNP3.dirs.figs = os.path.join(org_figs_dir, 'models', subdir)
+
+        os.makedirs(PNP3.dirs.models, exist_ok=True)
+        os.makedirs(PNP3.dirs.excels, exist_ok=True)
+        os.makedirs(PNP3.dirs.figs, exist_ok=True)
+
+        # all features' change predicting change in hba1c
+
+
+    excels = []
+
+    yobj = copy.deepcopy(PNP3.objs['blood'])
+    yobj.df = yobj.df[['bt__hba1c']]
+    yobj.type = 'bt__hba1c'
+
+    update_folders(subdir=f'{model_type} {yobj.type}')
+
+    cobj = copy.deepcopy(PNP3.objs['body'])
+    cobj.df = cobj.df.reset_index(['Age', 'Gender'])[['Age', 'Gender']].astype(float)
+    cobj.df[cobj.df.index.get_level_values('time_point') == PNP3.params.controls['time_point']] = 0
+
+    for obj in objs:
+        xobj = copy.deepcopy(PNP3.objs[obj])
+
+        if obj == 'blood':
+            xobj.df = xobj.df.drop(['bt__hba1c', 'bt__glucose', 'HbA1C_CGM', 'OGTT', 'Time_above_140'], axis=1)
+
+        xobj.df = fill_missing_values(xobj.type, xobj.df)
+
+        for shuffle in [False, True]:  # order here really matters
+
+            if shuffle:
+                xobj.df.iloc[:, :] = xobj.df.sample(frac=1, random_state=42).values
+                xobj.type = f'shuffled {xobj.type}'
+
+            PNP3.score_models(xobj, yobj, cobj, join_on=['person', 'time_point'],
+                              all_features=True, regularized=False, delta=True, add_constant=True,
+                              minimal_samples=minimal_samples,
+                              model_type=model_type, n_repeats=1, n_splits=-1, random_state=random_state,
+                              hyper_parameters=None,#{'alpha':[10**-2]},
+                              send2queue=send2queue, save=True)
+
+            excel_fname = f'models {xobj.type} {yobj.type}{" delta"} {model_type}.xlsx'
+            model_fname = f'model_{xobj.type}_all_features_{yobj.type}_{yobj.df.columns[0]}_ delta_{model_type}.sav'
+            model = pickle.load(open(os.path.join(PNP3.dirs.models, model_fname), 'rb'))
+            excel = pd.read_excel(os.path.join(PNP3.dirs.excels, excel_fname), index_col=[0, 1])
+
+            if not shuffle:
+                title = f'{model_type} {yobj.type} {xobj.type}'
+                columns = (['Constant'] if add_constant else []) + cobj.df.columns.tolist() + xobj.df.columns.tolist()
+                plot_coef(model=model, title=title, columns=columns)
+
+            excels.append(excel.assign(xobj=xobj.type.replace('shuffled ', '')).assign(shuffle=str(shuffle)))
+        5 / 0
+    excels = pd.concat(excels)
+    # excels['score'] = excels['r_spearman']*excels['r_spearman']
+    title = f'{model_type} {yobj.type.split(" ")[0]}'
+    plot_summary(data=excels, x='xobj', y='score', hue='shuffle', title=title)
