@@ -4,7 +4,7 @@ from LabUtils.addloglevels import sethandlers
 from LabData.DataAnalyses.MBSNPs import mwas_annots
 
 # parameters
-base_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas_between'
+base_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas/10K/within'
 
 mwas_file_path = os.path.join(base_dir, 'mb_gwas_significant.h5')
 

@@ -6,7 +6,8 @@ from LabUtils.addloglevels import sethandlers
 from LabData.DataLoaders.Loader import LoaderData
 from LabData.DataAnalyses.MBSNPs.MWAS import MWAS
 
-df_dir = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/data_frames'#/permuted'  # for both types of permutations
+study = '10K'
+df_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{study}/data_frames'#/permuted'  # for both types of permutations
 # pca_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_pca'
 
 
@@ -15,9 +16,9 @@ def gen_cov_f(species, within):
     # pca = pd.read_pickle(os.path.join(pca_dir, f'{species[0]}.df'))
     # df = df.join(pca)
     if not within:
-        df2 = pd.read_pickle(os.path.join(df_dir, 'abundance.df')).replace(np.log2(0.0001), np.nan)[species]
+        df2 = pd.read_pickle(os.path.join(df_dir, 'abundance.df'))[species]
         # for second type of permutation
-        # df2 = pd.read_pickle(os.path.join(os.path.dirname(df_dir), 'abundance.df')).replace(np.log2(0.0001), np.nan)[species]
+        # df2 = pd.read_pickle(os.path.join(os.path.dirname(df_dir), 'abundance.df'))[species]
         df = df.\
             join(df2.rename(columns={species[0]: 'abundance'}))#.\
             # join(df2.rename(columns={species[0]: 'MAF_abundance'}))
@@ -25,7 +26,7 @@ def gen_cov_f(species, within):
 
 
 def gen_y_f(species, within):
-    df = pd.read_pickle(os.path.join(df_dir, 'abundance.df')).replace(np.log2(0.0001), np.nan)
+    df = pd.read_pickle(os.path.join(df_dir, 'abundance.df'))
     if within:
         df = df[species]
     else:
@@ -34,7 +35,7 @@ def gen_y_f(species, within):
     return LoaderData(df, None)
 
 
-# def is_y_valid(y, max_on_most_freq_val_in_col, min_on_non_freq_val_for_y):
+# def is_y_valid(y, max_on_most_freq_val_in_col, min_on_non_freq_val_for_y, y_binary):
 #     count_most = y.value_counts().max()
 #     return (count_most <= max_on_most_freq_val_in_col * len(y)) & \
 #            (count_most >= (1 - max_on_most_freq_val_in_col) * len(y)) & \
@@ -47,14 +48,14 @@ class P:
 
     # general
     body_site = 'Gut'
-    study_ids = ['10K']
+    study_ids = [study]
 
-    within = False#########don't forget to change the mem_def accordingly
+    within = True#########don't forget to change the mem_def accordingly
     cov_cols = ['CONSTANT', 'age', 'gender'] if within else ['CONSTANT', 'age', 'gender', 'abundance']
     permute = 'permute' in df_dir
 
     countries = None
-    collect_data = True
+    collect_data = False
 
     # queue
     max_jobs = 260
@@ -62,6 +63,7 @@ class P:
     send_to_queue = True
     jobname = 'anti_mwas_within' if within else 'anti_mwas_between'
     jobname = jobname + '_permuted' if permute else jobname
+    jobname = study + '_' + jobname
     analyses_dir = config.analyses_dir
     work_dir_suffix = jobname
 
@@ -79,7 +81,7 @@ class P:
     samples_set = snps.index.tolist()
     largest_sample_per_user = False
     min_positions_per_sample = None
-    subsample_dir = '10K'
+    subsample_dir = study+'_new'
     other_samples_set = None
     select_n_rand_samples = None
 
@@ -89,9 +91,8 @@ class P:
     max_on_fraq_major_per_snp = 0.95  # Max fraction of major AND minor allele frequency in analyzed samples
     min_on_minor_per_snp = 50  # Min number of analyzed samples with a minor allele
     min_subjects_per_snp = 500
-    max_samples_per_snp = None
-    snp_set = pd.read_hdf(os.path.join(config.analyses_dir, jobname, 'mb_gwas_significant.h5'))[[]] if collect_data else None
-    ##### failed due to memory limitation between analysis: 3079, 3087, 449, 81
+    snp_set = pd.read_hdf(os.path.join(config.analyses_dir, 'anti_mwas', study, 'within' if within else 'between', 'mb_gwas_significant.h5'))[[]] if collect_data else None
+    ##### old run - failed due to memory limitation in between analysis, species: 3079, 3087, 449, 81
 
     # covariates
     covariate_gen_f = lambda species: gen_cov_f(species, P.within)
@@ -106,7 +107,7 @@ class P:
     min_on_non_freq_val_for_y = 50
 
     # p-value
-    max_pval_to_report = 10**-8 if permute else 1
+    max_pval_to_report = 10**-5 if permute else 1
     max_pval_to_detailed = None
 
     # others

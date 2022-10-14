@@ -1549,7 +1549,7 @@ class Study:
                         g.ax_col_colors.set_yticklabels(expanded_labels)
 
                     # title
-                    title = '{}\n{}\n{}'.format(obj.type, segata_name(species), species)
+                    title = '{}\n{}\n{}'.format(obj.type, segal_name(species), species)
                     g.fig.suptitle(title)
 
                     # annotations legend
@@ -1588,6 +1588,8 @@ class Study:
                         plt.savefig(os.path.join(self.dirs.figs, obj.type, 'significant', species), pad_inches=0.5)
 
                     plt.close()
+
+                    return g.data2d.index
 
         # return cluster_optimization
 
@@ -1922,7 +1924,7 @@ class Study:
 
         obj_type = obj.type.split(' ')[0].lower()
         obj_type = obj_type + ' ' if obj_type in ['oral', 'gut'] else ''
-        plt.title('{}strain replacements per {} histogram'.format(obj_type, category))
+        # plt.title('{}strain replacements per {} histogram'.format(obj_type, category))
         if sum_not_mean:
             plt.xlabel('Number of strain replacements')
             plt.ylabel('Number of {}'.format(category))
@@ -1938,7 +1940,7 @@ class Study:
             _, p = mannwhitneyu(x=replacements.xs(hues[0], level=hue).dropna().tolist(),
                                 y=replacements.xs(hues[1], level=hue).dropna().tolist(),
                                 use_continuity=True, alternative="two-sided", axis=0, method="auto")
-            plt.text(x=0.9, y=0.9, s=f'p={p:.2f}', transform=g.ax.transAxes)
+            plt.text(x=0.75, y=0.75, s='p'+r'$\leq$'+f'{p:.0e}', transform=g.ax.transAxes, fontsize='xx-small')
 
         plt.savefig(os.path.join(self.dirs.figs, 'replacements per {}{} {}'.format(obj_type, category, 'sum' if sum_not_mean else 'mean')))
 
