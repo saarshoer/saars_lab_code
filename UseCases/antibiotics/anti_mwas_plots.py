@@ -75,7 +75,8 @@ if __name__ == '__main__':
     data_df = None
     annotations_df = None#pd.read_hdf(os.path.join(input_dir, 'snps_gene_annotations_short.h5'))[['text']]
 
-    alpha = 0.01
+    counts = pd.read_hdf(os.path.join(input_dir, 'mb_gwas_counts.h5'))
+    alpha = 0.01/counts.sum()
 
     # queue
     os.chdir(jobs_dir)
