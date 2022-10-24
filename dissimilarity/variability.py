@@ -23,9 +23,9 @@ def func(species_fname, output_fname):
                 pd.DataFrame(contig_df.groupby('SampleName').apply(lambda s: s.shape[0])),
                 fill_value=0)
 
-            df = variable_pos.div(total_pos).rename(
-                 columns={0: f'{species3letters}_{species_fname.split("_")[-1].split(".")[0]}'})
-            df.to_hdf(output_fname, key='snps')
+    df = variable_pos.div(total_pos).rename(
+         columns={0: f'{species3letters}_{species_fname.split("_")[-1].split(".")[0]}'})
+    df.to_hdf(output_fname, key='snps')
 
 
 if __name__ == '__main__':
@@ -43,7 +43,7 @@ if __name__ == '__main__':
 
     min_reads = 3
 
-    jobs_dir = os.path.join(os.path.dirname(os.path.dirname(counts_dir)), 'jobs')
+    jobs_dir = os.path.join(os.path.dirname(os.path.dirname(counts_dir)), 'jobs_strains')
 
     sethandlers(file_dir=jobs_dir)
     os.chdir(jobs_dir)
@@ -65,9 +65,11 @@ if __name__ == '__main__':
         for output_fname, v in tkttores.items():
             q.waitforresult(v)
             summary_df = summary_df.join(pd.read_hdf(output_fname), how='outer')
-            os.remove(output_fname)
 
         summary_df.to_hdf(os.path.join(os.path.dirname(os.path.dirname(counts_dir)), summary_fname.format(min_reads)),
                           key='snps')
+
+        for output_fname, v in tkttores.items():
+            os.remove(output_fname)
 
     print('done')

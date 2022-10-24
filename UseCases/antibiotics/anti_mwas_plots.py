@@ -66,17 +66,16 @@ def text_func_annotated_within(df: pd.DataFrame, **kwargs):
 if __name__ == '__main__':
 
     study = '10K'
-    run_type = 'between'
+    run_type = 'within'
 
     input_dir = f'/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas/{study}/{run_type}'
     output_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{study}/figs/{run_type}_species'
     jobs_dir = os.path.join(input_dir, 'jobs')
 
-    data_df = None
     annotations_df = None#pd.read_hdf(os.path.join(input_dir, 'snps_gene_annotations_short.h5'))[['text']]
 
     counts = pd.read_hdf(os.path.join(input_dir, 'mb_gwas_counts.h5'))
-    alpha = 0.01/counts.sum()
+    alpha = 0.01/counts.sum().iloc[0]
 
     # queue
     os.chdir(jobs_dir)
@@ -90,11 +89,11 @@ if __name__ == '__main__':
         for file in glob.glob(os.path.join(input_dir, 'raw_hdfs', 'mb_gwas_Rep_*_Rep_*.h5')):
             kwargs = {'mwas_fname': file,
                       'out_dir': output_dir,
-                      'data_fname': data_df,
                       'annotations_df': annotations_df,
                       'manhattan_draw_func': color_by_coef,
                       'manhattan_text_func': text_func_annotated_within if run_type == 'within' else
                                              text_func_annotated_between,
+                      'r2_col': 'R2',
                       'maf_col': 'MAF',
                       'coef_col': 'Coef',
                       'pval_col': 'Pval',

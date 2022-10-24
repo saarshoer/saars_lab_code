@@ -50,15 +50,15 @@ class P:
     body_site = 'Gut'
     study_ids = [study]
 
-    within = True#########don't forget to change the mem_def accordingly
+    within = False#########don't forget to change the mem_def accordingly
     cov_cols = ['CONSTANT', 'age', 'gender'] if within else ['CONSTANT', 'age', 'gender', 'abundance']
     permute = 'permute' in df_dir
 
     countries = None
-    collect_data = False
+    collect_data = True
 
     # queue
-    max_jobs = 260
+    max_jobs = 250
     verbose = False
     send_to_queue = True
     jobname = 'anti_mwas_within' if within else 'anti_mwas_between'
@@ -69,6 +69,7 @@ class P:
 
     # species
     species_set = snps.columns.tolist()
+    ###['Rep_457', 'Rep_486', 'Rep_495', 'Rep_497', 'Rep_552', 'Rep_81'] these have a maf.lock and not maf.done
     ignore_species = None
     filter_by_species_existence = False
     species_blocks = 1  # most be 1 for this analysis, do not change!
@@ -81,7 +82,7 @@ class P:
     samples_set = snps.index.tolist()
     largest_sample_per_user = False
     min_positions_per_sample = None
-    subsample_dir = study+'_new'
+    subsample_dir = study
     other_samples_set = None
     select_n_rand_samples = None
 
