@@ -1589,7 +1589,7 @@ class Study:
 
                     plt.close()
 
-                    return g.data2d.index
+                    # return g.data2d.index
 
         # return cluster_optimization
 
