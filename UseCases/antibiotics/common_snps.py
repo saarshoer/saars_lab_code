@@ -26,4 +26,8 @@ for file in common_files:
     df = df1.join(df2, how='inner', lsuffix=f'_{study1}', rsuffix=f'_{study2}')
     dfs.append(df)
 
-pd.concat(dfs).to_hdf(os.path.join(base_path, f'common_snps_{run_type}.h5'), key='snps', complevel=9)
+if run_type == 'within':
+    pd.concat(dfs).to_hdf(os.path.join(base_path, f'common_snps_{run_type}.h5'), key='snps', complevel=9)
+else:
+    pd.concat(dfs[:int(len(dfs)/2)]).to_hdf(os.path.join(base_path, f'common_snps_{run_type}_pt1.h5'), key='snps', complevel=9)
+    pd.concat(dfs[int(len(dfs)/2):]).to_hdf(os.path.join(base_path, f'common_snps_{run_type}_pt2.h5'), key='snps', complevel=9)
