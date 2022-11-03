@@ -4,7 +4,7 @@ from LabUtils.addloglevels import sethandlers
 from LabData.DataAnalyses.MBSNPs import mwas_annots
 
 # parameters
-base_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas/10K/within'
+base_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas/10K/between'
 
 mwas_file_path = os.path.join(base_dir, 'mb_gwas_significant.h5')
 
@@ -15,7 +15,7 @@ jobs_path = os.path.join(base_dir, 'jobs')
 os.chdir(jobs_path)
 sethandlers()
 
-with qp(jobname='annot', _delete_csh_withnoerr=True, q=['himem7.q'], max_r=1, _mem_def='10G') as q:
+with qp(jobname='annot', _delete_csh_withnoerr=True, q=['himem7.q'], max_r=1, _mem_def='20G') as q:
     q.startpermanentrun()
 
     snps = q.method(mwas_annots.run, (mwas_file_path, base_dir))
