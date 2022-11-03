@@ -57,6 +57,8 @@ if __name__ == '__main__':
         species_files = glob.glob(os.path.join(counts_dir, counts_fname))
         for i, species_fname in enumerate(species_files):
             output_fname = os.path.join(jobs_dir, os.path.basename(species_fname))
+            # if not os.path.exists(output_fname):
+            #     print(output_fname)
             tkttores[output_fname] = q.method(func, [species_fname, output_fname])
             # if i == 3:
             #     break
@@ -64,12 +66,16 @@ if __name__ == '__main__':
         summary_df = pd.DataFrame()
         for output_fname, v in tkttores.items():
             q.waitforresult(v)
+
+        # for species_fname in species_files:
+        #     output_fname = os.path.join(jobs_dir, os.path.basename(species_fname))
+
             summary_df = summary_df.join(pd.read_hdf(output_fname), how='outer')
 
         summary_df.to_hdf(os.path.join(os.path.dirname(os.path.dirname(counts_dir)), summary_fname.format(min_reads)),
                           key='snps')
 
-        for output_fname, v in tkttores.items():
-            os.remove(output_fname)
-
+    #     for output_fname, v in tkttores.items():
+    #         os.remove(output_fname)
+    #
     print('done')
