@@ -35,16 +35,15 @@ def color_by_coef(sp_df: pd.DataFrame, **kwargs):
 
     if 'clumping' in sp_df.columns:
         is_clumping_rep = sp_df.index == sp_df['clumping']
-        d['facecolor'] = (sp_df[kwargs['coef_col']] > 0).map(color_dict)
+        d['facecolor'] = (sp_df['Coef'] > 0).map(color_dict)
         d['facecolor'].loc[is_clumping_rep] = [(c[0], c[1], c[2], 0.8) for c in d['facecolor'].loc[is_clumping_rep]]
         d['facecolor'].loc[~is_clumping_rep] = [(c[0], c[1], c[2], 0.2) for c in d['facecolor'].loc[~is_clumping_rep]]
         d['facecolor'] = d['facecolor'].values
         d['alpha'] = None
         if 'text' in sp_df.columns:
             sp_df.loc[~is_clumping_rep, 'text'] = None
-
     else:
-        d['facecolor'] = (sp_df[kwargs['coef_col']] > 0).map(color_dict).values
+        d['facecolor'] = (sp_df['Coef'] > 0).map(color_dict).values
         d['alpha'] = 0.5
     if 'text' in sp_df.columns:
         d['text'] = sp_df['text']
@@ -63,18 +62,22 @@ def color_by_coef(sp_df: pd.DataFrame, **kwargs):
     return sp_df, d, legend
 
 
-def text_func_annotated_between(df: pd.DataFrame, **kwargs):
+def text_func(df: pd.DataFrame, **kwargs):
     df = df.reset_index().drop_duplicates(list(df.index.names))
-    text = f"{df.shape[0]:,} SNPs in {df['Species'].unique().shape[0]:,} species\n" + \
-           f"N = between {df['N'].min():,} and {df['N'].max():,} samples per SNP\n" + \
-           f"{sum(df[kwargs['pval_col']] <= kwargs['pval_cutoff']):,} SNPs passed {kwargs['pval_cutoff']:.2e} p-value cutoff"
-    return text
 
-
-def text_func_annotated_within(df: pd.DataFrame, **kwargs):
-    df = df.reset_index().drop_duplicates(list(df.index.names))
     text = f"N = between {df['N'].min():,} and {df['N'].max():,} samples per SNP\n" + \
-           f"{sum(df[kwargs['pval_col']] <= kwargs['pval_cutoff']):,}/{df.shape[0]:,} SNPs passed {kwargs['pval_cutoff']:.2e} p-value cutoff"
+           f"{sum(df[kwargs['pval_col']] <= kwargs['pval_cutoff']):,}/{df.shape[0]:,} " + \
+           f"SNPs passed {kwargs['pval_cutoff']:.2e} p-value cutoff"
+    if 'validation_level' in df.columns:
+        text = text + f"\n{df[df['validation_level'] == 'CI overlap'].shape[0]:,}/" + \
+                        f"{df[df['validation_level'] != 'not tested'].shape[0]:,} " + \
+                        f"SNPs CI overlaps with validation cohort"
+    if 'clumping' in df.columns:
+        text = text + f"\n{df['clumping'].unique().shape[0]:,} clumped SNPs"
+
+    if (df['Y'] != df['Species']).any():
+        text = f"{df.shape[0]:,} SNPs in {df['Species'].unique().shape[0]:,} species\n" + text
+
     return text
 
 
@@ -117,8 +120,7 @@ if __name__ == '__main__':
                       'out_dir': output_dir,
                       'annotations_df': annotations_df,
                       'manhattan_draw_func': color_by_coef,
-                      'manhattan_text_func': text_func_annotated_within if run_type == 'within' else
-                                             text_func_annotated_between,
+                      'manhattan_text_func': text_func,
                       'r2_col': 'R2',
                       'maf_col': 'MAF',
                       'coef_col': 'Coef',
