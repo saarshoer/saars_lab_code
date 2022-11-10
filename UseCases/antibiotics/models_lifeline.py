@@ -1,4 +1,5 @@
 import os
+import glob
 import pickle
 import pandas as pd
 import xgboost as xgb
@@ -7,13 +8,13 @@ from LabUtils.addloglevels import sethandlers
 from sklearn.model_selection import GridSearchCV
 from anti_mwas_lifeline import gen_cov_f, gen_y_f, df_dir
 
-run_type = 'within'
+run_type = 'between'
 
 run_dir = os.path.join(os.path.dirname(df_dir), run_type)
 
 
 def create_model(X, y, fname=None):
-    model = GridSearchCV(xgb.XGBRegressor(random_state=42), refit=True, cv=5,
+    model = GridSearchCV(xgb.XGBRegressor(random_state=42, n_jobs=1), refit=True, cv=5,
                          param_grid={})#{'max_depth': [4, 6], 'n_estimators': [50, 100]})
     model.fit(X, y)
     if fname is not None:
@@ -26,8 +27,8 @@ def score_models(sy, sx):
     xdata['Position'] = xdata.index.get_level_values('Position').astype(int)
     xdata = xdata.reset_index('Position', drop=True).set_index('Position', append=True)['MAF']
     xdata = xdata[xdata.index.get_level_values('Species') == sx].unstack('SampleName').T
-    cdata = gen_cov_f(sx, run_type == 'within').df.dropna()
-    ydata = gen_y_f(sx, run_type == 'within').df.dropna()
+    cdata = gen_cov_f([sx], run_type == 'within').df.dropna()
+    ydata = gen_y_f([sx], run_type == 'within').df[sy].dropna()
 
     data = xdata.join(cdata, how='inner').join(ydata, how='inner').astype(float).sample(frac=1, random_state=42)  # order matters
     n_covariates = cdata.shape[1]
@@ -65,7 +66,8 @@ if __name__ == "__main__":
 
         print('start sending jobs')
         for i, (speciesY, speciesX) in sig_df.reset_index()[['Y', 'Species']].drop_duplicates().iterrows():
-            tkttores[i] = q.method(score_models, (speciesY, speciesX))
+            if not os.path.exists(os.path.join(run_dir, 'models', f'{speciesX}_{speciesY}.pkl')):
+                tkttores[i] = q.method(score_models, (speciesY, speciesX))
         print('finished sending jobs')
 
         print('start waiting for jobs')
@@ -73,7 +75,7 @@ if __name__ == "__main__":
         for k, v in tkttores.items():
             results_files.append(q.waitforresult(v))
         print('finished waiting for jobs')
-        # results_files = glob.glob(os.path.join(run_dir, 'models', f'*_*.pkl'))
+        results_files = glob.glob(os.path.join(run_dir, 'models', f'*_*.pkl'))
 
         print('start df update')
         for r_file in results_files:
