@@ -87,7 +87,7 @@ with qp(jobname='prokka', _mem_def='4G', _trds_def=2, _tryrerun=True, _specific_
         q.waitforresult(v)
 
 # run eggnog
-with qp(jobname='eggnog', _mem_def='40G', _trds_def=16, _tryrerun=True, _specific_nodes='plink') as q:
+with qp(jobname='eggnog', _mem_def='40G', _trds_def=16, _tryrerun=True) as q:
     q.startpermanentrun()
     tkttores = {}
 

@@ -23,10 +23,17 @@ def create_model(X, y, fname=None):
 
 
 def score_models(sy, sx):
+    # data = pd.read_hdf(os.path.join(run_dir, 'raw_data', f'mb_gwas_{sx if run_type == "within" else "Rep_all"}_{sy}.h5'))
+    # data = data.reset_index().drop_duplicates().set_index(data.index.names).iloc[:, -1]
+    # data.to_hdf(os.path.join(run_dir, 'raw_data', f'mb_gwas_{sx if run_type == "within" else "Rep_all"}_{sy}_new.h5'), key='snps', complevel=9)
+    # del data
+    # return
+
     xdata = pd.read_hdf(os.path.join(run_dir, 'raw_data', f'mb_gwas_{sx if run_type == "within" else "Rep_all"}_{sy}.h5')).to_frame('MAF')
+    xdata = xdata[xdata.index.get_level_values('Species') == sx]  # makes it much more memory efficient
     xdata['Position'] = xdata.index.get_level_values('Position').astype(int)
-    xdata = xdata.reset_index('Position', drop=True).set_index('Position', append=True)['MAF']
-    xdata = xdata[xdata.index.get_level_values('Species') == sx].unstack('SampleName').T
+    xdata = xdata.reset_index('Position', drop=True).set_index('Position', append=True)
+    xdata = xdata['MAF'].unstack('SampleName').T
     cdata = gen_cov_f([sx], run_type == 'within').df.dropna()
     ydata = gen_y_f([sx], run_type == 'within').df[sy].dropna()
 
@@ -56,7 +63,7 @@ if __name__ == "__main__":
 
     os.makedirs(os.path.join(run_dir, 'models'))
 
-    with qp(jobname='Lmodels', _tryrerun=True, _specific_nodes='plink') as q:
+    with qp(jobname='Lmodels', _tryrerun=True, _mem_def='10G') as q:
         q.startpermanentrun()
         tkttores = {}
 
@@ -64,10 +71,14 @@ if __name__ == "__main__":
         # sig_df = sig_df[sig_df.index.get_level_values('Species') == 'Rep_595']
         models = pd.DataFrame(columns=['Y', 'Species', 'base_score', 'snps_score'])
 
+        # all_probs = []
         print('start sending jobs')
         for i, (speciesY, speciesX) in sig_df.reset_index()[['Y', 'Species']].drop_duplicates().iterrows():
-            if not os.path.exists(os.path.join(run_dir, 'models', f'{speciesX}_{speciesY}.pkl')):
-                tkttores[i] = q.method(score_models, (speciesY, speciesX))
+            # if not os.path.exists(os.path.join(run_dir, 'models', f'{speciesX}_{speciesY}.pkl')):
+            #     print(speciesX, speciesY)
+                # if speciesY not in all_probs:
+                #     all_probs.append(speciesY)
+            tkttores[i] = q.method(score_models, (speciesY, speciesX))
         print('finished sending jobs')
 
         print('start waiting for jobs')

@@ -90,7 +90,7 @@ def text_func(df: pd.DataFrame, **kwargs):
 if __name__ == '__main__':
 
     study = '10K'
-    run_type = 'within'
+    run_type = 'between'
     data_plots = False
 
     input_dir = f'/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas/{study}/{run_type}'
@@ -128,7 +128,7 @@ if __name__ == '__main__':
         tkttores = {}
 
         print('start sending jobs')
-        for mwas_fname in glob.glob(os.path.join(input_dir, 'raw_hdfs', 'mb_gwas_Rep_959_Rep_959.h5')):
+        for mwas_fname in glob.glob(os.path.join(input_dir, 'raw_hdfs', 'mb_gwas_Rep_*_Rep_*.h5')):
             data_fname = mwas_fname.replace('raw_hdfs', 'raw_data')
             if data_plots & ~os.path.exists(data_fname):
                 continue
