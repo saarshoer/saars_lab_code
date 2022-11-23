@@ -102,7 +102,7 @@ if __name__ == '__main__':
     mwas_df = pd.read_hdf(os.path.join(input_dir, 'mb_gwas_significant_validation_models.h5'))[['Pval', 'feature_importance', 'validation_level']]
     # mwas_df = mwas_df[mwas_df.index.get_level_values('Y') == 'Rep_959']
     annotations_df = pd.read_hdf(os.path.join(input_dir, 'snps_gene_annotations_short.h5'))[['GeneID', 'text']]
-    mwas_df = mwas_df.join(annotations_df)
+    mwas_df = mwas_df.join(annotations_df.droplevel('Y'), on=['Species', 'Contig', 'Position'])
     del annotations_df
 
     if not data_plots:

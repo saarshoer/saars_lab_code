@@ -92,7 +92,7 @@ class P:
     max_on_fraq_major_per_snp = 0.95  # Max fraction of major AND minor allele frequency in analyzed samples
     min_on_minor_per_snp = 50  # Min number of analyzed samples with a minor allele
     min_subjects_per_snp = 500
-    # snp_set = pd.read_hdf(os.path.join(config.analyses_dir, 'anti_mwas', study, 'within' if within else 'between', 'mb_gwas_significant.h5'))[[]] if collect_data else None
+    snp_set = pd.read_hdf(os.path.join(config.analyses_dir, 'anti_mwas', study, 'within' if within else 'between', 'mb_gwas_significant.h5'))[[]] if collect_data else None
     # snp_set = snp_set.loc[snp_set.index.get_level_values('Species').isin([])]  # collect data make up
     # snp_set = snp_set.groupby('Species').apply(lambda data: data.iloc[:int(data.shape[0]/2)]).droplevel(0)
     # snp_set = pd.read_hdf(os.path.join(config.analyses_dir, 'anti_mwas', '10K', 'within' if within else 'between', 'mb_gwas_significant_validation.h5'))
