@@ -5,41 +5,11 @@ from LabData import config_global as config
 from LabUtils.addloglevels import sethandlers
 from LabData.DataLoaders.Loader import LoaderData
 from LabData.DataAnalyses.MBSNPs.MWAS import MWAS
+from anti_mwas_functions import gen_cov_f, gen_y_f
 
 study = 'Lifeline_deep'
 df_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{study}/data_frames'#/permuted'  # for both types of permutations
 # pca_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_pca'
-
-
-def gen_cov_f(species, within):
-    df = pd.read_pickle(os.path.join(df_dir, 'meta.df'))[['age', 'gender']]
-    # pca = pd.read_pickle(os.path.join(pca_dir, f'{species[0]}.df'))
-    # df = df.join(pca)
-    if not within:
-        df2 = pd.read_pickle(os.path.join(df_dir, 'abundance.df'))[species]
-        # for second type of permutation
-        # df2 = pd.read_pickle(os.path.join(os.path.dirname(df_dir), 'abundance.df'))[species]
-        df = df.\
-            join(df2.rename(columns={species[0]: 'abundance'}))#.\
-            # join(df2.rename(columns={species[0]: 'MAF_abundance'}))
-    return LoaderData(df, None)
-
-
-def gen_y_f(species, within):
-    df = pd.read_pickle(os.path.join(df_dir, 'abundance.df'))
-    if within:
-        df = df[species]
-    else:
-        if species[0] in df.columns:
-            df = df.drop(species[0], axis=1)
-    return LoaderData(df, None)
-
-
-# def is_y_valid(y, max_on_most_freq_val_in_col, min_on_non_freq_val_for_y, y_binary):
-#     count_most = y.value_counts().max()
-#     return (count_most <= max_on_most_freq_val_in_col * len(y)) & \
-#            (count_most >= (1 - max_on_most_freq_val_in_col) * len(y)) & \
-#            (len(y) - count_most >= min_on_non_freq_val_for_y)
 
 
 class P:
@@ -99,13 +69,13 @@ class P:
     # snp_set = snp_set.loc[snp_set['validation_level'] == 'tested', []]
 
     # covariates
-    covariate_gen_f = lambda species: gen_cov_f(species, P.within)
+    covariate_gen_f = lambda species: gen_cov_f(df_dir, species, P.within)
     constant_covariate = True
     ret_cov_fields = True
     test_maf_cov_corr = False  # necessary
 
     # y
-    y_gen_f = lambda species: gen_y_f(species, P.within)
+    y_gen_f = lambda species: gen_y_f(df_dir, species, P.within)
     is_y_valid_f = None  # Function that checks whether the analyzed y is valid
     max_on_most_freq_val_in_col = 0.95  # make sure it has the same value as in is_y_valid_f
     min_on_non_freq_val_for_y = 50
