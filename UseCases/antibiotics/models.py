@@ -13,7 +13,7 @@ from anti_mwas_lifeline import df_dir as test_df_dir
 
 
 run_type = 'within'
-models_dir = 'models2'
+models_dir = 'models3'
 
 train_run_dir = os.path.join(os.path.dirname(train_df_dir), run_type)
 test_run_dir = os.path.join(os.path.dirname(test_df_dir), run_type)
@@ -24,11 +24,11 @@ def create_model(train, test, fname=None):
     x_train, y_train = train.iloc[:, :-1], train.iloc[:, -1]
 
     model = GridSearchCV(xgb.XGBRegressor(random_state=42, n_jobs=1), refit=True, cv=5,
-                         param_grid={
-                             'learning_rate': [0.005, 0.0075, 0.01],
-                             'max_depth': [3, 4],
-                             'min_child_weight': [25, 50, 75]
-                         })
+                         param_grid={})
+                         #     'learning_rate': [0.005, 0.0075, 0.01],
+                         #     'max_depth': [3, 4],
+                         #     'min_child_weight': [25, 50, 75]
+                         # })
     model.fit(x_train, y_train)
     if fname is not None:
         model.best_estimator_.save_model(os.path.join(train_run_dir, models_dir, fname))
@@ -125,6 +125,6 @@ if __name__ == "__main__":
             models.loc[new_row, 'snps_score'] = r['snps_score']
         models = models.set_index(['Y', 'Species'])
         models[['base_score', 'snps_score']] = models[['base_score', 'snps_score']].astype(float)
-        models.to_hdf(os.path.join(train_run_dir, 'models.h5'), key='snps', complevel=9)
+        models.to_hdf(os.path.join(train_run_dir, f'{models_dir}.h5'), key='snps', complevel=9)
         sig_df.to_hdf(os.path.join(train_run_dir, f'mb_gwas_significant_validation_{models_dir}.h5'), key='snps', complevel=9)
         print('finished df update')
