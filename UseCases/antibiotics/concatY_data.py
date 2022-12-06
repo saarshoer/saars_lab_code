@@ -9,7 +9,7 @@ from LabUtils.addloglevels import sethandlers
 study = 'Lifeline_deep'
 data_dir = 'raw_data_not_sig'
 
-run_dir = f'/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas/{study}/between/'
+run_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{study}/between/'
 look_dir = f'/net/mraid08/export/genie/LabData/Analyses/saarsh/*_{study}_anti_mwas_between'
 
 

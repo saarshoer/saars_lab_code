@@ -93,7 +93,7 @@ if __name__ == '__main__':
     run_type = 'within'
     data_plots = False
 
-    input_dir = f'/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas/{study}/{run_type}'
+    input_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{study}/{run_type}'
     output_dir = os.path.join(input_dir, 'figs', 'species')
     jobs_dir = os.path.join(input_dir, 'jobs')
 

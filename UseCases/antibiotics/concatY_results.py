@@ -7,7 +7,7 @@ from LabUtils.Utils import load_h5_files
 from LabUtils.addloglevels import sethandlers
 
 
-run_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas/10K/between/'
+run_dir = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/10K/between/'
 counts = pd.read_hdf(os.path.join(run_dir, 'mb_gwas_counts.h5'))
 
 
