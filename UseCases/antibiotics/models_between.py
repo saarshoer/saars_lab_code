@@ -12,7 +12,7 @@ from anti_mwas import df_dir as train_df_dir
 from anti_mwas_lifeline import df_dir as test_df_dir
 
 
-run_type = 'within'
+run_type = 'between'
 models_dir = 'models5'
 
 train_run_dir = os.path.join(os.path.dirname(train_df_dir), run_type)
@@ -94,7 +94,7 @@ if __name__ == "__main__":
 
     # os.makedirs(os.path.join(train_run_dir, models_dir))
 
-    with qp(jobname='KWmodels', _tryrerun=True, _mem_def='10G') as q:
+    with qp(jobname='KBmodels', _tryrerun=True, _mem_def='10G') as q:
         q.startpermanentrun()
         tkttores = {}
 

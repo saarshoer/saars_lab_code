@@ -9,14 +9,14 @@ from LabUtils.addloglevels import sethandlers
 
 pval_col = 'Pval'
 max_positions = 100
-abs_corr_cutoff = 0.7
+abs_corr_cutoff = 0.7  # equivalent to the accepted r^2=0.5
 alpha = 0.05
 
 study = '10K'
 run_type = 'within'
 
 base_path = f'/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas/{study}/{run_type}'
-sig_file = os.path.join(base_path, 'mb_gwas_significant.h5')
+sig_file = os.path.join(base_path, 'mb_gwas_significant_validation.h5')
 data_file = os.path.join(base_path, 'raw_data', 'mb_gwas_{X}_{Y}.h5' if run_type == 'within' else 'mb_gwas_Rep_all_{Y}.h5')
 clump_file = os.path.join(base_path, 'clumping2', 'mb_gwas_{X}_{Y}.pkl')
 
@@ -74,7 +74,7 @@ if __name__ == '__main__':
     os.chdir(jobs_dir)
     sethandlers(file_dir=jobs_dir)
 
-    os.makedirs(os.path.dirname(clump_file))#, exist_ok=True)
+    # os.makedirs(os.path.dirname(clump_file))#, exist_ok=True)
 
     with qp(jobname='WKNclumping', _tryrerun=True, _mem_def='5G') as q:
         q.startpermanentrun()
