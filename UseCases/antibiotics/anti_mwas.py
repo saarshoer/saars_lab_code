@@ -1,15 +1,12 @@
 import os
-import numpy as np
 import pandas as pd
 from LabData import config_global as config
 from LabUtils.addloglevels import sethandlers
-from LabData.DataLoaders.Loader import LoaderData
 from LabData.DataAnalyses.MBSNPs.MWAS import MWAS
 from anti_mwas_functions import gen_cov_f, gen_y_f
 
 study = '10K'
 df_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{study}/data_frames'#/permuted'  # for both types of permutations
-# pca_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_pca'
 
 
 class P:
@@ -25,7 +22,7 @@ class P:
     permute = 'permute' in df_dir
 
     countries = None
-    collect_data = True
+    collect_data = False
 
     # queue
     max_jobs = 250
@@ -39,7 +36,6 @@ class P:
 
     # species
     species_set = snps.columns.tolist()
-    # species_set = ['Rep_457', 'Rep_486', 'Rep_495', 'Rep_497', 'Rep_552', 'Rep_81']  # these have a maf.lock and not maf.done
     ignore_species = None
     filter_by_species_existence = False
     species_blocks = 1  # most be 1 for this analysis, do not change!
@@ -62,10 +58,11 @@ class P:
     max_on_fraq_major_per_snp = 0.95  # Max fraction of major AND minor allele frequency in analyzed samples
     min_on_minor_per_snp = 50  # Min number of analyzed samples with a minor allele
     min_subjects_per_snp = 500
-    snp_set = pd.read_hdf(os.path.join(config.analyses_dir, 'anti_mwas', study, 'within' if within else 'between', 'mb_gwas_significant.h5'))[[]] if collect_data else None
+    snp_set = pd.read_hdf(os.path.join(os.path.dirname(df_dir), 'within' if within else 'between', 'mb_gwas_significant.h5'))[[]] if collect_data else None
     # snp_set = snp_set.loc[snp_set.index.get_level_values('Species').isin([])]  # collect data make up
     # snp_set = snp_set.groupby('Species').apply(lambda data: data.iloc[:int(data.shape[0]/2)]).droplevel(0)
-    # snp_set = pd.read_hdf(os.path.join(config.analyses_dir, 'anti_mwas', 'Lifeline_deep', 'within' if within else 'between', 'mb_gwas_significant_validation.h5'))
+    # validation snps
+    # snp_set = pd.read_hdf(os.path.join(os.path.dirname(os.path.dirname(df_dir)), 'Lifeline_deep', 'within' if within else 'between', 'mb_gwas_significant_validation.h5'))
     # snp_set = snp_set.loc[snp_set['validation_level'] == 'tested', []]
 
     # covariates
