@@ -3,7 +3,7 @@ import glob
 import numpy as np
 import pandas as pd
 
-run_type = 'between'
+run_type = 'within'
 coef_col = 'Coef'
 
 base_path = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics'
