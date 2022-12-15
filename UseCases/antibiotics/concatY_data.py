@@ -6,11 +6,11 @@ from LabQueue.qp import qp, fakeqp
 from LabUtils.Utils import load_h5_files
 from LabUtils.addloglevels import sethandlers
 
-study = 'Lifeline_deep'
-data_dir = 'raw_data_not_sig'
+study = '10K'
+data_dir = 'raw_data'
 
-run_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{study}/between/'
-look_dir = f'/net/mraid08/export/genie/LabData/Analyses/saarsh/*_{study}_anti_mwas_between'
+run_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{study}/within/'
+look_dir = f'/net/mraid08/export/genie/LabData/Analyses/saarsh/*_10K_anti_mwas_within'
 
 
 def rw(s, d):
