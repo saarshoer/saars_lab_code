@@ -8,8 +8,15 @@ from LabUtils.addloglevels import sethandlers
 from LabData.DataAnalyses.MBSNPs import mwas_plots
 from LabData.DataLoaders.MBSNPLoader import MAF_1_VALUE
 
+all_contigs = pd.read_csv('/net/mraid08/export/jafar/Microbiome/Analyses/Unicorn/URS/URS_Build/Rep_all/all_contigs.csv')
+all_contigs['Species'] = 'Rep_' + all_contigs['contig'].str.split('_').str[1]
+all_contigs['contig_id'] = all_contigs['contig'].str.split('_').str[-1].astype(int)
+all_contigs = all_contigs.set_index(['Species', 'contig_id'])['len'].sort_values().to_frame('contig_len')*-1
+
 
 def color_by_coef(sp_df: pd.DataFrame, **kwargs):
+
+    sp_df = sp_df.join(all_contigs, on=['Species', 'contig_id']).sort_values(['contig_len', 'Position'])
 
     if kwargs['draw_col'] != kwargs['pval_col']:
         sp_df = sp_df[sp_df[kwargs['pval_col']] < kwargs['pval_cutoff']]
@@ -52,6 +59,12 @@ def color_by_coef(sp_df: pd.DataFrame, **kwargs):
 
     if 'text' in sp_df.columns:
         d['text'] = sp_df['text']
+
+    if (sp_df.index.get_level_values('Y') == sp_df.index.get_level_values('Species')).any():
+        sp_df['tick'] = '|contig start'
+        sp_df.loc[sp_df.index[1:], 'tick'] = sp_df['contig_id'][1:].values != sp_df['contig_id'][:-1].values
+        sp_df['tick'] = sp_df['tick'].replace({True: '|', False: None})
+        d['tick'] = sp_df['tick']
 
     if kwargs['legend_elements'] is None:
         legend_coefficient = [Line2D([0], [0], linewidth=0, label=color_label_dict[k], alpha=d['alpha'],
