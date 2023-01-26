@@ -16,7 +16,8 @@ all_contigs = all_contigs.set_index(['Species', 'contig_id'])['len'].sort_values
 
 def color_by_coef(sp_df: pd.DataFrame, **kwargs):
 
-    sp_df = sp_df.join(all_contigs, on=['Species', 'contig_id']).sort_values(['contig_len', 'Position'])
+    sp_df = sp_df.join(all_contigs, on=['Species', 'contig_id']).sort_values(['contig_len', 'contig_id', 'Position'])
+    sp_df = sp_df.reset_index().drop_duplicates().set_index(sp_df.index.names)
 
     if kwargs['draw_col'] != kwargs['pval_col']:
         sp_df = sp_df[sp_df[kwargs['pval_col']] < kwargs['pval_cutoff']]
@@ -62,7 +63,7 @@ def color_by_coef(sp_df: pd.DataFrame, **kwargs):
 
     if (sp_df.index.get_level_values('Y') == sp_df.index.get_level_values('Species')).any():
         sp_df['tick'] = '|contig start'
-        sp_df.loc[sp_df.index[1:], 'tick'] = sp_df['contig_id'][1:].values != sp_df['contig_id'][:-1].values
+        sp_df['tick'][1:] = sp_df['contig_id'][1:].values != sp_df['contig_id'][:-1].values
         sp_df['tick'] = sp_df['tick'].replace({True: '|', False: None})
         d['tick'] = sp_df['tick']
 
@@ -84,15 +85,16 @@ def text_func(df: pd.DataFrame, **kwargs):
     df = df.reset_index().drop_duplicates(list(df.index.names))
     n_sig = f"{sum(df[kwargs['pval_col']] <= kwargs['pval_cutoff']):,}"
 
-    text = f"N = between {df['N'].min():,} and {df['N'].max():,} samples per SNP\n" + \
-           f"{n_sig}/{df.shape[0]:,} SNPs passed {kwargs['pval_cutoff']:.2e} p-value cutoff"
+    text = f"{df['N'].mean():,.0f}±{df['N'].std():,.0f} samples per SNP\n" + \
+           f"{n_sig}/{df.shape[0]:,} significant SNPs"
     if 'validation_level' in df.columns:
-        text = text + f"\n{df[df['validation_level'] == 'CI overlap'].shape[0]:,}/{n_sig} " + \
-                        f"SNPs CI overlaps with validation cohort"
+        text = text + f"\n{df[df['validation_level'] == 'CI overlap'].shape[0]:,}/" + \
+                      f"{df[df['validation_level'] != 'not tested'].shape[0]:,} " + \
+                        f"validated SNPs"
     if 'feature_importance' in df.columns:
         text = text + f"\n{(df['feature_importance'].fillna(0) != 0).sum():,}/{n_sig} effective SNPs"
     elif 'clumping' in df.columns:
-        text = text + f"\n{df['clumping'].unique().shape[0]:,} clumped SNPs"
+        text = text + f"\n{df['clumping'].unique().shape[0]:,}/{n_sig} independent SNPs"
 
     if (df['Y'] != df['Species']).any():
         text = f"{df.shape[0]:,} SNPs in {df['Species'].unique().shape[0]:,} species\n" + text
@@ -112,10 +114,11 @@ if __name__ == '__main__':
 
     ydata_fname = os.path.join(os.path.dirname(input_dir), 'data_frames', 'abundance.df')
 
-    mwas_df = pd.read_hdf(os.path.join(input_dir, 'mb_gwas_significant_validation_clumping2.h5'))[['Pval', 'validation_level', 'clumping']]#'feature_importance',
+    mwas_df = pd.read_hdf(os.path.join(input_dir, 'mb_gwas_significant_validation_clumping.h5'))[['Pval', 'validation_level', 'clumping']]#'feature_importance',
     # mwas_df = mwas_df[mwas_df.index.get_level_values('Y') == 'Rep_959']
     annotations_df = pd.read_hdf(os.path.join(input_dir, 'snps_gene_annotations_short.h5'))[['GeneID', 'text']]
-    mwas_df = mwas_df.join(annotations_df.droplevel('Y'), on=['Species', 'Contig', 'Position'])
+    ######perhaps take only annotation of clumped snps - perhaps not
+    mwas_df = mwas_df.join(annotations_df)
     del annotations_df
 
     if not data_plots:
