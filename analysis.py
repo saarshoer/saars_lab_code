@@ -1415,7 +1415,7 @@ class Study:
             for col in colors_df.columns:
                 if len(set(colors_df[col]) - set(self.params.colors.keys())) > 0:  # most probably continuous
                     m = cm.ScalarMappable(
-                        norm=colors.Normalize(vmin=-colors_df[col].abs().max(), vmax=colors_df[col].abs().max()),
+                        norm=colors.Normalize(vmin=colors_df[col].min(), vmax=colors_df[col].max()),
                         cmap=annotations_cmaps[col] if (annotations_cmaps is not None) & (col in annotations_cmaps.keys())
                              else None)
                     colors_df[col] = colors_df[col].apply(m.to_rgba).to_frame()
@@ -1458,7 +1458,6 @@ class Study:
 
                     df_linkage = linkage(squareform(df, force='tovector', checks=False),
                                          method=method, optimal_ordering=True)
-                    # TODO: consider method='max' so to be like in assemblies
 
                     # necessary to define explicitly otherwise there are differences between the rows and columns
 
@@ -1475,8 +1474,8 @@ class Study:
 
                     if strain_var is not None:
                         m = cm.ScalarMappable(
-                            norm=mpl.colors.Normalize(vmin=0, vmax=strain_var[species].max()), cmap=cm.binary)
-                        species_colors_df = strain_var[species].map(m.to_rgba).to_frame().rename(columns={species: ' '})
+                            norm=mpl.colors.Normalize(vmin=0, vmax=strain_var.loc[samples_mask, species].max()), cmap=cm.binary)
+                        species_colors_df = strain_var.loc[samples_mask, species].map(m.to_rgba).to_frame().rename(columns={species: ' '})
                         if colors_df is not None:
                             species_colors_df = colors_df.join(species_colors_df)
                     else:
@@ -1523,28 +1522,32 @@ class Study:
                                     x=stats_df.loc[stats_df[anno] == np.unique(stats_df[anno])[0], 'rank'].values,
                                     y=stats_df.loc[stats_df[anno] == np.unique(stats_df[anno])[1], 'rank'].values,
                                     use_continuity=True, alternative='two-sided')  # TODO: think about use_continuity
+
+                                # rand index between the annotation and the clusters
+                                org_clusters = annotations_df.loc[df.index, anno].values.flatten()  ####not clear
+                                new_clusters = fcluster(df_linkage, t=len(np.unique(org_clusters)),
+                                                        criterion='maxclust')  # TODO: optimize parameters
+
+                                RI = round(adjusted_rand_score(org_clusters, new_clusters), 2)  # TODO: optimize parameters
+
+                                # TODO: think what should be the t for inconsistent fcluster
+                                # new_clusters2 = fcluster(df_linkage, t=1, criterion='inconsistent')
+                                # rand_index2 = adjusted_rand_score(org_clusters, new_clusters2)
+
+                                expanded_labels.append('{} (p={}, RI={})'.format(anno, p, RI))
                             else:
                                 r, p = spearmanr(stats_df[anno], stats_df['rank'])
                                 # cluster_optimization.append([method, species, r, p, stats_df.shape[0]])
+
+                                expanded_labels.append('{} (r={}, p={})'.format(anno, r, p))
+
                             r = round(r, 2)
                             p = round(p, 2)
 
-                            # rand index between the annotation and the clusters
-                            org_clusters = annotations_df.loc[df.index, anno].values.flatten()
-                            new_clusters = fcluster(df_linkage, t=len(np.unique(org_clusters)),
-                                                    criterion='maxclust')  # TODO: optimize parameters
-
-                            RI = round(adjusted_rand_score(org_clusters, new_clusters), 2)  # TODO: optimize parameters
-
-                            # TODO: think what should be the t for inconsistent fcluster
-                            # new_clusters2 = fcluster(df_linkage, t=1, criterion='inconsistent')
-                            # rand_index2 = adjusted_rand_score(org_clusters, new_clusters2)
-
-                            expanded_labels.append('{} (r={}, p={}, RI={})'.format(anno, r, p, RI))
                             is_significant.append(p)
 
                     if strain_var is not None:
-                        expanded_labels.append(f'variable positions (max {int(strain_var[species].max() * 100)}%)')
+                        expanded_labels.append(f'variable positions (max {int(strain_var.loc[samples_mask, species].max() * 100)}%)')
                     if len(expanded_labels) > 0:
                         g.ax_col_colors.set_yticklabels(expanded_labels)
 
@@ -1574,7 +1577,7 @@ class Study:
                         bins_freq, _, patches = special_ax.hist(diss_tril, bins='auto')
                         peaks_bin, _ = find_peaks(bins_freq)  # TODO: optimize
                         [patches[bin].set_color('orange') for bin in peaks_bin]
-                        special_ax.set_title('dissimilarity distribution', color='white')
+                        special_ax.set_title('dissimilarity distribution', color='white', fontsize='medium')
                         special_ax.set_xticklabels([])
                         special_ax.set_yticklabels([])
 
@@ -1876,7 +1879,7 @@ class Study:
 
         return species_order
 
-    def fig_strain_replacements(self, obj, sum_not_mean=True, category='person1', hue='group1'):
+    def fig_strain_replacements(self, obj, sum_not_mean=True, category='person1', hue='group1', minimal_incidences=1):
         """
         Sum/mean and plot (histogram) replacements per category
 
@@ -1884,6 +1887,7 @@ class Study:
         :param sum_not_mean: (bool) sum (True) or mean (False) replacements
         :param category: (str) index level name to count by
         :param hue: (str) index level name to color by
+        :param minimal_incidences: (int) minimal incidence to include
 
         :return: n_replacements (pd.DataFrame)
         """
@@ -1897,10 +1901,11 @@ class Study:
         df['replacement'] = df['replacement'].map({True: 1, False: 0})
 
         groups = [category, hue] if hue is not None else [category]
+        replacements = df.groupby(groups).filter(lambda g: len(g) >= minimal_incidences)[groups+['replacement']]
         if sum_not_mean:
-            replacements = df.groupby(groups)['replacement'].sum().sort_values(ascending=False)
+            replacements = replacements.groupby(groups)['replacement'].sum().sort_values(ascending=False)
         else:
-            replacements = df.groupby(groups)['replacement'].mean().sort_values(ascending=False)*100
+            replacements = replacements.groupby(groups)['replacement'].mean().sort_values(ascending=False)*100
 
         if category[-1] in ['1', '2']:
             category = category[:-1]
@@ -1914,10 +1919,10 @@ class Study:
             replacements.index.name = category
 
         # histogram
-        hue_order = sorted(replacements.index.get_level_values(hue).unique().tolist())[::-1]
+        hue_order = sorted(replacements.index.get_level_values(hue).unique().tolist())[::-1] if hue is not None else None
         g = sns.FacetGrid(replacements.reset_index(), hue=hue, hue_order=hue_order, palette=self.params.colors,
                           sharex=False, sharey=False, margin_titles=True)
-        g = g.map(sns.histplot, 'replacement', kde=False, element='step', binwidth=10, alpha=0.5,
+        g = g.map(sns.histplot, 'replacement', kde=False, element='step', binwidth=5, alpha=0.5,
                   common_norm=sum_not_mean, stat='count' if sum_not_mean else 'percent')
         for ax in g.axes.flatten():
             ax.legend(title=False, loc='upper right', fontsize='xx-small', frameon=True)
@@ -1932,10 +1937,10 @@ class Study:
             plt.xlabel('% Strain replacements')
             plt.ylabel('% {}'.format(category[0].upper() + category.replace('person', 'participants')[1:]))
             plt.xlim([0, 100])
-            plt.ylim([0, 100])
+            plt.ylim([0, 50])
 
         # statistical test
-        hues = replacements.index.get_level_values(hue).unique()
+        hues = replacements.index.get_level_values(hue).unique() if hue is not None else []
         if len(hues) == 2:
             _, p = mannwhitneyu(x=replacements.xs(hues[0], level=hue).dropna().tolist(),
                                 y=replacements.xs(hues[1], level=hue).dropna().tolist(),
@@ -2300,7 +2305,7 @@ def add_strain_replacement(test, control=None, quantile=0.05):
     control = control.groupby('Species')['dissimilarity'].quantile(quantile)
 
     # test data
-    # remove comparisons to the same sample
+    # remove comparisons to the same samplefig_strain_replacements
     condition = (test.index.get_level_values('SampleName1') != test.index.get_level_values('SampleName2'))
 
     # remove between person comparisons
