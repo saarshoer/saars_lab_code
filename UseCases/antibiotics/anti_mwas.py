@@ -1,11 +1,12 @@
 import os
+import numpy as np
 import pandas as pd
 from LabData import config_global as config
 from LabUtils.addloglevels import sethandlers
 from LabData.DataAnalyses.MBSNPs.MWAS import MWAS
 from anti_mwas_functions import gen_cov_f, gen_y_f
 
-study = '10K'
+study = '10K'########don't forget to change within LabData code
 df_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{study}/data_frames'#/permuted'  # for both types of permutations
 
 
@@ -17,8 +18,10 @@ class P:
     body_site = 'Gut'
     study_ids = [study]
 
-    within = False#########don't forget to change the mem_def accordingly
-    cov_cols = ['CONSTANT', 'age', 'gender'] if within else ['CONSTANT', 'age', 'gender', 'abundance']
+    within = True#########don't forget to change the mem_def accordingly
+    cov_cols = ['CONSTANT', 'age', 'gender', 'coverage'] + [f'PC{int(i)+1}' for i in np.arange(20)]
+    if not within:
+        cov_cols = cov_cols + ['abundance']
     permute = 'permute' in df_dir
 
     countries = None
@@ -36,7 +39,8 @@ class P:
 
     # species
     species_set = snps.columns.tolist()
-    ignore_species = None
+    ignore_species = pd.read_hdf(os.path.join(os.path.dirname(df_dir), 'within', 'naive_counts.h5')).groupby(['Species']).sum()  # always within
+    ignore_species = ignore_species[ignore_species['N'] < 100].index.tolist()
     filter_by_species_existence = False
     species_blocks = 1  # most be 1 for this analysis, do not change!
 
@@ -61,9 +65,6 @@ class P:
     snp_set = pd.read_hdf(os.path.join(os.path.dirname(df_dir), 'within' if within else 'between', 'mb_gwas_significant.h5'))[[]] if collect_data else None
     # snp_set = snp_set.loc[snp_set.index.get_level_values('Species').isin([])]  # collect data make up
     # snp_set = snp_set.groupby('Species').apply(lambda data: data.iloc[:int(data.shape[0]/2)]).droplevel(0)
-    # validation snps
-    # snp_set = pd.read_hdf(os.path.join(os.path.dirname(os.path.dirname(df_dir)), 'Lifeline_deep', 'within' if within else 'between', 'mb_gwas_significant_validation.h5'))
-    # snp_set = snp_set.loc[snp_set['validation_level'] == 'tested', []]
 
     # covariates
     covariate_gen_f = lambda species: gen_cov_f(df_dir, species, P.within)

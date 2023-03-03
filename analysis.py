@@ -1534,15 +1534,12 @@ class Study:
                                 # new_clusters2 = fcluster(df_linkage, t=1, criterion='inconsistent')
                                 # rand_index2 = adjusted_rand_score(org_clusters, new_clusters2)
 
-                                expanded_labels.append('{} (p={}, RI={})'.format(anno, p, RI))
+                                expanded_labels.append('{} (p={:.2f}, RI={:.2f})'.format(anno, p, RI))
                             else:
                                 r, p = spearmanr(stats_df[anno], stats_df['rank'])
                                 # cluster_optimization.append([method, species, r, p, stats_df.shape[0]])
 
-                                expanded_labels.append('{} (r={}, p={})'.format(anno, r, p))
-
-                            r = round(r, 2)
-                            p = round(p, 2)
+                                expanded_labels.append('{} (r={:.2f}, p={:.2f})'.format(anno, r, p))
 
                             is_significant.append(p)
 
