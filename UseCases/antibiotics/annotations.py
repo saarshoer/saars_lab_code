@@ -20,7 +20,7 @@ jobs_path = os.path.join(base_dir, 'jobs')
 os.chdir(jobs_path)
 sethandlers()
 
-with qp(jobname='annot', _delete_csh_withnoerr=True, q=['himem7.q'], max_r=1, _mem_def='20G') as q:
+with qp(jobname='annot', _delete_csh_withnoerr=False, q=['himem7.q'], max_r=1, _mem_def='20G') as q:
     q.startpermanentrun()
 
     snps = q.method(mwas_annots.run, (mwas_file_path, base_dir, 'Gut', maf_template))
