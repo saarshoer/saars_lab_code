@@ -38,7 +38,7 @@ from sklearn.decomposition import PCA
 from scipy.signal import find_peaks
 from scipy.spatial.distance import squareform
 from sklearn.metrics import adjusted_rand_score
-from scipy.cluster.hierarchy import linkage, fcluster
+from scipy.cluster.hierarchy import linkage, fcluster, dendrogram
 
 # plots
 import seaborn as sns
@@ -92,7 +92,7 @@ class Study:
         rcParams['savefig.format'] = fig_format  # {png, ps, pdf, svg}
 
         # Jobs
-        sethandlers(file_dir=self.dirs.jobs)
+        # sethandlers(file_dir=self.dirs.jobs)
 
     class Object:
 
@@ -1372,7 +1372,8 @@ class Study:
 
     def fig_snp_heatmap(self, obj, maximal_filling=0.25, minimal_samples=20, method='average',
                         species=None, cmap=None, log_colors=False,
-                        annotations=None, annotations_cmaps=None, add_hist=True, add_pairs=True, strain_var=None):
+                        annotations=None, annotations_cmaps=None, add_hist=True, add_pairs=True, strain_var=None,
+                        t=2, criterion='maxclust', depth=2, R=None, monocrit=None):
         """
         Plot a heatmap based on the SNP dissimilarity data frame for each species
 
@@ -1481,19 +1482,40 @@ class Study:
                     else:
                         species_colors_df = colors_df
 
-                    g = sns.clustermap(df, mask=(df >= 0),  # the mask here is for everything
+                    norm = LogNorm(df.min().min(), df.max().max(), clip=False) if log_colors else None
+
+                    g = sns.clustermap(df, row_linkage=df_linkage, col_linkage=df_linkage,
+                                       row_colors=species_colors_df, col_colors=species_colors_df,
+                                       mask=na_mask,
                                        xticklabels=False, yticklabels=False,
-                                       row_linkage=df_linkage, col_linkage=df_linkage,
-                                       row_colors=species_colors_df, col_colors=species_colors_df)
-
-                    norm = LogNorm(g.data2d.min().min(), g.data2d.max().max(), clip=False) if log_colors else None
-
-                    sns.heatmap(g.data2d, mask=na_mask.loc[g.data2d.index, g.data2d.columns],
-                                xticklabels=False, yticklabels=False,
-                                ax=g.ax_heatmap, cbar_ax=g.cax,
-                                cmap=cmap, norm=norm,
-                                cbar_kws={'label': 'dissimilarity', 'orientation': 'horizontal', 'ticks': None})
+                                       cmap=cmap, norm=norm,
+                                       cbar_kws={'label': 'dissimilarity', 'orientation': 'horizontal', 'ticks': None})
                     # cbar ticks are None because otherwise in log scale there are no ticks
+
+                    # define strains
+                    #df_linkage[df_linkage[:, 3] >= 100, 2].mean()
+                    clusters = fcluster(df_linkage, t=t, criterion=criterion, depth=depth, R=R, monocrit=monocrit)
+                    # TODO: optimize parameters
+
+                    # tree coloring
+                    samples_colors = [mpl.colors.rgb2hex(cm.Set1(c)[:3]) for c in clusters]
+
+                    # https://stackoverflow.com/questions/38153829/custom-cluster-colors-of-scipy-dendrogram-in-python-link-color-func
+                    # rows in df_linkage correspond to "inverted U" links that connect clusters
+                    # rows are ordered by increasing distance
+                    # if the colors of the connected clusters match, use that color for link
+                    link_colors = {}
+                    for i, i12 in enumerate(df_linkage[:, :2].astype(int)):
+                        c1, c2 = (link_colors[x] if x > len(df_linkage) else samples_colors[x] for x in i12)
+                        link_colors[i + 1 + len(df_linkage)] = c1 if c1 == c2 else 'black'
+
+                    # draw dendrograms
+                    for ax, orientation in [(g.ax_col_dendrogram.axes, 'top'), (g.ax_row_dendrogram.axes, 'left')]:
+                        ax.clear()
+                        with plt.rc_context({'lines.linewidth': 0.5}):
+                            dendrogram(df_linkage, ax=ax, orientation=orientation, link_color_func=lambda x: link_colors[x])
+                        ax.set_xticks([])
+                        ax.set_yticks([])
 
                     if pairs is not None:
                         pairs2plot = pairs.loc[species]
@@ -1524,15 +1546,9 @@ class Study:
                                     use_continuity=True, alternative='two-sided')  # TODO: think about use_continuity
 
                                 # rand index between the annotation and the clusters
-                                org_clusters = annotations_df.loc[df.index, anno].values.flatten()  ####not clear
-                                new_clusters = fcluster(df_linkage, t=len(np.unique(org_clusters)),
-                                                        criterion='maxclust')  # TODO: optimize parameters
+                                annot_clusters = annotations_df.loc[df.index, anno].values.flatten()  ####not clear
 
-                                RI = round(adjusted_rand_score(org_clusters, new_clusters), 2)  # TODO: optimize parameters
-
-                                # TODO: think what should be the t for inconsistent fcluster
-                                # new_clusters2 = fcluster(df_linkage, t=1, criterion='inconsistent')
-                                # rand_index2 = adjusted_rand_score(org_clusters, new_clusters2)
+                                RI = round(adjusted_rand_score(annot_clusters, clusters), 2)  # TODO: optimize parameters
 
                                 expanded_labels.append('{} (p={:.2f}, RI={:.2f})'.format(anno, p, RI))
                             else:
@@ -1589,7 +1605,7 @@ class Study:
 
                     plt.close()
 
-                    # return g.data2d.index
+                    return dict(zip(g.data2d.index, [clusters[i] for i in g.dendrogram_col.reordered_ind]))
 
         # return cluster_optimization
 
@@ -2617,218 +2633,29 @@ class _Parameters:
 
 
 if __name__ == '__main__':
-    PNP3 = Study(
+    s = '10K'#'Lifeline_Stool'#'Lifeline_deep'#
+    os.chdir(os.path.join('/home/saarsh/Analysis/strains', s))
 
-        study='PNP3',
+    study = Study(study=s, controls={'time_point': 'baseline'}, colors=None,
+                  alpha=0.05, detection_threshold=0.0001, dissimilarity_threshold=1 / 20000,
+                  base_directory=os.getcwd())
 
-        controls={'time_point': '0months',
-                  'group': 'mediterranean'},
+    study.objs['fclust'] = study.Object(obj_type='fclust', df=None, columns=None)
 
-        colors={  # time_points
-            '0months': 'orchid',
-            '6months': 'darkorchid',
-            '6months-0months': 'deeppink',
-            '0months vs. 6months': 'deeppink',
-            '24months': 'darkorchid',
-            # groups
-            'mediterranean': 'mediumblue',
-            'algorithm': 'orange',
-            'model': 'green',
-            '6months mediterranean': 'mediumblue',
-            '6months algorithm': 'orange',
-            'no-intervention': 'yellow',
-            'pre-diabetic': 'red',
-            'normo-glycamic': 'yellow',
-            # body sites
-            'gut': 'brown',
-            'oral': 'green',
-            'gut vs. oral': 'grey',
-            # abundance
-            'gut abundance': 'brown',
-            'oral abundance': 'green',
-            # dissimilarity
-            'gut snp dissimilarity': 'brown',
-            'oral snp dissimilarity': 'green',
-            # batches - # if something fails because of this make a copy as floats
-            '0': 'yellow',
-            '1': 'cyan',
-            '2': 'pink',
-            # diet
-            'mostly carbohydrates': 'purple',
-            'mostly lipids': 'yellow',
-            # general
-            'increased': 'red',
-            'decreased': 'green',
-            'True': 'red',
-            'False': 'black'},
+    abund = pd.read_pickle(os.path.join('data_frames', 'abundance.df'))
 
-        base_directory='/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3'
-    )
+    min_samples = 500 if s != 'Lifeline_Stool' else 100
 
-    min_samples = 20  # if changed filter feature and batch effects need to be recalculated
+    with pd.HDFStore(os.path.join('data_frames', 'mb_dists.h5'), 'r') as hdf:
+        for key in ['Rep_778']:#hdf.keys():
+            study.objs['fclust'].df = hdf[key].xs('baseline', level='time_point1').xs('baseline', level='time_point2')
+            study.objs['fclust'].df = study.objs['fclust'].df.join(
+                abund, on=['SampleName1', 'Species'], how='inner').join(
+                abund, on=['SampleName2', 'Species'], how='inner', lsuffix='1', rsuffix='2')
+            study.objs['fclust'].df = study.objs['fclust'].df.set_index(['abundance1', 'abundance2'], append=True)
 
-    ura_levels = ['species']  # , 'genera', 'families']
-
-    for body_site in ['gut', 'oral']:
-        for ura_level in ura_levels:
-            PNP3.objs[f'{body_site}_{ura_level}_abundance'] = PNP3.Object(obj_type=f'{body_site} {ura_level} abundance',
-                                                                          columns=ura_level)
-            PNP3.objs[f'{body_site}_{ura_level}_extra'] = PNP3.Object(obj_type=f'{body_site} {ura_level} extra',
-                                                                      columns='measurment')
-
-    PNP3.objs['metabolites'] = PNP3.Object(obj_type='metabolites', columns='measurements')
-    PNP3.objs['cytokines'] = PNP3.Object(obj_type='cytokines', columns='measurements')
-
-    PNP3.objs['blood'] = PNP3.Object(obj_type='blood', columns='measurements')
-    PNP3.objs['diet'] = PNP3.Object(obj_type='diet', columns='nutrients')
-    PNP3.objs['body'] = PNP3.Object(obj_type='body', columns='measurements')
-
-    PNP3.objs['diss'] = PNP3.Object(obj_type='strain dissimilarity', columns='species')
-
-    for key in PNP3.objs.keys():
-
-        file = os.path.join(PNP3.dirs.data_frames, f'{key}_{min_samples}_corrected.df')
-        PNP3.objs[key].df = pd.read_pickle(file)
-        print(key, PNP3.objs[key].df.shape)
-
-        # reducing column levels to one
-        if key == 'metabolites':
-            #         pd.DataFrame.from_records(PNP3.objs['metabolites'].df.columns.values, columns=PNP3.objs['metabolites'].df.columns.names).set_index('BIOCHEMICAL').to_excel(os.path.join(PNP3.dirs.excels, 'metablites_metadata.xlsx'))
-            PNP3.objs[key].df.columns = PNP3.objs[key].df.columns.get_level_values('BIOCHEMICAL')
-        elif key == 'cytokines':
-            PNP3.objs[key].df.columns = PNP3.objs[key].df.columns.get_level_values('ID')
-
-        # required for models
-        elif 'species_abundance' in key:
-            PNP3.objs[key].df.columns = ['SGB_' + col.split('|sSGB__')[-1] for col in PNP3.objs[key].df.columns]
-
-    org_models_dir = PNP3.dirs.models
-    org_excels_dir = PNP3.dirs.excels
-    org_figs_dir = PNP3.dirs.figs
-
-    model_type = 'linear'
-    #####TODO: if model_type == 'xgb' no need to fill missing values
-
-    add_constant = model_type == 'linear' or model_type == 'linear_stats'
-    minimal_samples = 100
-    random_state = 42
-    send2queue = False  # works faster locally
-
-    objs = ['gut_species_abundance', 'oral_species_abundance', 'metabolites', 'cytokines', 'blood', 'diet', 'body']
-
-
-    def fill_missing_values(obj_name, df, maximal_missing_values_in_feature=5):
-
-        if obj_name not in ['blood', 'diet', 'body', 'all']:
-            df = df.fillna(df.min())
-        elif obj_name == 'diet':
-            df = df.fillna(0)
-        # elif obj_name == 'body':
-        #     df = df.reset_index(['Age', 'Gender']).dropna().astype(float)
-        elif obj_name in ['blood', 'body']:
-            df = df.loc[:, df.isna().sum() <= maximal_missing_values_in_feature].dropna()
-
-        return df
-
-
-    def plot_coef(model, n_features2plot=10000, title='', columns=[]):
-
-        try:
-            data = model.coef_[[0]]
-            try:
-                data = np.array([model.coef_])
-            except:
-                data = np.array([model.feature_importances_])
-        except:
-            5 / 0
-        data = pd.DataFrame(data, index=['Coefficient'], columns=columns).T.sort_values('Coefficient')
-        norm = colors.Normalize(vmin=-data.abs().max(), vmax=data.abs().max())
-
-        if data.shape[0] > n_features2plot * 2:
-            data = data.iloc[list(np.arange(n_features2plot)) + list(np.arange(-n_features2plot, 0))]
-
-        plt.figure()
-        sns.barplot(x='Coefficient', y='index', data=data.reset_index(),
-                    palette=plt.cm.coolwarm(norm(data['Coefficient'])))
-        plt.ylabel('')
-        plt.legend([], [], frameon=False)
-
-        plt.title(title)
-        plt.savefig(os.path.join(PNP3.dirs.figs, title))
-        plt.close()
-
-
-    def plot_summary(data, x='xobj', y='score', hue='xs', title=''):
-
-        sns.barplot(data=data, x=x, y=y, hue=hue, palette=PNP3.params.colors)
-        plt.xlabel('')
-        plt.xticks(rotation=90)
-        plt.legend(title=None)
-
-        plt.title(title)
-        plt.savefig(os.path.join(os.path.dirname(PNP3.dirs.figs), title))
-        plt.close()
-
-
-    def update_folders(subdir):
-
-        PNP3.dirs.models = os.path.join(org_models_dir, subdir)
-        PNP3.dirs.excels = os.path.join(org_excels_dir, 'models', subdir)
-        PNP3.dirs.figs = os.path.join(org_figs_dir, 'models', subdir)
-
-        os.makedirs(PNP3.dirs.models, exist_ok=True)
-        os.makedirs(PNP3.dirs.excels, exist_ok=True)
-        os.makedirs(PNP3.dirs.figs, exist_ok=True)
-
-        # all features' change predicting change in hba1c
-
-
-    excels = []
-
-    yobj = copy.deepcopy(PNP3.objs['blood'])
-    yobj.df = yobj.df[['bt__hba1c']]
-    yobj.type = 'bt__hba1c'
-
-    update_folders(subdir=f'{model_type} {yobj.type}')
-
-    cobj = copy.deepcopy(PNP3.objs['body'])
-    cobj.df = cobj.df.reset_index(['Age', 'Gender'])[['Age', 'Gender']].astype(float)
-    cobj.df[cobj.df.index.get_level_values('time_point') == PNP3.params.controls['time_point']] = 0
-
-    for obj in objs:
-        xobj = copy.deepcopy(PNP3.objs[obj])
-
-        if obj == 'blood':
-            xobj.df = xobj.df.drop(['bt__hba1c', 'bt__glucose', 'HbA1C_CGM', 'OGTT', 'Time_above_140'], axis=1)
-
-        xobj.df = fill_missing_values(xobj.type, xobj.df)
-
-        for shuffle in [False, True]:  # order here really matters
-
-            if shuffle:
-                xobj.df.iloc[:, :] = xobj.df.sample(frac=1, random_state=42).values
-                xobj.type = f'shuffled {xobj.type}'
-
-            PNP3.score_models(xobj, yobj, cobj, join_on=['person', 'time_point'],
-                              all_features=True, regularized=False, delta=True, add_constant=True,
-                              minimal_samples=minimal_samples,
-                              model_type=model_type, n_repeats=1, n_splits=-1, random_state=random_state,
-                              hyper_parameters=None,#{'alpha':[10**-2]},
-                              send2queue=send2queue, save=True)
-
-            excel_fname = f'models {xobj.type} {yobj.type}{" delta"} {model_type}.xlsx'
-            model_fname = f'model_{xobj.type}_all_features_{yobj.type}_{yobj.df.columns[0]}_ delta_{model_type}.sav'
-            model = pickle.load(open(os.path.join(PNP3.dirs.models, model_fname), 'rb'))
-            excel = pd.read_excel(os.path.join(PNP3.dirs.excels, excel_fname), index_col=[0, 1])
-
-            if not shuffle:
-                title = f'{model_type} {yobj.type} {xobj.type}'
-                columns = (['Constant'] if add_constant else []) + cobj.df.columns.tolist() + xobj.df.columns.tolist()
-                plot_coef(model=model, title=title, columns=columns)
-
-            excels.append(excel.assign(xobj=xobj.type.replace('shuffled ', '')).assign(shuffle=str(shuffle)))
-        5 / 0
-    excels = pd.concat(excels)
-    # excels['score'] = excels['r_spearman']*excels['r_spearman']
-    title = f'{model_type} {yobj.type.split(" ")[0]}'
-    plot_summary(data=excels, x='xobj', y='score', hue='shuffle', title=title)
+            study.fig_snp_heatmap(obj=study.objs['fclust'], maximal_filling=0.1, minimal_samples=min_samples,
+                                  method='average',
+                                  species=None, cmap='autumn', log_colors=False, add_hist=True, add_pairs=False,
+                                  annotations=['abundance'], annotations_cmaps={'abundance': 'binary'},
+                                  strain_var='/net/mraid08/export/mb/MBPipeline/Analyses/MBSNP/Gut/mb_sns_strain_variability_R3.h5')
