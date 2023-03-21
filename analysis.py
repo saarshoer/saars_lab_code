@@ -18,7 +18,7 @@ from skbio import DistanceMatrix
 from scipy.spatial import distance_matrix
 from mne.stats.multi_comp import bonferroni_correction, fdr_correction
 from scipy.stats import mannwhitneyu, wilcoxon, ttest_ind, ttest_rel, ttest_1samp, binom_test, \
-    pearsonr, spearmanr, kendalltau
+    pearsonr, spearmanr, kendalltau, chi2_contingency
 from statannot import add_stat_annotation
 
 # models
@@ -37,7 +37,6 @@ from sklearn.decomposition import PCA
 # clustering
 from scipy.signal import find_peaks
 from scipy.spatial.distance import squareform
-from sklearn.metrics import adjusted_rand_score
 from scipy.cluster.hierarchy import linkage, dendrogram
 
 # plots
@@ -1557,29 +1556,55 @@ class Study:
 
                     # statistical test
                     if annotations:
-                        stats_df = annotations_df.loc[df.iloc[g.dendrogram_col.reordered_ind].index]
-                        stats_df['rank'] = np.arange(stats_df.shape[0])
 
                         for anno in annotations:
-
                             # statistics
-                            if len(np.unique(stats_df[anno])) == 2:
-                                r, p = mannwhitneyu(
-                                    x=stats_df.loc[stats_df[anno] == np.unique(stats_df[anno])[0], 'rank'].values,
-                                    y=stats_df.loc[stats_df[anno] == np.unique(stats_df[anno])[1], 'rank'].values,
-                                    use_continuity=True, alternative='two-sided')  # TODO: think about use_continuity
-
-                                # rand index between the annotation and the clusters
-                                annot_clusters = annotations_df.loc[df.index, anno].values.flatten()
-
-                                # RI = round(adjusted_rand_score(annot_clusters, clusters), 2)
-
-                                # expanded_labels.append('{} (p={:.2f}, RI={:.2f})'.format(anno, p, RI))
+                            sample_colors_df = pd.Series(sample_colors.values(), index=sample_colors.keys())
+                            sample_colors_vc = sample_colors_df.value_counts()
+                            if 'black' in sample_colors_vc.index:
+                                n_black = sample_colors_vc.loc['black']
+                                sample_colors_vc = sample_colors_vc[sample_colors_vc.index != 'black']
                             else:
-                                r, p = spearmanr(stats_df[anno], stats_df['rank'])
-                                # cluster_optimization.append([method, species, r, p, stats_df.shape[0]])
+                                n_black = 0
+                            n_colors = len(sample_colors_vc)
 
-                                expanded_labels.append('{} (r={:.2f}, p={:.2f})'.format(anno, r, p))
+                            if n_colors == 0 or (n_colors == 1 and n_black < min_samples_per_strain):
+                                # nothing
+                                p = 1
+                                expanded_labels.append(anno)
+
+                            elif n_colors == 2 and n_black < min_samples_per_strain:
+                                # 1 vs 1
+                                color1 = sample_colors_vc.index[0]
+                                color2 = sample_colors_vc.index[1]
+                                if len(annotations_df[anno].unique()) == 2:
+                                    f_obs = (sample_colors_df[sample_colors_df != 'black'] == color1).to_frame().join(
+                                        annotations_df[anno], how='left').value_counts().unstack(anno).values
+                                    r, p, _, _ = chi2_contingency(f_obs, correction=True)
+                                else:
+                                    r, p = ttest_ind(
+                                        a=annotations_df.loc[sample_colors_df[sample_colors_df == color1].index, anno].values,
+                                        b=annotations_df.loc[sample_colors_df[sample_colors_df == color2].index, anno].values,
+                                        alternative='two-sided')
+                                expanded_labels.append(f'{anno} p={p:.2e}')
+
+                            else:
+                                # 1 vs all
+                                all_p = []
+                                anno_label = f'{anno}'
+                                for color in sample_colors_vc.index:
+                                    if len(annotations_df[anno].unique()) == 2:
+                                        f_obs = (sample_colors_df == color).to_frame().join(
+                                            annotations_df[anno], how='left').value_counts().unstack(anno).values
+                                        r, p, _, _ = chi2_contingency(f_obs, correction=True)
+                                    else:
+                                        r, p = ttest_ind(a=annotations_df.loc[sample_colors_df[sample_colors_df == color].index, anno].values,
+                                                         b=annotations_df.loc[sample_colors_df[sample_colors_df != color].index, anno].values,
+                                                         alternative='two-sided')
+                                    all_p.append(p)
+                                    anno_label = anno_label + f' {color}_p={p:.2e}'
+                                p = min(all_p)
+                                expanded_labels.append(anno_label)
 
                             is_significant.append(p)
 
@@ -2651,22 +2676,38 @@ if __name__ == '__main__':
                   alpha=0.05, detection_threshold=0.0001, dissimilarity_threshold=1 / 20000,
                   base_directory=os.getcwd())
 
+    study.params.colors = {'baseline': sns.color_palette()[1],
+                           '02_00_visit': sns.color_palette()[0],
+
+                           True: 'green',
+                           False: 'red',
+
+                           'Male': 'lightskyblue',
+                           'Female': 'lightpink',
+
+                           'Lifeline_Stool': sns.color_palette()[0],
+                           '10K': sns.color_palette()[0],
+                           'Lifeline_deep': sns.color_palette()[0], }
+
     study.objs['fclust'] = study.Object(obj_type='fclust', df=None, columns=None)
 
-    abund = pd.read_pickle(os.path.join('data_frames', 'abundance.df'))
+    meta = pd.read_pickle(os.path.join(study.dirs.data_frames, 'meta.df'))
+    meta['gender'] = meta['gender'].astype(float).replace(0, 'Female').replace(1, 'Male')
 
     min_samples = 500 if s != 'Lifeline_Stool' else 100
 
     with pd.HDFStore(os.path.join('data_frames', 'mb_dists.h5'), 'r') as hdf:
-        for key in ['Rep_778']:#hdf.keys():
+        for key in ['Rep_695']:#hdf.keys():
             study.objs['fclust'].df = hdf[key].xs('baseline', level='time_point1').xs('baseline', level='time_point2')
             study.objs['fclust'].df = study.objs['fclust'].df.join(
-                abund, on=['SampleName1', 'Species'], how='inner').join(
-                abund, on=['SampleName2', 'Species'], how='inner', lsuffix='1', rsuffix='2')
-            study.objs['fclust'].df = study.objs['fclust'].df.set_index(['abundance1', 'abundance2'], append=True)
+                meta[['age', 'gender']], on='SampleName1', how='inner').join(
+                meta[['age', 'gender']], on='SampleName2', how='inner', lsuffix='1', rsuffix='2')
+            study.objs['fclust'].df = study.objs['fclust'].df.set_index(['age1', 'gender1', 'age2', 'gender2'], append=True)
 
-            study.fig_snp_heatmap(obj=study.objs['fclust'], maximal_filling=0.1, minimal_samples=min_samples,
+            study.fig_snp_heatmap(obj=study.objs['fclust'], maximal_filling=0.1, minimal_samples=100,
                                   method='average',
                                   species=None, cmap='autumn', log_colors=False, add_hist=True, add_pairs=False,
-                                  annotations=['abundance'], annotations_cmaps={'abundance': 'binary'},
-                                  strain_var='/net/mraid08/export/mb/MBPipeline/Analyses/MBSNP/Gut/mb_sns_strain_variability_R3.h5')
+                                  annotations=['gender', 'age'],
+                                  annotations_cmaps={'age': 'Blues'},
+                                  strain_var='/net/mraid08/export/mb/MBPipeline/Analyses/MBSNP/Gut/mb_sns_strain_variability_R3.h5',
+                                  min_samples_per_strain=100, relative_change_threshold=0.05)
