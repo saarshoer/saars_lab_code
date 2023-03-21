@@ -38,7 +38,7 @@ from sklearn.decomposition import PCA
 from scipy.signal import find_peaks
 from scipy.spatial.distance import squareform
 from sklearn.metrics import adjusted_rand_score
-from scipy.cluster.hierarchy import linkage, fcluster, dendrogram
+from scipy.cluster.hierarchy import linkage, dendrogram
 
 # plots
 import seaborn as sns
@@ -1373,7 +1373,7 @@ class Study:
     def fig_snp_heatmap(self, obj, maximal_filling=0.25, minimal_samples=20, method='average',
                         species=None, cmap=None, log_colors=False,
                         annotations=None, annotations_cmaps=None, add_hist=True, add_pairs=True, strain_var=None,
-                        t=2, criterion='maxclust', depth=2, R=None, monocrit=None):
+                        min_samples_per_strain=50, relative_change_threshold=0.05):
         """
         Plot a heatmap based on the SNP dissimilarity data frame for each species
 
@@ -1492,22 +1492,36 @@ class Study:
                                        cbar_kws={'label': 'dissimilarity', 'orientation': 'horizontal', 'ticks': None})
                     # cbar ticks are None because otherwise in log scale there are no ticks
 
+                    # dissimilarity histograms with colored peaks
+                    if add_hist:
+                        diss_tril = g.data2d[~na_mask.loc[g.data2d.index, g.data2d.columns]].values
+                        diss_tril = diss_tril[np.tril_indices(n=diss_tril.shape[0], k=-1)]
+
+                        special_ax = inset_axes(g.ax_heatmap, width="40%", height=1.0, loc='lower left')
+                        bins_freq, _, patches = special_ax.hist(diss_tril, bins=50)
+                        peaks_bin, _ = find_peaks(bins_freq, height=0.2 * max(bins_freq), distance=8)
+                        [patches[bin].set_color('orange') for bin in peaks_bin]
+                        special_ax.set_title('dissimilarity distribution', color='white', fontsize='medium')
+                        special_ax.set_xticklabels([])
+                        special_ax.set_yticklabels([])
+
                     # define strains
-                    #df_linkage[df_linkage[:, 3] >= 100, 2].mean()
-                    clusters = fcluster(df_linkage, t=t, criterion=criterion, depth=depth, R=R, monocrit=monocrit)
-                    # TODO: optimize parameters
-
-                    # tree coloring
-                    samples_colors = [mpl.colors.rgb2hex(cm.Set1(c)[:3]) for c in clusters]
-
-                    # https://stackoverflow.com/questions/38153829/custom-cluster-colors-of-scipy-dendrogram-in-python-link-color-func
-                    # rows in df_linkage correspond to "inverted U" links that connect clusters
-                    # rows are ordered by increasing distance
-                    # if the colors of the connected clusters match, use that color for link
+                    strain_colors = [mpl.colors.rgb2hex(c) for c in cm.Set1.colors[:-1]]
+                    j = 1
                     link_colors = {}
-                    for i, i12 in enumerate(df_linkage[:, :2].astype(int)):
-                        c1, c2 = (link_colors[x] if x > len(df_linkage) else samples_colors[x] for x in i12)
-                        link_colors[i + 1 + len(df_linkage)] = c1 if c1 == c2 else 'black'
+                    for i, link in reversed(list(enumerate(df_linkage))):
+                        daddy = np.where(df_linkage[:, :2] == (i + len(df)))[0]
+                        daddy = daddy[0] if daddy.shape[0] == 1 else df_linkage.shape[0] - 1
+
+                        relative_change = 1 - link[2]/df_linkage[daddy, 2]
+
+                        if i != daddy and link_colors[daddy + len(df)] != 'black':
+                            link_colors[i + len(df)] = link_colors[daddy + len(df)]
+                        elif link[3] >= min_samples_per_strain and relative_change >= relative_change_threshold:
+                            link_colors[i + len(df)] = strain_colors[j % 7]
+                            j = j + 1
+                        else:
+                            link_colors[i + len(df)] = 'black'
 
                     # draw dendrograms
                     for ax, orientation in [(g.ax_col_dendrogram.axes, 'top'), (g.ax_row_dendrogram.axes, 'left')]:
@@ -1516,6 +1530,16 @@ class Study:
                             dendrogram(df_linkage, ax=ax, orientation=orientation, link_color_func=lambda x: link_colors[x])
                         ax.set_xticks([])
                         ax.set_yticks([])
+
+                        if orientation == 'left':
+                            ax.invert_yaxis()
+                            ax.set_ylabel(f'min_samples>={min_samples_per_strain}, relative_change>={relative_change_threshold}')
+                        else:
+                            ax.set_title(f'min_samples>={min_samples_per_strain}, relative_change>={relative_change_threshold}')
+
+                    sample_colors = {i: (s, link_colors[np.where(df_linkage[:, :2] == i)[0][0] + len(df)]) for i, s in enumerate(df.index)}
+                    sample_colors = {sample_colors[i][0]: sample_colors[i][1] for i in g.dendrogram_col.reordered_ind}
+                    # notice this can be confusing if we have more than 8 strains because the colors repeat
 
                     if pairs is not None:
                         pairs2plot = pairs.loc[species]
@@ -1546,11 +1570,11 @@ class Study:
                                     use_continuity=True, alternative='two-sided')  # TODO: think about use_continuity
 
                                 # rand index between the annotation and the clusters
-                                annot_clusters = annotations_df.loc[df.index, anno].values.flatten()  ####not clear
+                                annot_clusters = annotations_df.loc[df.index, anno].values.flatten()
 
-                                RI = round(adjusted_rand_score(annot_clusters, clusters), 2)  # TODO: optimize parameters
+                                # RI = round(adjusted_rand_score(annot_clusters, clusters), 2)
 
-                                expanded_labels.append('{} (p={:.2f}, RI={:.2f})'.format(anno, p, RI))
+                                # expanded_labels.append('{} (p={:.2f}, RI={:.2f})'.format(anno, p, RI))
                             else:
                                 r, p = spearmanr(stats_df[anno], stats_df['rank'])
                                 # cluster_optimization.append([method, species, r, p, stats_df.shape[0]])
@@ -1581,19 +1605,6 @@ class Study:
                     # position of dissimilarity legend
                     g.cax.set_position([.23, .06, .5, .01])
 
-                    # dissimilarity histograms with colored peaks
-                    if add_hist:
-                        diss_tril = g.data2d[~na_mask.loc[g.data2d.index, g.data2d.columns]].values
-                        diss_tril = diss_tril[np.tril_indices(n=diss_tril.shape[0], k=-1)]
-
-                        special_ax = inset_axes(g.ax_heatmap, width="40%", height=1.0, loc='lower left')
-                        bins_freq, _, patches = special_ax.hist(diss_tril, bins='auto')
-                        peaks_bin, _ = find_peaks(bins_freq)  # TODO: optimize
-                        [patches[bin].set_color('orange') for bin in peaks_bin]
-                        special_ax.set_title('dissimilarity distribution', color='white', fontsize='medium')
-                        special_ax.set_xticklabels([])
-                        special_ax.set_yticklabels([])
-
                     if not os.path.exists(os.path.join(self.dirs.figs, obj.type)):
                         os.makedirs(os.path.join(self.dirs.figs, obj.type))
                     plt.savefig(os.path.join(self.dirs.figs, obj.type, species), pad_inches=0.5)
@@ -1605,7 +1616,7 @@ class Study:
 
                     plt.close()
 
-                    return dict(zip(g.data2d.index, [clusters[i] for i in g.dendrogram_col.reordered_ind]))
+                    return sample_colors
 
         # return cluster_optimization
 
