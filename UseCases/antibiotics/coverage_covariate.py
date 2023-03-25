@@ -38,11 +38,15 @@ def do(f):
                 contig_counts = contig_counts.loc[contig_counts.index.get_level_values('Position').isin(contig_positions)]
                 contig_counts = contig_counts.unstack('Position')
 
+                if contig_counts.empty:
+                    continue
+
                 try:
                     coverage[contig] = coverage[contig].join(contig_counts, how='outer')
                 except ValueError:
+                    print(contig)
                     print(f'problematic positions {contig_counts.columns[contig_counts.columns.isin(coverage[contig].columns)]}')
-                    contig_counts = contig_counts[~contig_counts.columns.isin(coverage[contig].columns)]
+                    contig_counts = contig_counts.loc[:, ~contig_counts.columns.isin(coverage[contig].columns)]
                     coverage[contig] = coverage[contig].join(contig_counts, how='outer')
                 except KeyError:
                     coverage[contig] = contig_counts

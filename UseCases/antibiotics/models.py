@@ -8,8 +8,8 @@ from LabUtils.addloglevels import sethandlers
 from sklearn.model_selection import GridSearchCV
 
 from anti_mwas_functions import gen_cov_f, gen_y_f
-from anti_mwas import df_dir as train_df_dir
-from anti_mwas_lifeline import df_dir as test_df_dir
+# from anti_mwas import df_dir as train_df_dir
+# from anti_mwas_lifeline import df_dir as test_df_dir
 
 run_type = 'within'
 models_dir = 'models'

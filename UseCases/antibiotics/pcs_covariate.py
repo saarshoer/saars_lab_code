@@ -53,7 +53,14 @@ def do(f):
 
         maf_concat.to_hdf(os.path.join(os.path.dirname(run_dir), 'pcs_covariate', f'mb_snp_pcs_{species}.h5'), key='snps', complevel=9)
 
-        return pca.explained_variance_ratio_
+        if os.path.exists(os.path.join(os.path.dirname(run_dir), 'pcs_covariate', 'ev')):
+            with open(os.path.join(os.path.dirname(run_dir), 'pcs_covariate', 'ev'), 'rb') as f:
+                ev = pickle.load(f)
+        else:
+            ev = dict()
+        with open(os.path.join(os.path.dirname(run_dir), 'pcs_covariate', 'ev'), 'wb') as f:
+            ev[species] = pca.explained_variance_ratio_
+            pickle.dump(ev, f)
 
 
 if __name__ == '__main__':
@@ -72,16 +79,13 @@ if __name__ == '__main__':
         tested = glob.glob(os.path.join(run_dir, 'naive_hdfs', 'mb_gwas_Rep_*_Rep_*.h5'))
         for file in tested:
             s = f'Rep_{file.split("_")[-1].split(".")[0]}'
+            # if s in ['Rep_3056', 'Rep_3151', 'Rep_3145', 'Rep_490']:
             tkttores[s] = q.method(do, [file], _job_name=f'p{file.split("_")[-1].split(".")[0]}')
         print('finished sending jobs')
 
-        ev = dict()
-        with open(os.path.join(os.path.dirname(run_dir), 'pcs_covariate', 'ev'), 'wb') as f:
-            print('start waiting for jobs')
-            for k, v in tkttores.items():
-                ev[k] = q.waitforresult(v)
-                if (len(ev) % 10 == 0) | (len(ev) == len(tkttores)):
-                    pickle.dump(ev, f)
-            print('finished waiting for jobs')
+        print('start waiting for jobs')
+        for k, v in tkttores.items():
+            q.waitforresult(v)
+        print('finished waiting for jobs')
 
     print('done')

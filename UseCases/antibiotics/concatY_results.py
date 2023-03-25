@@ -1,14 +1,13 @@
-# concat by y
 import os
 import glob
-import pandas as pd
 from LabQueue.qp import qp, fakeqp
 from LabUtils.Utils import load_h5_files
 from LabUtils.addloglevels import sethandlers
 
+study = '10K'
+run_type = 'within'
 
-run_dir = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/10K/between/'
-counts = pd.read_hdf(os.path.join(run_dir, 'mb_gwas_counts.h5'))
+run_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{study}/{run_type}/'
 
 
 def rw(s, d):
@@ -31,7 +30,9 @@ with qp(jobname='concatY', _tryrerun=True) as q:
     tkttores = {}
 
     print('start sending jobs')
-    for species in set(counts.index.get_level_values('Y')):
+    ys = glob.glob(os.path.join(run_dir, 'raw_results', f'mb_gwas_Rep_*_Rep_*.h5'))
+    ys = set(['Rep_' + file.split('_')[-1].replace('.h5', '') for file in ys])
+    for species in ys:
         tkttores[species] = q.method(rw, (species, run_dir), _job_name=f'c{species.split("_")[-1]}')
     print('finished sending jobs')
 

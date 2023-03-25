@@ -9,7 +9,7 @@ from LabUtils.addloglevels import sethandlers
 
 pval_col = 'Pval'
 max_positions = 100
-abs_corr_cutoff = 0.7  # equivalent to the accepted r^2=0.5
+r2_cutoff = 0.5
 alpha = 0.05
 
 study = '10K'
@@ -47,7 +47,7 @@ def contig_clump(contig_snps, X, Y, names):
                 common_samples = set(data.get_group(new_snp).index) & set(data.get_group(sig_snp).index)
                 r, p = pearsonr(data.get_group(new_snp).loc[common_samples],
                                 data.get_group(sig_snp).loc[common_samples])
-                if (abs(r) >= abs_corr_cutoff) & (p < alpha):
+                if (r * r >= r2_cutoff) & (p < alpha):
                     add = False
                     break
         if add:
@@ -90,7 +90,7 @@ def clump(X, Y):
         for snp1 in sig_snps[:-i-1]:  # from strong to weak
             common_samples = set(data.get_group(snp1).index) & set(data.get_group(snp2).index)
             r, p = pearsonr(data.get_group(snp1).loc[common_samples], data.get_group(snp2).loc[common_samples])
-            if (abs(r) >= abs_corr_cutoff) & (p < alpha):
+            if (r * r >= r2_cutoff) & (p < alpha):
                 for snp in all_snps.keys():
                     if all_snps[snp] == snp2:
                         all_snps[snp] = snp1
