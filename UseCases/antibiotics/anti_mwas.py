@@ -38,9 +38,8 @@ class P:
     work_dir_suffix = jobname
 
     # species
-    species_set = snps.columns.tolist()
-    ignore_species = pd.read_hdf(os.path.join(os.path.dirname(df_dir), 'within', 'naive_counts.h5')).groupby(['Species']).sum()  # always within
-    ignore_species = ignore_species[ignore_species['N'] < 500].index.tolist()
+    species_set = pd.read_hdf(os.path.join(os.path.dirname(df_dir), 'within', 'naive_counts.h5')).groupby(['Species']).sum()  # always within
+    species_set = species_set[species_set['N'] >= 100].index.tolist()
     filter_by_species_existence = False
     species_blocks = 1  # most be 1 for this analysis, do not change!
 
