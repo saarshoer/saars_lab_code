@@ -6,7 +6,7 @@ from LabUtils.addloglevels import sethandlers
 from LabData.DataAnalyses.MBSNPs.MWAS import MWAS
 from anti_mwas_functions import gen_cov_f, gen_y_f
 
-study = '10K'########don't forget to change within LabData code
+study = '10K'########don't forget to change within LabData code, look for "/antibiotics"
 df_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{study}/data_frames'#/permuted'  # for both types of permutations
 
 

@@ -12,8 +12,6 @@ def gen_cov_f(df_dir, species, within):
 
     if not within:
         df2 = pd.read_pickle(os.path.join(df_dir, 'abundance.df'))[species]
-        # for second type of permutation
-        # df2 = pd.read_pickle(os.path.join(os.path.dirname(df_dir), 'abundance.df'))[species]
         df = df.join(df2.rename(columns={species[0]: 'abundance'}))
     return LoaderData(df, None)
 
