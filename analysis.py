@@ -1369,7 +1369,7 @@ class Study:
 
         return (pca_result, loadings), tsne_result, df
 
-    def fig_snp_heatmap(self, obj, maximal_filling=0.25, minimal_samples=20, method='average',
+    def fig_snp_heatmap(self, obj, maximal_filling=0.25, std_irregular=5, minimal_samples=20, method='average',
                         species=None, cmap=None, log_colors=False,
                         annotations=None, annotations_cmaps=None, add_hist=True, add_pairs=True, strain_var=None,
                         min_samples_per_strain=50, relative_change_threshold=0.05):
@@ -1446,6 +1446,15 @@ class Study:
             samples_mask = df.columns[df.isna().sum() < df.shape[0] * maximal_filling].values
             df = df.loc[samples_mask, samples_mask]
 
+            # throw away extremely irregular samples
+            mean_dist = df.sum() / (df.shape[0] - 1)  # -1 to not count zero distance with self
+            deviation = ((mean_dist - mean_dist.mean()) / mean_dist.std()).abs()
+            samples_mask = df.columns[deviation <= std_irregular].values
+
+            print(species, (df.shape[0]-len(samples_mask)))
+
+            df = df.loc[samples_mask, samples_mask]
+
             if df.shape[0] >= minimal_samples:
 
                 # find the dissimilarities that are still missing
@@ -1506,6 +1515,9 @@ class Study:
 
                     # define strains
                     strain_colors = [mpl.colors.rgb2hex(c) for c in cm.Set1.colors[:-1]]
+                    strain_colors_names = ['re', 'bl', 'gr', 'pu', 'or', 'ye', 'br', 'pi']
+                    strain_colors_names = dict(zip(strain_colors, strain_colors_names))
+                    strain_colors_names['black'] = 'black'
                     j = 1
                     link_colors = {}
                     for i, link in reversed(list(enumerate(df_linkage))):
@@ -1533,11 +1545,9 @@ class Study:
                         if orientation == 'left':
                             ax.invert_yaxis()
                             ax.set_ylabel(f'min_samples>={min_samples_per_strain}, relative_change>={relative_change_threshold}')
-                        else:
-                            ax.set_title(f'min_samples>={min_samples_per_strain}, relative_change>={relative_change_threshold}')
 
                     sample_colors = {i: (s, link_colors[np.where(df_linkage[:, :2] == i)[0][0] + len(df)]) for i, s in enumerate(df.index)}
-                    sample_colors = {sample_colors[i][0]: sample_colors[i][1] for i in g.dendrogram_col.reordered_ind}
+                    sample_colors = {sample_colors[i][0]: strain_colors_names[sample_colors[i][1]] for i in g.dendrogram_col.reordered_ind}
                     # notice this can be confusing if we have more than 8 strains because the colors repeat
 
                     if pairs is not None:
@@ -1586,7 +1596,7 @@ class Study:
                                         a=annotations_df.loc[sample_colors_df[sample_colors_df == color1].index, anno].values,
                                         b=annotations_df.loc[sample_colors_df[sample_colors_df == color2].index, anno].values,
                                         alternative='two-sided')
-                                expanded_labels.append(f'{anno} p={p:.2e}')
+                                expanded_labels.append(f'{anno} p={p:.0e}')
 
                             else:
                                 # 1 vs all
@@ -1602,7 +1612,7 @@ class Study:
                                                          b=annotations_df.loc[sample_colors_df[sample_colors_df != color].index, anno].values,
                                                          alternative='two-sided')
                                     all_p.append(p)
-                                    anno_label = anno_label + f' {color}_p={p:.2e}'
+                                    anno_label = anno_label + (f' {color}_p={p:.0e}' if n_colors > 1 else f' p={p:.0e}')
                                 p = min(all_p)
                                 expanded_labels.append(anno_label)
 
@@ -1614,8 +1624,8 @@ class Study:
                         g.ax_col_colors.set_yticklabels(expanded_labels)
 
                     # title
-                    title = '{}\n{}\n{}'.format(obj.type, segal_name(species), species)
-                    g.fig.suptitle(title)
+                    title = '{}\n{}\n{}'.format(obj.type, segal_name(species)[0], species)
+                    g.ax_col_dendrogram.set_title(title)
 
                     # annotations legend
                     for label in annotations_labels:
@@ -1628,7 +1638,7 @@ class Study:
                     g.ax_col_dendrogram.legend(ncol=1, frameon=False, bbox_to_anchor=(-0.035, 1))
 
                     # position of dissimilarity legend
-                    g.cax.set_position([.23, .06, .5, .01])
+                    g.cax.set_position([.26, .06, .5, .01])
 
                     if not os.path.exists(os.path.join(self.dirs.figs, obj.type)):
                         os.makedirs(os.path.join(self.dirs.figs, obj.type))
@@ -2669,7 +2679,7 @@ class _Parameters:
 
 
 if __name__ == '__main__':
-    s = '10K'#'Lifeline_Stool'#'Lifeline_deep'#
+    s = 'Lifeline_deep'#'10K'#'Lifeline_Stool'#
     os.chdir(os.path.join('/home/saarsh/Analysis/strains', s))
 
     study = Study(study=s, controls={'time_point': 'baseline'}, colors=None,
@@ -2697,7 +2707,7 @@ if __name__ == '__main__':
     min_samples = 500 if s != 'Lifeline_Stool' else 100
 
     with pd.HDFStore(os.path.join('data_frames', 'mb_dists.h5'), 'r') as hdf:
-        for key in ['Rep_695']:#hdf.keys():
+        for key in ['Rep_721']:#hdf.keys():
             study.objs['fclust'].df = hdf[key].xs('baseline', level='time_point1').xs('baseline', level='time_point2')
             study.objs['fclust'].df = study.objs['fclust'].df.join(
                 meta[['age', 'gender']], on='SampleName1', how='inner').join(
@@ -2710,4 +2720,4 @@ if __name__ == '__main__':
                                   annotations=['gender', 'age'],
                                   annotations_cmaps={'age': 'Blues'},
                                   strain_var='/net/mraid08/export/mb/MBPipeline/Analyses/MBSNP/Gut/mb_sns_strain_variability_R3.h5',
-                                  min_samples_per_strain=100, relative_change_threshold=0.05)
+                                  min_samples_per_strain=50, relative_change_threshold=0.05)
