@@ -13,12 +13,12 @@ r2_cutoff = 0.5
 alpha = 0.05
 
 study = '10K'
-run_type = 'between'
+run_type = 'within'
 
 base_path = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{study}/{run_type}'
 sig_file = os.path.join(base_path, 'mb_gwas_significant.h5')
 data_file = os.path.join(base_path, 'raw_data', 'mb_gwas_{X}_{Y}.h5' if run_type == 'within' else 'mb_gwas_Rep_all_{Y}.h5')
-clump_file = os.path.join(base_path, 'clumping72', 'mb_gwas_{X}_{Y}.pkl')
+clump_file = os.path.join(base_path, 'clumping', 'mb_gwas_{X}_{Y}.pkl')
 
 
 def get_data(X, Y, names):
@@ -41,6 +41,7 @@ def contig_clump(contig_snps, X, Y, names):
 
     for new_snp in contig_snps:
         add = True
+        sig_snp = None
         for sig_snp in contig_sig_snps:
             if (new_snp[2].split('_')[1] == sig_snp[2].split('_')[1]) & (
                     abs((new_snp[3] - sig_snp[3])) <= max_positions):
@@ -69,18 +70,11 @@ def clump(X, Y):
     sig_snps = []
     all_snps = {}
 
-    with qp(jobname='RBKNcSlumping', _tryrerun=True, _mem_def='20G') as q:
-        q.startpermanentrun()
-        tkttores = {}
+    for contig, contig_df in sig_df.groupby('Contig', as_index=False):
+        contig_sig_snps, contig_all_snps = contig_clump(contig_df.index, X, Y, sig_df.index.names)
 
-        for contig, contig_df in sig_df.groupby('Contig', as_index=False):
-            tkttores[contig] = q.method(contig_clump, (contig_df.index, X, Y, sig_df.index.names))
-
-        for k, v in tkttores.items():
-            contig_sig_snps, contig_all_snps = q.waitforresult(v)
-
-            sig_snps = sig_snps + contig_sig_snps
-            all_snps.update(contig_all_snps)
+        sig_snps = sig_snps + contig_sig_snps
+        all_snps.update(contig_all_snps)
 
     sig_snps = sig_df.loc[sig_snps].sort_values(pval_col, ascending=True).index.tolist()
 
@@ -109,9 +103,9 @@ if __name__ == '__main__':
     os.chdir(jobs_dir)
     sethandlers(file_dir=jobs_dir)
 
-    os.makedirs(os.path.dirname(clump_file))#, exist_ok=True)
+    os.makedirs(os.path.dirname(clump_file))
 
-    with qp(jobname='BKclumping', _tryrerun=True, _mem_def='100G') as q:
+    with qp(jobname='clumping', _tryrerun=True, _mem_def='20G') as q:
         q.startpermanentrun()
         tkttores = {}
 
@@ -121,8 +115,7 @@ if __name__ == '__main__':
         print('start sending jobs')
         runs = significant_df.reset_index()[['Species', 'Y']].drop_duplicates().reset_index(drop=True)
         for i, (speciesX, speciesY) in runs.iterrows():
-            if not os.path.exists(clump_file.replace('72', '7').replace('{X}', speciesX).replace('{Y}', speciesY)):
-                tkttores[i] = q.method(clump, (speciesX, speciesY))
+            tkttores[i] = q.method(clump, (speciesX, speciesY))
         print('finished sending jobs')
 
         print('start waiting for jobs')
@@ -138,5 +131,5 @@ if __name__ == '__main__':
                 run_results = pickle.load(f)
             significant_df.loc[run_results.keys()] = significant_df.loc[run_results.keys()].assign(
                 clumping=run_results.values())
-        significant_df.to_hdf(sig_file.replace('.h5', '_clumping72.h5'), key='snps')
+        significant_df.to_hdf(sig_file.replace('.h5', '_clumping.h5'), key='snps')
         print('finished df update')
