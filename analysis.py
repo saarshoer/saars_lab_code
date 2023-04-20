@@ -1369,9 +1369,10 @@ class Study:
 
         return (pca_result, loadings), tsne_result, df
 
-    def fig_snp_heatmap(self, obj, maximal_filling=0.25, std_irregular=5, minimal_samples=20, method='average',
+    def fig_snp_heatmap(self, obj, maximal_filling=0.1, std_irregular=5, minimal_samples=100, method='average',
                         species=None, cmap=None, log_colors=False,
-                        annotations=None, annotations_cmaps=None, add_hist=True, add_pairs=True, strain_var=None,
+                        col_annots=None, col_annots_cmaps=None, col_annots_covariates=None,
+                        add_hist=True, add_pairs=True, row_annots=None,
                         min_samples_per_strain=50, relative_change_threshold=0.05):
         """
         Plot a heatmap based on the SNP dissimilarity data frame for each species
@@ -1384,44 +1385,45 @@ class Study:
         :param species: (list) species to plot
         :param cmap: (str) dissimilarity color map name
         :param log_colors: (bool) whether to set the heatmap colors to log scale
-        :param annotations: (list of str) columns to annotate by
-        :param annotations_cmaps: (dict) key; annotation column name, value: color map name
+        :param col_annots: (list of str) columns to annotate by
+        :param col_annots_cmaps: (dict) key; annotation column name, value: color map name
         :param add_hist: (bool) whether to add dissimilarity histograms with colored peaks
         :param add_hist: (bool) whether to add arrows between pairs of samples of the same individual
-        :param strain_var: (str) path to strain variability data frame
+        :param row_annots: (str) path to strain variability data frame
 
         :return: None
         """
 
         full_df = obj.df.copy()
-        colors_df = None
-        annotations_df = None
-        annotations_labels = []
-        strain_var = pd.read_hdf(strain_var) if strain_var is not None else None
+        col_colors = None
+        col_annots_df = None
+        coll_annots_labels = []
+        col_annots_covariates = col_annots_covariates if col_annots_covariates is not None else []
+        row_annots = {name: pd.read_hdf(file) for name, file in row_annots.items()} if row_annots is not None else None
         pairs = None
         # cluster_optimization = []
 
-        if annotations is not None:
+        if col_annots is not None:
             # create all the annotation data for the colored bars
-            annotations_df = full_df
-            annotations_df = annotations_df.reset_index()[[s for s in annotations_df.index.names if '1' in s]] \
+            col_annots_df = full_df
+            col_annots_df = col_annots_df.reset_index()[[s for s in col_annots_df.index.names if '1' in s]] \
                 .drop_duplicates().set_index('SampleName1')  # take only sample1 metadata
-            annotations_df.columns = annotations_df.columns.str.rstrip('1')  # remove 1 suffix from the names
-            annotations_df = annotations_df[annotations]  # limit the annotation to these categories
-            annotations_df = annotations_df.iloc[~annotations_df.index.duplicated()]  # drop duplicated samples
-            annotations_labels = []
-            colors_df = annotations_df.copy()
+            col_annots_df.columns = col_annots_df.columns.str.rstrip('1')  # remove 1 suffix from the names
+            col_annots_df = col_annots_df[col_annots]  # limit the annotation to these categories
+            col_annots_df = col_annots_df.iloc[~col_annots_df.index.duplicated()]  # drop duplicated samples
+            coll_annots_labels = []
+            col_colors = col_annots_df.copy()
             # replace values with corresponding colors
-            for col in colors_df.columns:
-                if len(set(colors_df[col]) - set(self.params.colors.keys())) > 0:  # most probably continuous
+            for col in col_colors.columns:
+                if len(set(col_colors[col]) - set(self.params.colors.keys())) > 0:  # most probably continuous
                     m = cm.ScalarMappable(
-                        norm=colors.Normalize(vmin=colors_df[col].min(), vmax=colors_df[col].max()),
-                        cmap=annotations_cmaps[col] if (annotations_cmaps is not None) & (col in annotations_cmaps.keys())
+                        norm=colors.Normalize(vmin=col_colors[col].min(), vmax=col_colors[col].max()),
+                        cmap=col_annots_cmaps[col] if (col_annots_cmaps is not None) & (col in col_annots_cmaps.keys())
                              else None)
-                    colors_df[col] = colors_df[col].apply(m.to_rgba).to_frame()
+                    col_colors[col] = col_colors[col].apply(m.to_rgba).to_frame()
                 else:  # discrete
-                    annotations_labels = annotations_labels + list(np.unique(colors_df[col].values))
-                    colors_df[col] = colors_df[col].replace(self.params.colors)
+                    coll_annots_labels = coll_annots_labels + list(np.unique(col_colors[col].values))
+                    col_colors[col] = col_colors[col].replace(self.params.colors)
 
         if add_pairs and 'person1' in list(full_df.index.names) \
                      and 'time_point1' in list(full_df.index.names) \
@@ -1451,8 +1453,6 @@ class Study:
             deviation = ((mean_dist - mean_dist.mean()) / mean_dist.std()).abs()
             samples_mask = df.columns[deviation <= std_irregular].values
 
-            print(species, (df.shape[0]-len(samples_mask)))
-
             df = df.loc[samples_mask, samples_mask]
 
             if df.shape[0] >= minimal_samples:
@@ -1481,19 +1481,21 @@ class Study:
                     # to the heatmap well as it should
                     # https://github.com/mwaskom/seaborn/pull/1830/files
 
-                    if strain_var is not None:
-                        m = cm.ScalarMappable(
-                            norm=mpl.colors.Normalize(vmin=0, vmax=strain_var.loc[samples_mask, species].max()), cmap=cm.binary)
-                        species_colors_df = strain_var.loc[samples_mask, species].map(m.to_rgba).to_frame().rename(columns={species: ' '})
-                        if colors_df is not None:
-                            species_colors_df = colors_df.join(species_colors_df)
-                    else:
-                        species_colors_df = colors_df
+                    row_colors = None
+                    if row_annots is not None:
+                        # replace values with corresponding colors
+                        for name, file in row_annots.items():
+                            m = cm.ScalarMappable(
+                                norm=mpl.colors.Normalize(vmin=file.loc[samples_mask, species].min(),
+                                                          vmax=file.loc[samples_mask, species].max()),
+                                cmap=cm.binary)
+                            new_row_colors = file.loc[samples_mask, species].map(m.to_rgba).to_frame(name)
+                            row_colors = row_colors.join(new_row_colors, how='inner') if row_colors is not None else new_row_colors.copy()
 
                     norm = LogNorm(df.min().min(), df.max().max(), clip=False) if log_colors else None
 
                     g = sns.clustermap(df, row_linkage=df_linkage, col_linkage=df_linkage,
-                                       row_colors=species_colors_df, col_colors=species_colors_df,
+                                       row_colors=row_colors, col_colors=col_colors,
                                        mask=na_mask,
                                        xticklabels=False, yticklabels=False,
                                        cmap=cmap, norm=norm,
@@ -1544,7 +1546,6 @@ class Study:
 
                         if orientation == 'left':
                             ax.invert_yaxis()
-                            ax.set_ylabel(f'min_samples>={min_samples_per_strain}, relative_change>={relative_change_threshold}')
 
                     sample_colors = {i: (s, link_colors[np.where(df_linkage[:, :2] == i)[0][0] + len(df)]) for i, s in enumerate(df.index)}
                     sample_colors = {sample_colors[i][0]: strain_colors_names[sample_colors[i][1]] for i in g.dendrogram_col.reordered_ind}
@@ -1565,9 +1566,49 @@ class Study:
                     is_significant = []
 
                     # statistical test
-                    if annotations:
+                    if col_annots:
 
-                        for anno in annotations:
+                        # def significance(c1, c2=None):
+                        #
+                        #     if len(col_annots_df[anno].unique()) == 2:
+                        #         condition = sample_colors_df == c1 if c2 is None else \
+                        #             sample_colors_df[sample_colors_df != 'black'] == c1
+                        #         f_obs = condition.to_frame().join(col_annots_df[anno], how='left')
+                        #         f_obs = f_obs.value_counts().unstack(anno).values
+                        #         r, p, _, _ = chi2_contingency(f_obs, correction=True)
+                        #
+                        #     else:
+                        #         condition = sample_colors_df != c1 if c2 is None else sample_colors_df == c2
+                        #         r, p = ttest_ind(
+                        #             a=col_annots_df.loc[sample_colors_df[sample_colors_df == c1].index, anno].values,
+                        #             b=col_annots_df.loc[sample_colors_df[condition].index, anno].values,
+                        #             alternative='two-sided')
+                        #
+                        #     return p
+
+                        def significance(c1, c2=None):
+
+                            if len(col_annots_df[anno].unique()) == 2:
+                                model = Logit
+                                data4model = sample_colors_df == c1 if c2 is None else \
+                                             sample_colors_df[sample_colors_df != 'black'] == c1
+                            else:
+                                model = OLS
+                                data4model = sample_colors_df == c1 if c2 is None else \
+                                             sample_colors_df.loc[sample_colors_df.isin([c1, c2])] == c1
+
+                            data4model = data4model.to_frame('strain').join(col_annots_df[list(set(col_annots_covariates + [anno]))], how='inner').assign(constant=1)
+                            data4model = data4model.replace({False: 0, True: 1, 'Female': 0, 'Male': 1})
+
+                            results = model(data4model[anno], data4model.loc[:, data4model.columns != anno], missing='drop').fit()
+
+                            r2 = results.prsquared if len(col_annots_df[anno].unique()) == 2 else results.rsquared
+                            if r2 > 0:
+                                return results.params['strain'], results.pvalues['strain']
+                            else:
+                                return 0, 1
+
+                        for anno in col_annots:
                             # statistics
                             sample_colors_df = pd.Series(sample_colors.values(), index=sample_colors.keys())
                             sample_colors_vc = sample_colors_df.value_counts()
@@ -1587,48 +1628,35 @@ class Study:
                                 # 1 vs 1
                                 color1 = sample_colors_vc.index[0]
                                 color2 = sample_colors_vc.index[1]
-                                if len(annotations_df[anno].unique()) == 2:
-                                    f_obs = (sample_colors_df[sample_colors_df != 'black'] == color1).to_frame().join(
-                                        annotations_df[anno], how='left').value_counts().unstack(anno).values
-                                    r, p, _, _ = chi2_contingency(f_obs, correction=True)
-                                else:
-                                    r, p = ttest_ind(
-                                        a=annotations_df.loc[sample_colors_df[sample_colors_df == color1].index, anno].values,
-                                        b=annotations_df.loc[sample_colors_df[sample_colors_df == color2].index, anno].values,
-                                        alternative='two-sided')
-                                expanded_labels.append(f'{anno} p={p:.0e}')
+                                r, p = significance(color1, color2)
+                                expanded_labels.append(f'{anno} ~ c={r:.1f} p={p:.0e}')
 
                             else:
                                 # 1 vs all
                                 all_p = []
-                                anno_label = f'{anno}'
+                                anno_label = f'{anno} ~'
                                 for color in sample_colors_vc.index:
-                                    if len(annotations_df[anno].unique()) == 2:
-                                        f_obs = (sample_colors_df == color).to_frame().join(
-                                            annotations_df[anno], how='left').value_counts().unstack(anno).values
-                                        r, p, _, _ = chi2_contingency(f_obs, correction=True)
-                                    else:
-                                        r, p = ttest_ind(a=annotations_df.loc[sample_colors_df[sample_colors_df == color].index, anno].values,
-                                                         b=annotations_df.loc[sample_colors_df[sample_colors_df != color].index, anno].values,
-                                                         alternative='two-sided')
+                                    r, p = significance(color)
                                     all_p.append(p)
-                                    anno_label = anno_label + (f' {color}_p={p:.0e}' if n_colors > 1 else f' p={p:.0e}')
+                                    anno_label = anno_label + (f' {color} c={r:.1f} p={p:.0e}' if n_colors > 1 else f' c={r:.1f} p={p:.0e}')
                                 p = min(all_p)
                                 expanded_labels.append(anno_label)
 
                             is_significant.append(p)
 
-                    if strain_var is not None:
-                        expanded_labels.append(f'variable positions (max {int(strain_var.loc[samples_mask, species].max() * 100)}%)')
+                    for st, bo in zip(expanded_labels, [p < self.params.alpha for p in is_significant]):
+                        if bo:
+                            print(st)
+
                     if len(expanded_labels) > 0:
                         g.ax_col_colors.set_yticklabels(expanded_labels)
 
                     # title
-                    title = '{}\n{}\n{}'.format(obj.type, segal_name(species)[0], species)
+                    title = '{}\n{}\n{}'.format(obj.type, species, segal_name(species)[0])
                     g.ax_col_dendrogram.set_title(title)
 
                     # annotations legend
-                    for label in annotations_labels:
+                    for label in coll_annots_labels:
                         g.ax_col_dendrogram.bar(0, 0, color=self.params.colors[label], label=label, linewidth=0)
 
                     # position of plot
@@ -2717,7 +2745,7 @@ if __name__ == '__main__':
             study.fig_snp_heatmap(obj=study.objs['fclust'], maximal_filling=0.1, minimal_samples=100,
                                   method='average',
                                   species=None, cmap='autumn', log_colors=False, add_hist=True, add_pairs=False,
-                                  annotations=['gender', 'age'],
-                                  annotations_cmaps={'age': 'Blues'},
-                                  strain_var='/net/mraid08/export/mb/MBPipeline/Analyses/MBSNP/Gut/mb_sns_strain_variability_R3.h5',
+                                  col_annots=['gender', 'age'],
+                                  col_annots_cmaps={'age': 'Blues'}, col_annots_covariates=['age', 'gender'],
+                                  row_annots={'variability': '/net/mraid08/export/mb/MBPipeline/Analyses/MBSNP/Gut/mb_sns_strain_variability_R3.h5'},
                                   min_samples_per_strain=50, relative_change_threshold=0.05)
