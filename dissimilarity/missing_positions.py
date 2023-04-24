@@ -45,12 +45,12 @@ def do(species):
     study.objs['test'].df = study.objs['test'].df.set_index(['abundance1', 'abundance2'], append=True)
 
     # dissimilarity
-    samples = study.fig_snp_heatmap(obj=study.objs['test'], maximal_filling=0.1, minimal_samples=100,###
+    samples = study.fig_snp_heatmap(obj=study.objs['test'], maximal_filling=0.1, minimal_samples=100,  ###
                                     method='average',
                                     species=None, cmap='autumn', log_colors=False,
-                                    annotations=['abundance'], annotations_cmaps={'abundance': 'binary'},
+                                    col_annots=['abundance'], col_annots_cmaps={'abundance': 'binary'},
                                     add_hist=True, add_pairs=False,
-                                    strain_var=strain_var)
+                                    row_annots=strain_var)
 
  #    samples = ['22001804503980_v2_fullrun',
  # '22001804503091_v2_fullrun',

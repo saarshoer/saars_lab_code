@@ -13,22 +13,22 @@ all_contigs['Species'] = 'Rep_' + all_contigs['contig'].str.split('_').str[1]
 all_contigs['contig_id'] = all_contigs['contig'].str.split('_').str[-1].astype(int)
 all_contigs = all_contigs.set_index(['Species', 'contig_id'])['len'].sort_values().to_frame('contig_len')*-1
 
-dna_genes = pd.read_csv('/net/mraid08/export/jafar/Microbiome/Analyses/saar/dna_genes.csv')
-dna_genes['Species'] = 'Rep_' + dna_genes['Species'].astype(str)
-dna_genes = dna_genes.set_index(['Species', 'contig_id', 'start_pos'])
-
-mobilome = pd.read_csv('/net/mraid08/export/jafar/Microbiome/Analyses/saar/mobilome.csv')
-mobilome = mobilome.set_index(['GeneID'])
+# dna_genes = pd.read_csv('/net/mraid08/export/jafar/Microbiome/Analyses/saar/dna_genes.csv')
+# dna_genes['Species'] = 'Rep_' + dna_genes['Species'].astype(str)
+# dna_genes = dna_genes.set_index(['Species', 'contig_id', 'start_pos'])
+#
+# mobilome = pd.read_csv('/net/mraid08/export/jafar/Microbiome/Analyses/saar/mobilome.csv')
+# mobilome = mobilome.set_index(['GeneID'])
 
 
 def color_by_coef(sp_df: pd.DataFrame, **kwargs):
-    sp_df = sp_df.join(dna_genes[dna_genes.index.get_level_values('Species').isin(sp_df.index.get_level_values('Species'))],
-                       on=['Species', 'contig_id', 'Position'], how='outer')  # before contig to be ordered
+    # sp_df = sp_df.join(dna_genes[dna_genes.index.get_level_values('Species').isin(sp_df.index.get_level_values('Species'))],
+    #                    on=['Species', 'contig_id', 'Position'], how='outer')  # before contig to be ordered
     sp_df = sp_df.join(all_contigs, on=['Species', 'contig_id']).sort_values(['contig_len', 'contig_id', 'Position'])
     sp_df = sp_df.reset_index().drop_duplicates().set_index(sp_df.index.names)
 
     if kwargs['draw_col'] != kwargs['pval_col']:
-        sp_df = sp_df[(sp_df[kwargs['pval_col']] < kwargs['pval_cutoff']) | (~sp_df['dna'].isna())]
+        sp_df = sp_df[(sp_df[kwargs['pval_col']] < kwargs['pval_cutoff'])]# | (~sp_df['dna'].isna())
         if 'coef' in kwargs['draw_col'].lower():
             sp_df[kwargs['coef_col']] = sp_df[kwargs['coef_col']]*MAF_1_VALUE
 
@@ -47,7 +47,7 @@ def color_by_coef(sp_df: pd.DataFrame, **kwargs):
     if 'validation_level' in sp_df.columns:
         d['linewidths'] = (sp_df['validation_level'] == 'CI overlap').replace({True: 1, False: 0})
     else:
-        d['linewidths'] = 1
+        d['linewidths'] = 0
 
     d['facecolor'] = (sp_df['Coef'] > 0).map(color_dict)
     if 'feature_importance' in sp_df.columns:
@@ -60,8 +60,8 @@ def color_by_coef(sp_df: pd.DataFrame, **kwargs):
         d['facecolor'].loc[is_clumping_rep] = [(c[0], c[1], c[2], 0.8) for c in d['facecolor'].loc[is_clumping_rep]]
         d['facecolor'].loc[~is_clumping_rep] = [(c[0], c[1], c[2], 0.2) for c in d['facecolor'].loc[~is_clumping_rep]]
         d['alpha'] = None
-        if 'text' in sp_df.columns:
-            sp_df.loc[~is_clumping_rep, 'text'] = None
+        # if 'text' in sp_df.columns:
+        #     sp_df.loc[~is_clumping_rep, 'text'] = None
     else:
         d['alpha'] = 0.5
     d['facecolor'] = d['facecolor'].values
@@ -71,21 +71,22 @@ def color_by_coef(sp_df: pd.DataFrame, **kwargs):
 
     if (sp_df.index.get_level_values('Y') == sp_df.index.get_level_values('Species')).any():
 
-        sp_df['tick'] = '|contig start\ndna gene\nmobilome' if 'GeneID' in sp_df.columns else '|contig start\ndna gene'
+        sp_df['tick'] = '|contig start'
+        # sp_df['tick'] = '|contig start\ndna gene\nmobilome' if 'GeneID' in sp_df.columns else '|contig start\ndna gene'
 
         # contigs
         sp_df['tick'][1:] = sp_df['contig_id'][1:].values != sp_df['contig_id'][:-1].values
-        sp_df['tick'] = sp_df['tick'].replace({True: '|\n', False: '\n'})
+        sp_df['tick'] = sp_df['tick'].replace({True: '|', False: ''})#{True: '|\n', False: '\n'}
 
-        # dna genes
-        sp_df['tick'] = sp_df['tick'] + sp_df['dna'].fillna('') + '\n'
-
-        # mobilome
-        if 'GeneID' in sp_df.columns:
-            sp_df = sp_df.join(mobilome, on='GeneID')
-            sp_df['tick'] = sp_df['tick'] + sp_df['mobilome'].fillna('')
-
-        sp_df['tick'] = sp_df['tick'].replace({'\n\n': None})
+        # # dna genes
+        # sp_df['tick'] = sp_df['tick'] + sp_df['dna'].fillna('') + '\n'
+        #
+        # # mobilome
+        # if 'GeneID' in sp_df.columns:
+        #     sp_df = sp_df.join(mobilome, on='GeneID')
+        #     sp_df['tick'] = sp_df['tick'] + sp_df['mobilome'].fillna('')
+        #
+        # sp_df['tick'] = sp_df['tick'].replace({'\n\n': None})
         d['tick'] = sp_df['tick']
 
     if kwargs['legend_elements'] is None:
@@ -114,7 +115,7 @@ def text_func(df: pd.DataFrame, **kwargs):
                         f"validated SNPs"
     if 'feature_importance' in df.columns:
         text = text + f"\n{(df['feature_importance'].fillna(0) != 0).sum():,}/{n_sig} effective SNPs"
-    elif 'clumping' in df.columns:
+    elif 'clumping' in df.columns and n_sig != '0':
         text = text + f"\n{df['clumping'].unique().shape[0]:,}/{n_sig} independent SNPs"
 
     if (df['Y'] != df['Species']).any():
@@ -135,20 +136,19 @@ if __name__ == '__main__':
 
     ydata_fname = os.path.join(os.path.dirname(input_dir), 'data_frames', 'abundance.df')
 
-    # mwas_df = pd.read_hdf(os.path.join(input_dir, 'mb_gwas_significant_validation_clumping.h5'))[['Pval', 'clumping']]#'validation_level'
-    # # mwas_df = mwas_df[mwas_df.index.get_level_values('Y') == 'Rep_959']
-    # annotations_df = pd.read_hdf(os.path.join(input_dir, 'snps_gene_annotations_short.h5'))[['GeneID', 'text']]
-    # ######perhaps take only annotation of clumped snps - perhaps not - inside function filters just for reps
-    # mwas_df = mwas_df.join(annotations_df)
-    # del annotations_df
-    #
-    # if not data_plots:
-    #     group_text = pd.DataFrame(mwas_df.sort_values('Pval').groupby(['Y', 'Species', 'GeneID']).apply(
-    #         lambda g: g.reset_index()[list(mwas_df.index.names) + ['GeneID']].iloc[0].tolist() + [
-    #             f'{g["text"].fillna("").iloc[0]}'+(f'({g.shape[0]})' if g.shape[0] > 1 else '')]).tolist(),
-    #                 columns=list(mwas_df.index.names) + ['GeneID', 'text']).set_index(mwas_df.index.names)
-    #     mwas_df = mwas_df.drop(['GeneID', 'text'], axis=1).join(group_text)
-    # mwas_df = mwas_df.drop(['Pval'], axis=1)
+    mwas_df = pd.read_hdf(os.path.join(input_dir, 'mb_gwas_significant_clumping.h5'))[['Pval', 'clumping']]#'validation_level'
+    # mwas_df = mwas_df[mwas_df.index.get_level_values('Y') == 'Rep_959']
+    annotations_df = pd.read_hdf(os.path.join(input_dir, 'snps_gene_annotations_short.h5'))[['GeneID', 'text']]
+    mwas_df = mwas_df.join(annotations_df)
+    del annotations_df
+
+    if not data_plots:
+        group_text = pd.DataFrame(mwas_df.sort_values('Pval').groupby(['Y', 'Species', 'GeneID']).apply(
+            lambda g: g.reset_index()[list(mwas_df.index.names) + ['GeneID']].iloc[0].tolist() + [
+                f'{g["text"].fillna("").iloc[0]}'+(f'({g.shape[0]})' if g.shape[0] > 1 else '')]).tolist(),
+                    columns=list(mwas_df.index.names) + ['GeneID', 'text']).set_index(mwas_df.index.names)
+        mwas_df = mwas_df.drop(['GeneID', 'text'], axis=1).join(group_text)
+    mwas_df = mwas_df.drop(['Pval'], axis=1)
 
     counts = pd.read_hdf(os.path.join(input_dir, 'mb_gwas_counts.h5'))
     alpha = 0.01/counts.sum().iloc[0]
@@ -165,15 +165,15 @@ if __name__ == '__main__':
         tkttores = {}
 
         print('start sending jobs')
-        for mwas_fname in glob.glob(os.path.join(output_dir, 'raw_hdfs', 'mb_gwas_Rep_*_Rep_*.h5')):
+        for mwas_fname in glob.glob(os.path.join(input_dir, 'raw_hdfs', 'mb_gwas_Rep_*_Rep_*.h5')):
             data_fname = mwas_fname.replace('raw_hdfs', 'raw_data')
             if data_plots & ~os.path.exists(data_fname):
                 continue
             kwargs = {'mwas_fname': mwas_fname if not data_plots else None,
                       'data_fname': data_fname if data_plots else None,
                       'ydata_fname': ydata_fname,
-                      'out_dir': os.path.join(output_dir, 'species'),
-                      'annotations_df': None,#mwas_df,
+                      'out_dir': output_dir,
+                      'annotations_df': mwas_df,
                       'manhattan_draw_func': color_by_coef,
                       'manhattan_text_func': text_func,
                       'r2_col': 'R2',

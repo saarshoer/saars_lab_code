@@ -5,9 +5,9 @@ from LabUtils.Utils import load_h5_files
 from LabUtils.addloglevels import sethandlers
 
 study = '10K'
-run_type = 'within'
+run_type = 'between'  # always
 
-run_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{study}/{run_type}/'
+run_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{study}/{run_type}'
 look_dir = f'/net/mraid08/export/genie/LabData/Analyses/saarsh/*_{study}_anti_mwas_{run_type}'
 
 
