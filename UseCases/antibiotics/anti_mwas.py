@@ -7,7 +7,7 @@ from LabData.DataAnalyses.MBSNPs.MWAS import MWAS
 from anti_mwas_functions import gen_cov_f, gen_y_f
 
 study = '10K'########don't forget to change within LabData code, look for "/antibiotics"
-df_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{study}/data_frames'#/permuted'  # for both types of permutations
+df_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{study}/data_frames'
 
 
 class P:
@@ -22,7 +22,7 @@ class P:
     cov_cols = ['CONSTANT', 'age', 'gender', 'coverage'] + [f'PC{int(i)+1}' for i in np.arange(20)]
     if not within:
         cov_cols = cov_cols + ['abundance']
-    permute = 'permute' in df_dir
+    permute = False
 
     countries = None
     collect_data = False
