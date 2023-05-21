@@ -71,7 +71,7 @@ if __name__ == '__main__':
 
     os.makedirs(os.path.join(os.path.dirname(run_dir), 'pcs_covariate'))
 
-    with qp(jobname='pcscov', _tryrerun=True, _delete_csh_withnoerr=True, _mem_def='30G') as q:
+    with qp(jobname='pcscov', _tryrerun=True, _delete_csh_withnoerr=True, _mem_def='50G', _num_reruns=5) as q:
         q.startpermanentrun()
         tkttores = {}
 
