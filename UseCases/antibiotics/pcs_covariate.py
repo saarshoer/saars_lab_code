@@ -79,7 +79,6 @@ if __name__ == '__main__':
         tested = glob.glob(os.path.join(run_dir, 'naive_hdfs', 'mb_gwas_Rep_*_Rep_*.h5'))
         for file in tested:
             s = f'Rep_{file.split("_")[-1].split(".")[0]}'
-            # if s in ['Rep_3056', 'Rep_3151', 'Rep_3145', 'Rep_490']:
             tkttores[s] = q.method(do, [file], _job_name=f'p{file.split("_")[-1].split(".")[0]}')
         print('finished sending jobs')
 

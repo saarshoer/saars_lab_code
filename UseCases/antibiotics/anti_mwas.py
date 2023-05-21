@@ -18,7 +18,7 @@ class P:
     body_site = 'Gut'
     study_ids = [study]
 
-    within = True#########don't forget to change the mem_def accordingly
+    within = True#########don't forget to change the mem_def in LabData accordingly
     cov_cols = ['CONSTANT', 'age', 'gender', 'coverage'] + [f'PC{int(i)+1}' for i in np.arange(20)]
     if not within:
         cov_cols = cov_cols + ['abundance']
@@ -42,7 +42,7 @@ class P:
     species_set = species_set[species_set['N'] >= 100].index.tolist()
     ignore_species = None
     filter_by_species_existence = False
-    species_blocks = 1  # most be 1 for this analysis, do not change!
+    species_blocks = 1  # must be 1 for this analysis, do not change!
 
     # subjects
     subjects_loaders = ['SubjectLoader']
@@ -63,8 +63,6 @@ class P:
     min_on_minor_per_snp = 50  # Min number of analyzed samples with a minor allele
     min_subjects_per_snp = 500
     snp_set = pd.read_hdf(os.path.join(os.path.dirname(df_dir), 'within' if within else 'between', 'mb_gwas_significant.h5'))[[]] if collect_data else None
-    # snp_set = snp_set.loc[snp_set.index.get_level_values('Species').isin([])]  # collect data make up
-    # snp_set = snp_set.groupby('Species').apply(lambda data: data.iloc[:int(data.shape[0]/2)]).droplevel(0)
 
     # covariates
     covariate_gen_f = lambda species: gen_cov_f(df_dir, species, P.within)

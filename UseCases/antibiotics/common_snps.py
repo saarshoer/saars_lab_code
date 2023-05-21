@@ -28,7 +28,7 @@ for i, file in enumerate(common_files):
     dfs.append(df)
 
     if (run_type == 'between') & (i % part == 0) & (i != 0):
-        pd.concat(dfs).to_hdf(os.path.join(base_path, f'common_snps_{run_type}_pt{int(i/part+1)}.h5'), key='snps', complevel=9)
+        pd.concat(dfs).to_hdf(os.path.join(base_path, f'common_snps_{run_type}_pt{int(i/part)}.h5'), key='snps', complevel=9)
         dfs = []
 
 if run_type == 'within':

@@ -13,14 +13,17 @@ def gen_cov_f(df_dir, species, within):
     if not within:
         df2 = pd.read_pickle(os.path.join(df_dir, 'abundance.df'))[species]
         df = df.join(df2.rename(columns={species[0]: 'abundance'}))
+
     return LoaderData(df, None)
 
 
 def gen_y_f(df_dir, species, within):
     df = pd.read_pickle(os.path.join(df_dir, 'abundance.df'))
+
     if within:
         df = df[species]
     else:
         if species[0] in df.columns:
             df = df.drop(species[0], axis=1)
+
     return LoaderData(df, None)

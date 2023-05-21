@@ -1,7 +1,6 @@
 import os
 import glob
 import pickle
-import numpy as np
 import pandas as pd
 from scipy.stats import pearsonr
 from LabQueue.qp import qp, fakeqp
@@ -64,7 +63,6 @@ def clump(X, Y):
 
     sig_df = pd.read_hdf(sig_file)
     sig_df = sig_df[(sig_df.index.get_level_values('Species') == X) & (sig_df.index.get_level_values('Y') == Y)]
-    # sig_df = pd.concat([sig_df.head(100), sig_df.tail(5)])
     sig_df = sig_df.sort_values(pval_col, ascending=True)
 
     sig_snps = []
@@ -110,7 +108,6 @@ if __name__ == '__main__':
         tkttores = {}
 
         significant_df = pd.read_hdf(sig_file)
-        # significant_df = significant_df[significant_df.index.get_level_values('Species') == 'Rep_595']
 
         print('start sending jobs')
         runs = significant_df.reset_index()[['Species', 'Y']].drop_duplicates().reset_index(drop=True)
