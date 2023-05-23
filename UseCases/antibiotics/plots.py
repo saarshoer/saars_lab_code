@@ -50,18 +50,18 @@ def color_by_coef(sp_df: pd.DataFrame, **kwargs):
         d['linewidths'] = 0
 
     d['facecolor'] = (sp_df['Coef'] > 0).map(color_dict)
-    if 'feature_importance' in sp_df.columns:
-        is_important = sp_df['feature_importance'] > 0
-        d['facecolor'].loc[is_important] = [(c[0], c[1], c[2], 0.8) for c in d['facecolor'].loc[is_important]]
-        d['facecolor'].loc[~is_important] = [(c[0], c[1], c[2], 0.2) for c in d['facecolor'].loc[~is_important]]
-        d['alpha'] = None
-    elif 'clumping' in sp_df.columns:
+    if 'clumping' in sp_df.columns:
         is_clumping_rep = sp_df.index == sp_df['clumping']
         d['facecolor'].loc[is_clumping_rep] = [(c[0], c[1], c[2], 0.8) for c in d['facecolor'].loc[is_clumping_rep]]
         d['facecolor'].loc[~is_clumping_rep] = [(c[0], c[1], c[2], 0.2) for c in d['facecolor'].loc[~is_clumping_rep]]
         d['alpha'] = None
         # if 'text' in sp_df.columns:
         #     sp_df.loc[~is_clumping_rep, 'text'] = None
+    elif 'feature_importance' in sp_df.columns:
+        is_important = sp_df['feature_importance'] > 0
+        d['facecolor'].loc[is_important] = [(c[0], c[1], c[2], 0.8) for c in d['facecolor'].loc[is_important]]
+        d['facecolor'].loc[~is_important] = [(c[0], c[1], c[2], 0.2) for c in d['facecolor'].loc[~is_important]]
+        d['alpha'] = None
     else:
         d['alpha'] = 0.5
     d['facecolor'] = d['facecolor'].values
@@ -80,12 +80,12 @@ def color_by_coef(sp_df: pd.DataFrame, **kwargs):
 
         # # dna genes
         # sp_df['tick'] = sp_df['tick'] + sp_df['dna'].fillna('') + '\n'
-        #
+
         # # mobilome
         # if 'GeneID' in sp_df.columns:
         #     sp_df = sp_df.join(mobilome, on='GeneID')
         #     sp_df['tick'] = sp_df['tick'] + sp_df['mobilome'].fillna('')
-        #
+
         # sp_df['tick'] = sp_df['tick'].replace({'\n\n': None})
         d['tick'] = sp_df['tick']
 
@@ -105,21 +105,25 @@ def color_by_coef(sp_df: pd.DataFrame, **kwargs):
 
 def text_func(df: pd.DataFrame, **kwargs):
     df = df.reset_index().drop_duplicates(list(df.index.names))
-    n_sig = f"{sum(df[kwargs['pval_col']] <= kwargs['pval_cutoff']):,}"
+    is_sig = df[kwargs['pval_col']] <= kwargs['pval_cutoff']
+    n_sig = f"{sum(is_sig):,}"
 
-    text = f"{df['N'].mean():,.0f}±{df['N'].std():,.0f} samples per SNP\n" + \
-           f"{n_sig}/{df.shape[0]:,} significant SNPs"
-    if 'validation_level' in df.columns:
-        text = text + f"\n{df[df['validation_level'] == 'CI overlap'].shape[0]:,}/" + \
-                      f"{df[df['validation_level'] != 'not tested'].shape[0]:,} " + \
-                        f"validated SNPs"
-    if 'feature_importance' in df.columns:
-        text = text + f"\n{(df['feature_importance'].fillna(0) != 0).sum():,}/{n_sig} effective SNPs"
-    elif 'clumping' in df.columns and n_sig != '0':
-        text = text + f"\n{df['clumping'].unique().shape[0]:,}/{n_sig} independent SNPs"
+    text = ""
 
     if (df['Y'] != df['Species']).any():
-        text = f"{df.shape[0]:,} SNPs in {df['Species'].unique().shape[0]:,} species\n" + text
+        text = f"{df['Species'].unique().shape[0]:,} species\n" + text
+
+    text = text + f"{df['N'].mean():,.0f}±{df['N'].std():,.0f} samples per SNP\n"\
+
+    text = text + f"{n_sig}/{df.shape[0]:,} significant SNPs\n"
+
+    if 'clumping' in df.columns and n_sig != '0':
+        text = text + f"{df['clumping'].unique().shape[0]:,}/{n_sig} independent SNPs\n"
+
+    if 'validation_level' in df.columns:
+        text = text + f"{df[is_sig & (df['validation_level'] == 'CI overlap')].shape[0]:,}/" + \
+                      f"{df[is_sig & (df['validation_level'] != 'not tested')].shape[0]:,} " + \
+                        f"validated SNPs"
 
     return text
 
@@ -136,8 +140,7 @@ if __name__ == '__main__':
 
     ydata_fname = os.path.join(os.path.dirname(input_dir), 'data_frames', 'abundance.df')
 
-    mwas_df = pd.read_hdf(os.path.join(input_dir, 'mb_gwas_significant_clumping.h5'))[['Pval', 'clumping']]#'validation_level'
-    # mwas_df = mwas_df[mwas_df.index.get_level_values('Y') == 'Rep_959']
+    mwas_df = pd.read_hdf(os.path.join(input_dir, 'mb_gwas_significant_clumping_validation.h5'))[['Pval', 'clumping', 'validation_level']]
     annotations_df = pd.read_hdf(os.path.join(input_dir, 'snps_gene_annotations_short.h5'))[['GeneID', 'text']]
     mwas_df = mwas_df.join(annotations_df)
     del annotations_df
