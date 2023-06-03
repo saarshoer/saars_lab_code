@@ -11,11 +11,14 @@ from anti_mwas_functions import gen_cov_f, gen_y_f
 # from anti_mwas import df_dir as train_df_dir
 # from anti_mwas_lifeline import df_dir as test_df_dir
 
+study = '10K'
 run_type = 'within'
 models_dir = 'models'
 
+train_df_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{study}/data_frames'
+
 train_run_dir = os.path.join(os.path.dirname(train_df_dir), run_type)
-test_run_dir = os.path.join(os.path.dirname(test_df_dir), run_type)
+# test_run_dir = os.path.join(os.path.dirname(test_df_dir), run_type)
 
 
 def create_model(train, test, fname=None):
@@ -38,15 +41,16 @@ def create_model(train, test, fname=None):
         test_score = model.score(x_test, y_test)
     else:
         test_score = None
-    return test_score, model.best_score_, model.best_estimator_.feature_importances_
+    # return test_score,
+    return model.best_score_, model.best_estimator_.feature_importances_
 
 
 def score_models(sy, sx):
     
     def get_data(run_dir, df_dir):
         file1 = os.path.join(run_dir, 'raw_data', f'mb_gwas_{sx if run_type == "within" else "Rep_all"}_{sy}.h5')
-        file2 = os.path.join(run_dir, 'raw_data_not_sig', f'mb_gwas_{sx if run_type == "within" else "Rep_all"}_{sy}.h5')
-        files = [file1] if df_dir == train_df_dir else [file1, file2]
+        # file2 = os.path.join(run_dir, 'raw_data_not_sig', f'mb_gwas_{sx if run_type == "within" else "Rep_all"}_{sy}.h5')
+        files = [file1]# if df_dir == train_df_dir else [file1, file2]
         xdata = []
         for file in files:
             if os.path.exists(file):
@@ -56,7 +60,7 @@ def score_models(sy, sx):
         xdata['Position'] = xdata.index.get_level_values('Position').astype(int)
         xdata = xdata.reset_index('Position', drop=True).set_index('Position', append=True)
         xdata = xdata['MAF'].unstack('SampleName').T
-        sig_df = pd.read_hdf(os.path.join(train_run_dir, 'mb_gwas_significant_validation_clumping.h5'))
+        sig_df = pd.read_hdf(os.path.join(train_run_dir, 'mb_gwas_significant_clumping_validation.h5'))
         sig_df = sig_df[sig_df.index == sig_df['clumping']]
         xdata = xdata.loc[:, sig_df[(sig_df.index.get_level_values('Y') == sy) &
                                     (sig_df.index.get_level_values('Species') == sx)].index]
@@ -75,10 +79,12 @@ def score_models(sy, sx):
     # test_data = get_data(test_run_dir, test_df_dir)[0][train_data.columns]
 
     results = {}
-    results['validation_base_score'], results['base_score'], _ = create_model(train_data.iloc[:, -n_covariates-1:], None, f'{sx}_{sy}_base.json')
-    results['validation_snps_score'], results['snps_score'], results['feature_importance'] = create_model(train_data, None, f'{sx}_{sy}_snps.json')
+    # results['validation_base_score'],
+    results['base_score'], _ = create_model(train_data.iloc[:, -n_covariates-1:], None, f'{sx}_{sy}_base.json')
+    # results['validation_snps_score'],
+    results['snps_score'], results['feature_importance'] = create_model(train_data, None, f'{sx}_{sy}_snps.json')
     results['feature_importance'] = results['feature_importance'][:-n_covariates]
-    results['feature_names'] = train_data.columns[:-n_covariates-1]
+    results['feature_name'] = train_data.columns[:-n_covariates-1]
 
     results_file = os.path.join(train_run_dir, models_dir, f'{sx}_{sy}.pkl')
     with open(results_file, 'wb') as f:
@@ -94,13 +100,12 @@ if __name__ == "__main__":
 
     os.makedirs(os.path.join(train_run_dir, models_dir))
 
-    with qp(jobname=f'RK{run_type[0]}models', _tryrerun=True, _mem_def='10G') as q:
+    with qp(jobname=f'{run_type[0]}models', _tryrerun=True, _mem_def='10G') as q:
         q.startpermanentrun()
         tkttores = {}
 
-        sig_df = pd.read_hdf(os.path.join(train_run_dir, 'mb_gwas_significant_validation_clumping.h5')).assign(feature_importance=None)
+        sig_df = pd.read_hdf(os.path.join(train_run_dir, 'mb_gwas_significant_clumping_validation.h5')).assign(feature_importance=None)
         sig_df = sig_df[sig_df.index == sig_df['clumping']]
-        # sig_df = sig_df[sig_df.index.get_level_values('Species') == 'Rep_595']
 
         print('start sending jobs')
         for i, (speciesY, speciesX) in sig_df.reset_index()[['Y', 'Species']].drop_duplicates().iterrows():
@@ -114,14 +119,16 @@ if __name__ == "__main__":
         print('finished waiting for jobs')
 
         print('start df update')
+        # reading again on purpose so to not have only clumped snps
+        sig_df = pd.read_hdf(os.path.join(train_run_dir, 'mb_gwas_significant_clumping_validation.h5')).assign(feature_importance=None)
         models = pd.DataFrame(columns=['Y', 'Species', 'base_score', 'snps_score'])#'validation_base_score', 'validation_snps_score',
         results_files = glob.glob(os.path.join(train_run_dir, models_dir, f'*_*.pkl'))
         for r_file in results_files:
             with open(r_file, 'rb') as f:
                 r = pickle.load(f)
-            sig_df.loc[r['feature_names'], 'feature_importance'] = r['feature_importance']
+            sig_df.loc[r['feature_name'], 'feature_importance'] = r['feature_importance']
             new_row = models.shape[0]
-            models.loc[new_row, ['Y', 'Species']] = r['feature_names'][0][0], r['feature_names'][0][1]
+            models.loc[new_row, ['Y', 'Species']] = r['feature_name'][0][0], r['feature_name'][0][1]
             # models.loc[new_row, 'validation_base_score'] = r['validation_base_score']
             # models.loc[new_row, 'validation_snps_score'] = r['validation_snps_score']
             models.loc[new_row, 'base_score'] = r['base_score']
@@ -129,5 +136,5 @@ if __name__ == "__main__":
         models = models.set_index(['Y', 'Species']).dropna(how='all', axis=1)
         models[['base_score', 'snps_score']] = models[['base_score', 'snps_score']].astype(float)
         models.to_hdf(os.path.join(train_run_dir, f'{models_dir}.h5'), key='snps', complevel=9)
-        sig_df.to_hdf(os.path.join(train_run_dir, f'mb_gwas_significant_validation_clumping_{models_dir}.h5'), key='snps', complevel=9)
+        sig_df.to_hdf(os.path.join(train_run_dir, f'mb_gwas_significant_clumping_validation_{models_dir}.h5'), key='snps', complevel=9)
         print('finished df update')
