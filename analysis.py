@@ -28,7 +28,7 @@ from xgboost import XGBClassifier, XGBRegressor
 from sklearn.metrics import r2_score, roc_auc_score
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.linear_model import LinearRegression, LogisticRegression, Lasso
-from sklearn.model_selection import RepeatedKFold, train_test_split, GridSearchCV
+from sklearn.model_selection import RepeatedStratifiedKFold, train_test_split, GridSearchCV
 
 # dimensionality reduction
 from sklearn.manifold import TSNE
@@ -91,7 +91,7 @@ class Study:
         rcParams['savefig.format'] = fig_format  # {png, ps, pdf, svg}
 
         # Jobs
-        # sethandlers(file_dir=self.dirs.jobs)
+        sethandlers(file_dir=self.dirs.jobs)
 
     class Object:
 
@@ -873,13 +873,17 @@ class Study:
 
             # conversion
             x = np.array(x)
-            y = np.array(y)
+            y = np.array(y).flatten()
 
             # check if column is classifiable in order to know which model to use
             if sorted(np.unique(y)) == [0, 1] or sorted(np.unique(y)) == [False, True] \
                     or not all([np.issubdtype(type(val[0]), np.number) for val in y]):
                 classifiable = True
                 score_func = roc_auc_score
+                le = LabelEncoder()
+                le = le.fit(y)
+                y = le.transform(y)
+
             else:
                 classifiable = False
                 score_func = r2_score
@@ -904,9 +908,10 @@ class Study:
 
             # gradient boosting decision tree model
             elif model_type == 'xgb' and classifiable:
-                model_instance = XGBClassifier(**direct_hyper_params)
+                model_instance = XGBClassifier(eval_metric='logloss' if len(set(y)) ==2 else 'mlogloss',
+                                               use_label_encoder=False, n_jobs=2, **direct_hyper_params)
             elif model_type == 'xgb' and not classifiable:
-                model_instance = XGBRegressor(objective='reg:squarederror', **direct_hyper_params)
+                model_instance = XGBRegressor(objective='reg:squarederror', n_jobs=2, **direct_hyper_params)
                 # objective='reg:squarederror' is the default and is written explicitly just to avoid a warning
 
             # linear discriminant analysis
@@ -923,15 +928,15 @@ class Study:
             # create K folds of the data and do for each fold
             number_of_splits = len(x) if n_splits == -1 else n_splits
 
-            kf = RepeatedKFold(n_splits=number_of_splits, n_repeats=n_repeats, random_state=random_state) \
+            kf = RepeatedStratifiedKFold(n_splits=number_of_splits, n_repeats=n_repeats, random_state=random_state) \
                 if number_of_splits != 1 else None  # TODO: not sure if this is good for grid search
 
             # grid search mode
             if len(search_hyper_params) != 0:  # TODO: will probably not work with stats models
 
-                model = GridSearchCV(model_instance, search_hyper_params, cv=kf, scoring=score_func)
+                model = GridSearchCV(model_instance, search_hyper_params, cv=kf, scoring=score_func, n_jobs=2)
 
-                x_train, x_test, y_train, y_test = train_test_split(x, y,
+                x_train, x_test, y_train, y_test = train_test_split(x, y, stratify=y,
                                                                     test_size=1/number_of_splits,
                                                                     random_state=random_state)
 
@@ -941,7 +946,7 @@ class Study:
             # not grid search mode
             else:
 
-                for train_index, test_index in kf.split(x) \
+                for train_index, test_index in kf.split(X=x, y=y) \
                         if kf is not None else [[np.arange(len(y)), np.arange(len(y))]]:
                     x_train, x_test = x[train_index], x[test_index]
                     y_train, y_test = y[train_index], y[test_index]
@@ -956,7 +961,15 @@ class Study:
                         y_true.append(y_test)
                         y_pred.append(model.predict(x_test))
                     else:
-                        scores.append(score_func(y_test, model.predict(x_test)))
+                        try:
+                            if len(set(y_test)) == 1:
+                                scores.append(np.nan)
+                            elif len(set(y_test)) == 2:
+                                scores.append(score_func(y_test, model.predict(x_test)))
+                            else:
+                                scores.append(score_func(y_test, model.predict_proba(x_test), multi_class='ovr'))
+                        except:
+                            scores.append(np.nan)
 
             r_pearson = p_pearson = r_spearman = p_spearman = None
             if abs(n_splits) == 1:
@@ -1060,7 +1073,7 @@ class Study:
         excel_path = os.path.join(self.dirs.excels,
                                   'models {} {}{} {}.xlsx'.format(xobj.type, yobj.type, saving_str, model_type))
         excel_writer = pd.ExcelWriter(excel_path)
-        scores_df.to_excel(excel_writer, freeze_panes=(1, 1))
+        scores_df.reset_index().to_excel(excel_writer, freeze_panes=(1, 1))
         excel_writer.save()
         excel_writer.close()
 
@@ -2707,7 +2720,7 @@ class _Parameters:
 
 
 if __name__ == '__main__':
-    s = 'Lifeline_deep'#'10K'#'Lifeline_Stool'#
+    s = '10K'#'Lifeline_deep'#'Lifeline_Stool'#
     os.chdir(os.path.join('/home/saarsh/Analysis/strains', s))
 
     study = Study(study=s, controls={'time_point': 'baseline'}, colors=None,
@@ -2727,25 +2740,52 @@ if __name__ == '__main__':
                            '10K': sns.color_palette()[0],
                            'Lifeline_deep': sns.color_palette()[0], }
 
-    study.objs['fclust'] = study.Object(obj_type='fclust', df=None, columns=None)
-
     meta = pd.read_pickle(os.path.join(study.dirs.data_frames, 'meta.df'))
-    meta['gender'] = meta['gender'].astype(float).replace(0, 'Female').replace(1, 'Male')
+    strains = pd.read_pickle(os.path.join(study.dirs.data_frames, 'strains.df'))
 
-    min_samples = 500 if s != 'Lifeline_Stool' else 100
+    body_systems = [
+        'blood_lipids',
+        'body_composition',
+        'bone_density',
+        'cardiovascular_system',
+        'diet',
+        'diet_questions',
+        'frailty',
+        'glycemic_status',
+        'hematopoietic_system',
+        'immune_system',
+        'lifestyle',
+        'liver',
+        'medical_conditions',
+        'medications',
+    #     'microbiome',
+        'renal_function',
+        'sleep']
 
-    with pd.HDFStore(os.path.join('data_frames', 'mb_dists.h5'), 'r') as hdf:
-        for key in ['Rep_721']:#hdf.keys():
-            study.objs['fclust'].df = hdf[key].xs('baseline', level='time_point1').xs('baseline', level='time_point2')
-            study.objs['fclust'].df = study.objs['fclust'].df.join(
-                meta[['age', 'gender']], on='SampleName1', how='inner').join(
-                meta[['age', 'gender']], on='SampleName2', how='inner', lsuffix='1', rsuffix='2')
-            study.objs['fclust'].df = study.objs['fclust'].df.set_index(['age1', 'gender1', 'age2', 'gender2'], append=True)
+    cols = []
+    for col in strains.columns:
+        vc = strains[col].value_counts()
+        if len(vc) > 1 and vc.iloc[1] >= 50:
+            cols.append(col)
+    print(len(cols))
 
-            study.fig_snp_heatmap(obj=study.objs['fclust'], maximal_filling=0.1, minimal_samples=100,
-                                  method='average',
-                                  species=None, cmap='autumn', log_colors=False, add_hist=True, add_pairs=False,
-                                  col_annots=['gender', 'age'],
-                                  col_annots_cmaps={'age': 'Blues'}, col_annots_covariates=['age', 'gender'],
-                                  row_annots={'variability': '/net/mraid08/export/mb/MBPipeline/Analyses/MBSNP/Gut/mb_sns_strain_variability_R3.h5'},
-                                  min_samples_per_strain=50, relative_change_threshold=0.05)
+    study.objs['strains'] = study.Object(obj_type='strains', df=strains[cols], columns='species')
+
+    for system in body_systems:
+        print(system)
+
+        study.objs[system] = study.Object(obj_type=system, df=None, columns='features')
+        study.objs[system].df = pd.read_csv(os.path.join('data_frames', 'body_systems', 'Xs', f'{system}.csv'),
+                                            index_col=0).drop('gender', axis=1)
+        study.objs[system].df = meta.rename(columns={'gender': 'sex'})[['age', 'sex', 'RegistrationCode']].loc[
+            meta['research_stage'] == 'baseline'].join(
+            study.objs[system].df, on='RegistrationCode').drop('RegistrationCode', axis=1)
+
+        study.score_models(xobj=study.objs[system], yobj=study.objs['strains'], cobj=None, join_on='index',
+                           all_features=True, delta=False, add_constant=False, minimal_samples=100,
+                           model_type='xgb', regularized=False, n_repeats=1, n_splits=3, random_state=42,
+                           hyper_parameters=None, send2queue=False, save=False)
+
+        break
+
+    #####hyperparameters
