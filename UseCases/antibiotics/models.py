@@ -25,7 +25,7 @@ def create_model(train, test, fname=None):
 
     x_train, y_train = train.iloc[:, :-1], train.iloc[:, -1]
 
-    model = GridSearchCV(xgb.XGBRegressor(random_state=42, n_jobs=1), refit=True, cv=5,
+    model = GridSearchCV(xgb.XGBRegressor(random_state=42, n_jobs=1), refit=True, cv=5,###can be stratified
                          param_grid={
                              'n_estimators': [1000],
                              'learning_rate': [0.01, 0.05],
