@@ -934,7 +934,7 @@ class Study:
             # grid search mode
             if len(search_hyper_params) != 0:  # TODO: will probably not work with stats models
 
-                model = GridSearchCV(model_instance, search_hyper_params, cv=kf, scoring=score_func, n_jobs=2)
+                model = GridSearchCV(model_instance, search_hyper_params, cv=kf, scoring='roc_auc_ovr', refit=True, n_jobs=2)
 
                 x_train, x_test, y_train, y_test = train_test_split(x, y, stratify=y,
                                                                     test_size=1/number_of_splits,
@@ -961,15 +961,16 @@ class Study:
                         y_true.append(y_test)
                         y_pred.append(model.predict(x_test))
                     else:
-                        try:
-                            if len(set(y_test)) == 1:
-                                scores.append(np.nan)
-                            elif len(set(y_test)) == 2:
-                                scores.append(score_func(y_test, model.predict(x_test)))
-                            else:
-                                scores.append(score_func(y_test, model.predict_proba(x_test), multi_class='ovr'))
-                        except:
-                            scores.append(np.nan)
+                        scores.append(score_func(y_test, model.predict_proba(x_test), multi_class='ovr'))
+                        # try:
+                        #     if len(set(y_test)) == 1:
+                        #         scores.append(np.nan)
+                        #     elif len(set(y_test)) == 2:
+                        #         scores.append(score_func(y_test, model.predict(x_test)))
+                        #     else:
+                        #         scores.append(score_func(y_test, model.predict_proba(x_test), multi_class='ovr'))
+                        # except:
+                        #     scores.append(np.nan)
 
             r_pearson = p_pearson = r_spearman = p_spearman = None
             if abs(n_splits) == 1:
@@ -983,19 +984,27 @@ class Study:
             # save the model
             if save:
 
-                model = copy.deepcopy(model_instance)
-
-                if model_type == 'linear_stats':
-                    model = model(y_train, x_train).fit_regularized() if regularized else model(y_train, x_train).fit()
-                else:
-                    model.fit(x, y)  # TODO: if tuning hyper parameters best params should be used here
-
-                pickle.dump(model, open(os.path.join(self.dirs.models,
+                model_file_name = os.path.join(self.dirs.models,
                                                      f'model_' +
                                                      f'{xobj.type}_{x_col if not all_features else "all_features_"}' \
                                                      f'{yobj.type}_{y_col}_' +
-                                                     f'{saving_str}_{model_type}.sav'), 'wb'))
-                # model = pickle.load(open('model.sav', 'rb'))  # this is how you read a model
+                                                     f'{saving_str}_{model_type}.sav')
+
+                if len(search_hyper_params) == 0:
+
+                    model = copy.deepcopy(model_instance)
+
+                    if model_type == 'linear_stats':
+                        model = model(y, x).fit_regularized() if regularized else model(y, x).fit()
+                    else:
+                        model = model.fit(x, y)
+
+                    pickle.dump(model, open(model_file_name, 'wb'))
+                    # model = pickle.load(open('model.sav', 'rb'))  # this is how you read a model
+
+                else:
+
+                    pickle.dump(model.best_estimator_, open(model_file_name, 'wb'))
 
             return [scores, r_pearson, p_pearson, r_spearman, p_spearman]
 
@@ -1038,7 +1047,7 @@ class Study:
         os.chdir(self.dirs.jobs)
         queue = qp if send2queue else fakeqp
 
-        with queue(jobname='model', _delete_csh_withnoerr=True, q=['himem7.q']) as q:
+        with queue(jobname='model', _delete_csh_withnoerr=True, q=['himem7.q'], _tryrerun=True) as q:
 
             q.startpermanentrun()
             tkttores = {}
@@ -2765,14 +2774,21 @@ if __name__ == '__main__':
     cols = []
     for col in strains.columns:
         vc = strains[col].value_counts()
+
+        # so there would not be labels with less than n_repeats or just not worth predicting
+        for c in (vc < 50).replace(False, np.nan).dropna().index:
+            strains[col] = strains[col].replace(c, np.nan)
+        vc = strains[col].value_counts()
+
+        # so there will be at least two valid labels
         if len(vc) > 1 and vc.iloc[1] >= 50:
             cols.append(col)
-    print(len(cols))
+    len(cols)
 
     study.objs['strains'] = study.Object(obj_type='strains', df=strains[cols], columns='species')
 
-    for system in body_systems:
-        print(system)
+    for system in body_systems[::-1]:
+        system
 
         study.objs[system] = study.Object(obj_type=system, df=None, columns='features')
         study.objs[system].df = pd.read_csv(os.path.join('data_frames', 'body_systems', 'Xs', f'{system}.csv'),
@@ -2784,8 +2800,20 @@ if __name__ == '__main__':
         study.score_models(xobj=study.objs[system], yobj=study.objs['strains'], cobj=None, join_on='index',
                            all_features=True, delta=False, add_constant=False, minimal_samples=100,
                            model_type='xgb', regularized=False, n_repeats=1, n_splits=3, random_state=42,
-                           hyper_parameters=None, send2queue=False, save=False)
-
-        break
-
-    #####hyperparameters
+                           send2queue=False, save=True,
+                           hyper_parameters={
+                               'n_estimators': [1000],
+                               'learning_rate': [0.01, 0.005, 0.001],
+                               'max_depth': [2, 5, 10],
+                               'min_child_weight': range(20, 100, 20),
+                               'max_leaves': range(0, 36, 5),
+                               'colsample_bytree': [i / 10. for i in range(1, 3)],
+                               'subsample': [i / 10 for i in range(4, 9, 2)]})
+    #                        hyper_parameters={
+    #                            'n_estimators': range(100, 2500, 50),
+    #                            'learning_rate': [0.1, 0.05, 0.02, 0.015, 0.01, 0.0075, 0.005, 0.002, 0.001, 0.0005, 0.0001],
+    #                            'max_depth': [-1, 2, 3, 4, 5, 10, 20, 40, 50],
+    #                            'min_child_weight': range(1, 80, 5),
+    #                            'max_leaves': range(0, 35),
+    #                            'colsample_bytree': [i / 10. for i in range(1, 6)],
+    #                            'subsample': [i / 10. for i in range(2, 11)]})
