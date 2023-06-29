@@ -8,7 +8,7 @@ from LabQueue.qp import qp, fakeqp
 from LabUtils.addloglevels import sethandlers
 from LabData.DataLoaders.MBSNPLoader import MAF_MISSING_VALUE
 
-study = '10K'
+study = 'Lifeline_deep'
 min_periods = 50
 method = 'pearson'
 # min_reads_per_snp = 3
@@ -105,7 +105,7 @@ if __name__ == '__main__':
 
     os.makedirs(res_dir, exist_ok=True)
 
-    with qp(jobname='LK', _tryrerun=True, _delete_csh_withnoerr=True, _mem_def='10G', max_r=100) as q:
+    with qp(jobname='LL', _tryrerun=True, _delete_csh_withnoerr=True, _mem_def='10G', max_r=100) as q:
         q.startpermanentrun()
         tkttores = {}
 
@@ -115,7 +115,7 @@ if __name__ == '__main__':
 
         print('start sending jobs')
         for s, c in sc:
-            tkttores[f'{s}_{c}'] = q.method(do, [s, c], _job_name=f'lk{s.split("_")[-1]}')
+            tkttores[f'{s}_{c}'] = q.method(do, [s, c], _job_name=f'll{s.split("_")[-1]}')
         print('finished sending jobs')
 
         print('start waiting for jobs')
