@@ -77,7 +77,7 @@ class P:
     min_on_non_freq_val_for_y = 50
 
     # p-value
-    max_pval_to_report = 10**-5 if permute else 1
+    max_pval_to_report = 10**-7 if permute else 1
     max_pval_to_detailed = None
 
     # others
