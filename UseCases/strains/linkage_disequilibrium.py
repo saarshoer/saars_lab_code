@@ -40,7 +40,8 @@ def do(species, contig=None):
         maf_filtered = maf_filtered.dropna(how='all', axis=0).dropna(how='all', axis=1)
 
         maf_filtered = maf_filtered.corr(method=method, min_periods=min_periods)
-        maf_filtered = maf_filtered.where(np.triu(np.ones(maf_filtered.shape), k=1).astype(bool)).stack()
+        maf_filtered = maf_filtered.where(np.triu(np.ones(maf_filtered.shape, dtype='uint8'), k=1).astype(bool))
+        maf_filtered = maf_filtered.stack()
         maf_filtered.to_hdf(os.path.join(res_dir, f'{species}_C_{contig}.h5'), key='snps', complevel=9)
 
 
