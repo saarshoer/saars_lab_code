@@ -1,9 +1,9 @@
 import os
-import pickle
 import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+from analysis import segal_name
 from LabQueue.qp import qp, fakeqp
 from LabUtils.addloglevels import sethandlers
 from LabData.DataLoaders.MBSNPLoader import MAF_MISSING_VALUE
@@ -41,29 +41,43 @@ def do(species, contig=None):
 
         maf_filtered = maf_filtered.corr(method=method, min_periods=min_periods)
         maf_filtered = maf_filtered.where(np.triu(np.ones(maf_filtered.shape, dtype='uint8'), k=1).astype(bool))
+
         maf_filtered = maf_filtered.stack()
         maf_filtered.to_hdf(os.path.join(res_dir, f'{species}_C_{contig}.h5'), key='snps', complevel=9)
 
+        # chunks = list(np.arange(0, maf_filtered.shape[1], 5000)) + [maf_filtered.shape[1]]
+        # for i in np.arange(len(chunks) - 1):
+        #     maf_filtered.iloc[:, chunks[i]:chunks[i+1]].stack().to_hdf(os.path.join(res_dir, f'{species}_C_{contig}.h5'), key=str(i), complevel=9)
 
-def plot(species, files):
 
-    results = []
-    for file in files:
-        contig = file.split('_')[-1].split('.')[0]
-        with open(file, 'rb') as f:
-            r = pickle.load(f)
-        results.append(
-            pd.DataFrame(r, columns=['position', 'distance', 'n_samples', 'r', 'p']).assign(species=species, contig=contig))
+def plot(species, files, files2):
 
-    results = pd.concat(results)
-    results = results[results['p'] < 0.05]
-    results['ld'] = results['r'] * results['r']
+    def get(fs):
 
-    ld_bin = np.round(np.arange(0, 1.01, 0.01).tolist(), 2)
-    distance_bin = np.round(np.arange(0, 5.1, 0.1).tolist(), 2)
-    results['ld_bin'] = pd.cut(x=results['ld'], bins=ld_bin, labels=ld_bin[:-1])
-    results['distance_bin'] = pd.cut(x=np.log10(results['distance'].astype(float)).clip(upper=5),
-                                     bins=distance_bin, labels=distance_bin[:-1])
+        r = []
+        for file in fs:
+            contig = file.split('_')[-1].split('.')[0]
+            with pd.HDFStore(file, 'r') as hdf:
+                for key in hdf.keys():
+                    r.append(hdf[key].to_frame('r').assign(species=species, contig=contig))
+        if len(r) > 0:
+            r = pd.concat(r)
+            r['ld'] = r['r'] * r['r']
+            r['distance'] = r.index.get_level_values(1) - r.index.get_level_values(0)
+
+            r['ld_bin'] = pd.cut(x=r['ld'], bins=ld_bin, labels=ld_bin[:-1])
+            r['distance_bin'] = pd.cut(x=np.log10(r['distance'].astype(float)).clip(upper=6),
+                                             bins=distance_bin, labels=distance_bin[:-1])
+
+            r = r[['ld', 'ld_bin', 'distance_bin']].reset_index(drop=True)  # for memory efficiency
+
+        return r
+
+    ld_bin = np.round(np.arange(0, 1.02, 0.01).tolist(), 2)
+    distance_bin = np.round(np.arange(0, 6.2, 0.1).tolist(), 2)
+
+    results = get(files)
+    results2 = get(files2)
 
     heatmap_data = results.groupby(['ld_bin', 'distance_bin']).apply(len).unstack('distance_bin').fillna(0).iloc[::-1]
     heatmap_data = heatmap_data / heatmap_data.sum() * 100
@@ -80,23 +94,57 @@ def plot(species, files):
 
     heatmap_data = heatmap_data.sort_index().T.sort_index().T.iloc[::-1]
 
-    ax = sns.heatmap(heatmap_data, vmax=25, cmap='Greys')
-    ax.set_title(species)
+    ax = sns.heatmap(heatmap_data, xticklabels=10, yticklabels=10,
+                     vmax=20, cmap='Greys', cbar_kws={'label': 'Density [%]'})
+    ax.set_title(f'{species}\n{segal_name(species)[0]}')
     ax.set_xlabel('Genomic distance [log10 bp]')
-    ax.set_ylabel('LD [r^2]')
+    ax.set_ylabel('Linkage disequilibrium [r^2]')
 
     ax2 = plt.twinx()
 
     for q, p in [(0.9, 'Blues'), (0.5, 'Reds')]:
-        sns.lineplot(data=results.groupby('distance_bin')['ld'].quantile(q).to_frame(f'LD {q}').reset_index(),
-                     palette=p, ax=ax2)
+        for s, r in zip(['Israel', 'Netherlands'], [results, results2]):
+            if len(r) > 0:
+                sns.lineplot(data=r.groupby('distance_bin')['ld'].quantile(q) \
+                             .rolling(3, min_periods=1, center=True).mean() \
+                             .to_frame(f'LD {q*100:.0f} {s}').reset_index(),
+                             palette=p, alpha=0.5 if s != 'Israel' else 1, ax=ax2)
+
+    ax2.legend(loc='upper right')
     ax2.set_ylim(0, 1)
     ax2.set_yticks([])
 
-    # plt.show()
-    plt.savefig(f'/home/saarsh/Analysis/strains/10K/figs/linkage_disequilibrium/{species}')
+    plt.savefig(os.path.join(os.path.dirname(res_dir), 'figs', 'linkage_disequilibrium', species))
     plt.close()
 
+
+# if __name__ == '__main__':
+#
+#     jobs_dir = os.path.join(os.path.dirname(res_dir), 'jobs')
+#     os.chdir(jobs_dir)
+#     sethandlers(file_dir=jobs_dir)
+#
+#     os.makedirs(res_dir, exist_ok=True)
+#
+#     with qp(jobname='LK', _tryrerun=True, _delete_csh_withnoerr=True, _mem_def='100G', max_r=125) as q:
+#         q.startpermanentrun()
+#         tkttores = {}
+#
+#         sc = pd.read_hdf(os.path.join(base_dir, 'within', 'mb_gwas_counts.h5'))
+#         sc['Contig'] = sc.index.get_level_values('Contig').str.split('_').str[1]
+#         sc = sc['Contig'].reset_index('Species').drop_duplicates().values
+#
+#         print('start sending jobs')
+#         for s, c in sc:
+#             if not os.path.exists():
+#                 # print(s, c)
+#                 tkttores[f'{s}_{c}'] = q.method(do, [s, c], _job_name=f'lk{s.split("_")[-1]}')
+#         print('finished sending jobs')
+#
+#         print('start waiting for jobs')
+#         for k, v in tkttores.items():
+#             q.waitforresult(v)
+#         print('finished waiting for jobs')
 
 if __name__ == '__main__':
 
@@ -106,17 +154,26 @@ if __name__ == '__main__':
 
     os.makedirs(res_dir, exist_ok=True)
 
-    with qp(jobname='LK', _tryrerun=True, _delete_csh_withnoerr=True, _mem_def='10G', max_r=100) as q:
+    with qp(jobname='LK', _tryrerun=True, _num_reruns=10, _delete_csh_withnoerr=True, _mem_def='200G', max_r=125) as q:
         q.startpermanentrun()
         tkttores = {}
 
-        sc = pd.read_hdf(os.path.join(base_dir, 'within', 'mb_gwas_counts.h5'))
-        sc['Contig'] = sc.index.get_level_values('Contig').str.split('_').str[1]
-        sc = sc['Contig'].reset_index('Species').drop_duplicates().values
+        k10_sc = pd.read_hdf(os.path.join(base_dir, 'within', 'mb_gwas_counts.h5'))
+        k10_sc['Contig'] = k10_sc.index.get_level_values('Contig').str.split('_').str[1]
+        k10_sc = k10_sc['Contig'].reset_index('Species').drop_duplicates()
+
+        lld_sc = pd.read_hdf(os.path.join(base_dir.replace('10K', 'Lifeline_deep'), 'within', 'mb_gwas_counts.h5'))
+        lld_sc['Contig'] = lld_sc.index.get_level_values('Contig').str.split('_').str[1]
+        lld_sc = lld_sc['Contig'].reset_index('Species').drop_duplicates()
 
         print('start sending jobs')
-        for s, c in sc:
-            tkttores[f'{s}_{c}'] = q.method(do, [s, c], _job_name=f'lk{s.split("_")[-1]}')
+        for s, cs in k10_sc.groupby('Species')['Contig']:
+            if not os.path.exists(os.path.join(os.path.dirname(res_dir), 'figs', 'linkage_disequilibrium', f'{s}.png')):
+                k10_f = [os.path.join(res_dir, f'{s}_C_{c}.h5') for c in cs]
+                lld_f = [os.path.join(res_dir.replace('10K', 'Lifeline_deep'), f'{s}_C_{c}.h5') for c in
+                         lld_sc.loc[lld_sc['Species'] == s, 'Contig']]
+                tkttores[s] = q.method(plot, [s, k10_f, lld_f], _job_name=f'lk{s.split("_")[-1]}')
+                # print(s)
         print('finished sending jobs')
 
         print('start waiting for jobs')

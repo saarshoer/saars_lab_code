@@ -908,10 +908,10 @@ class Study:
 
             # gradient boosting decision tree model
             elif model_type == 'xgb' and classifiable:
-                model_instance = XGBClassifier(eval_metric='logloss' if len(set(y)) ==2 else 'mlogloss',
-                                               use_label_encoder=False, n_jobs=2, **direct_hyper_params)
+                model_instance = XGBClassifier(eval_metric='logloss' if len(set(y)) == 2 else 'mlogloss',
+                                               use_label_encoder=False, n_jobs=8, **direct_hyper_params)
             elif model_type == 'xgb' and not classifiable:
-                model_instance = XGBRegressor(objective='reg:squarederror', n_jobs=2, **direct_hyper_params)
+                model_instance = XGBRegressor(objective='reg:squarederror', n_jobs=8, **direct_hyper_params)
                 # objective='reg:squarederror' is the default and is written explicitly just to avoid a warning
 
             # linear discriminant analysis
@@ -934,7 +934,7 @@ class Study:
             # grid search mode
             if len(search_hyper_params) != 0:  # TODO: will probably not work with stats models
 
-                model = GridSearchCV(model_instance, search_hyper_params, cv=kf, scoring='roc_auc_ovr', refit=True, n_jobs=2)
+                model = GridSearchCV(model_instance, search_hyper_params, cv=kf, refit=True, scoring='roc_auc_ovo', n_jobs=2)
 
                 x_train, x_test, y_train, y_test = train_test_split(x, y, stratify=y,
                                                                     test_size=1/number_of_splits,
@@ -961,7 +961,7 @@ class Study:
                         y_true.append(y_test)
                         y_pred.append(model.predict(x_test))
                     else:
-                        scores.append(score_func(y_test, model.predict_proba(x_test), multi_class='ovr'))
+                        scores.append(score_func(y_test, model.predict_proba(x_test), multi_class='ovo'))
                         # try:
                         #     if len(set(y_test)) == 1:
                         #         scores.append(np.nan)
@@ -976,7 +976,7 @@ class Study:
             if abs(n_splits) == 1:
                 y_true = np.array(y_true).flatten()
                 y_pred = np.array(y_pred).flatten()
-                scores = score_func(y_true, y_pred)
+                scores = score_func(y_true, y_pred, multi_class='ovo')
                 if not classifiable:
                     r_pearson, p_pearson = pearsonr(y_true, y_pred)
                     r_spearman, p_spearman = spearmanr(y_true, y_pred)
@@ -1047,7 +1047,7 @@ class Study:
         os.chdir(self.dirs.jobs)
         queue = qp if send2queue else fakeqp
 
-        with queue(jobname='model', _delete_csh_withnoerr=True, q=['himem7.q'], _tryrerun=True) as q:
+        with queue(jobname='model', _delete_csh_withnoerr=True, q=['himem7.q'], _tryrerun=True, _trds_def=16) as q:
 
             q.startpermanentrun()
             tkttores = {}
@@ -1059,6 +1059,10 @@ class Study:
             x_cols = [xobj.df.columns.tolist()] if all_features else xobj.df.columns.tolist()
             for x_col in x_cols:
                 for y_col in yobj.df.columns:
+
+                    if cobj is not None and cobj.type == 'y_col':
+                        c_cols = ['constant'] + [y_col] if add_constant else [y_col]
+
                     # send job
                     tkttores[(x_col if not all_features else 'all_features', y_col)] = \
                         q.method(score_model, (x_df[c_cols+x_cols[0] if all_features else c_cols+[x_col]], y_df[[y_col]]))
@@ -1391,10 +1395,10 @@ class Study:
 
         return (pca_result, loadings), tsne_result, df
 
-    def fig_snp_heatmap(self, obj, maximal_filling=0.1, std_irregular=5, minimal_samples=100, method='average',
+    def fig_snp_heatmap(self, obj, maximal_filling=0.1, std_irregular=2, minimal_samples=100, method='average',
                         species=None, cmap=None, log_colors=False,
                         col_annots=None, col_annots_cmaps=None, col_annots_covariates=None,
-                        add_hist=True, add_pairs=True, row_annots=None,
+                        add_hist=True, add_pairs=True, row_annots=None, row_annots_covariates=None,
                         min_samples_per_strain=50, relative_change_threshold=0.05):
         """
         Plot a heatmap based on the SNP dissimilarity data frame for each species
@@ -1422,6 +1426,7 @@ class Study:
         coll_annots_labels = []
         col_annots_covariates = col_annots_covariates if col_annots_covariates is not None else []
         row_annots = {name: pd.read_hdf(file) for name, file in row_annots.items()} if row_annots is not None else None
+        row_annots_covariates = row_annots_covariates if row_annots_covariates is not None else []
         pairs = None
         # cluster_optimization = []
 
@@ -1466,13 +1471,13 @@ class Study:
                                                                columns='SampleName1',
                                                                values='dissimilarity')
 
-            # limit to samples that have at least maximal_filling percentage of existing dissimilarity measurements
+            # limit to samples that have at most maximal_filling percentage of existing dissimilarity measurements
             samples_mask = df.columns[df.isna().sum() < df.shape[0] * maximal_filling].values
             df = df.loc[samples_mask, samples_mask]
 
             # throw away extremely irregular samples
             mean_dist = df.sum() / (df.shape[0] - 1)  # -1 to not count zero distance with self
-            deviation = ((mean_dist - mean_dist.mean()) / mean_dist.std()).abs()
+            deviation = ((mean_dist - mean_dist.mean()) / mean_dist.std())
             samples_mask = df.columns[deviation <= std_irregular].values
 
             df = df.loc[samples_mask, samples_mask]
@@ -1485,223 +1490,222 @@ class Study:
                 df = df.apply(lambda row: row.fillna(row.median()))
 
                 # plotting
-                if df.shape[0] > 1:  # because otherwise you cannot cluster
+                df_linkage = linkage(squareform(df, force='tovector', checks=False),
+                                     method=method, optimal_ordering=True)
 
-                    df_linkage = linkage(squareform(df, force='tovector', checks=False),
-                                         method=method, optimal_ordering=True)
+                # necessary to define explicitly otherwise there are differences between the rows and columns
 
-                    # necessary to define explicitly otherwise there are differences between the rows and columns
+                # A (n-1) by 4 matrix Z is returned. At the i-th iteration,
+                # clusters with indices Z[i, 0] and Z[i, 1] are combined to form cluster n + i.
+                # A cluster with an index less than n corresponds to one of the original observations.
+                # The distance between clusters Z[i, 0] and Z[i, 1] is given by Z[i, 2].
+                # The fourth value Z[i, 3] represents the number of original observations in the newly
+                # formed cluster.
 
-                    # A (n-1) by 4 matrix Z is returned. At the i-th iteration,
-                    # clusters with indices Z[i, 0] and Z[i, 1] are combined to form cluster n + i.
-                    # A cluster with an index less than n corresponds to one of the original observations.
-                    # The distance between clusters Z[i, 0] and Z[i, 1] is given by Z[i, 2].
-                    # The fourth value Z[i, 3] represents the number of original observations in the newly
-                    # formed cluster.
+                # the clustermap and the heatmap are separated because the clustermap does not pass the norm
+                # to the heatmap well as it should
+                # https://github.com/mwaskom/seaborn/pull/1830/files
 
-                    # the clustermap and the heatmap are separated because the clustermap does not pass the norm
-                    # to the heatmap well as it should
-                    # https://github.com/mwaskom/seaborn/pull/1830/files
+                row_colors = None
+                if row_annots is not None:
+                    # replace values with corresponding colors
+                    for name, file in row_annots.items():
+                        m = cm.ScalarMappable(
+                            norm=mpl.colors.Normalize(vmin=file.loc[samples_mask, species].min(),
+                                                      vmax=file.loc[samples_mask, species].max()),
+                            cmap=cm.binary)
+                        new_row_colors = file.loc[samples_mask, species].map(m.to_rgba).to_frame(name)
+                        row_colors = row_colors.join(new_row_colors, how='inner') if row_colors is not None else new_row_colors.copy()
 
-                    row_colors = None
-                    if row_annots is not None:
-                        # replace values with corresponding colors
-                        for name, file in row_annots.items():
-                            m = cm.ScalarMappable(
-                                norm=mpl.colors.Normalize(vmin=file.loc[samples_mask, species].min(),
-                                                          vmax=file.loc[samples_mask, species].max()),
-                                cmap=cm.binary)
-                            new_row_colors = file.loc[samples_mask, species].map(m.to_rgba).to_frame(name)
-                            row_colors = row_colors.join(new_row_colors, how='inner') if row_colors is not None else new_row_colors.copy()
+                norm = LogNorm(df.min().min(), df.max().max(), clip=False) if log_colors else None
 
-                    norm = LogNorm(df.min().min(), df.max().max(), clip=False) if log_colors else None
+                g = sns.clustermap(df, row_linkage=df_linkage, col_linkage=df_linkage,
+                                   row_colors=row_colors, col_colors=col_colors,
+                                   mask=na_mask,
+                                   xticklabels=False, yticklabels=False,
+                                   cmap=cmap, norm=norm,
+                                   cbar_kws={'label': 'SNP distance', 'orientation': 'horizontal', 'ticks': None})
+                # cbar ticks are None because otherwise in log scale there are no ticks
 
-                    g = sns.clustermap(df, row_linkage=df_linkage, col_linkage=df_linkage,
-                                       row_colors=row_colors, col_colors=col_colors,
-                                       mask=na_mask,
-                                       xticklabels=False, yticklabels=False,
-                                       cmap=cmap, norm=norm,
-                                       cbar_kws={'label': 'dissimilarity', 'orientation': 'horizontal', 'ticks': None})
-                    # cbar ticks are None because otherwise in log scale there are no ticks
+                # dissimilarity histograms with colored peaks
+                if add_hist:
+                    diss_tril = g.data2d[~na_mask.loc[g.data2d.index, g.data2d.columns]].values
+                    diss_tril = diss_tril[np.tril_indices(n=diss_tril.shape[0], k=-1)]
 
-                    # dissimilarity histograms with colored peaks
-                    if add_hist:
-                        diss_tril = g.data2d[~na_mask.loc[g.data2d.index, g.data2d.columns]].values
-                        diss_tril = diss_tril[np.tril_indices(n=diss_tril.shape[0], k=-1)]
+                    special_ax = inset_axes(g.ax_heatmap, width="40%", height=1.0, loc='lower left')
+                    bins_freq, _, patches = special_ax.hist(diss_tril, bins=50)
+                    peaks_bin, _ = find_peaks(bins_freq, height=0.2 * max(bins_freq), distance=8)
+                    [patches[bin].set_color('orange') for bin in peaks_bin]
+                    special_ax.set_title('Distance distribution', color='white', fontsize='medium')
+                    special_ax.set_xticklabels([])
+                    special_ax.set_yticklabels([])
 
-                        special_ax = inset_axes(g.ax_heatmap, width="40%", height=1.0, loc='lower left')
-                        bins_freq, _, patches = special_ax.hist(diss_tril, bins=50)
-                        peaks_bin, _ = find_peaks(bins_freq, height=0.2 * max(bins_freq), distance=8)
-                        [patches[bin].set_color('orange') for bin in peaks_bin]
-                        special_ax.set_title('dissimilarity distribution', color='white', fontsize='medium')
-                        special_ax.set_xticklabels([])
-                        special_ax.set_yticklabels([])
+                # define strains
+                strain_colors = [mpl.colors.rgb2hex(c) for c in cm.Set1.colors[:-1]]
+                strain_colors_names = ['re', 'bl', 'gr', 'pu', 'or', 'ye', 'br', 'pi']
+                strain_colors_names = [f'{c}3' for c in strain_colors_names] + [f'{c}2' for c in strain_colors_names] + strain_colors_names
+                strain_colors_names = dict(zip(strain_colors+strain_colors+strain_colors, strain_colors_names))
+                strain_colors_names['black'] = 'black'
+                j = 1
+                link_colors = {}
+                for i, link in reversed(list(enumerate(df_linkage))):
+                    daddy = np.where(df_linkage[:, :2] == (i + len(df)))[0]
+                    daddy = daddy[0] if daddy.shape[0] == 1 else df_linkage.shape[0] - 1
 
-                    # define strains
-                    strain_colors = [mpl.colors.rgb2hex(c) for c in cm.Set1.colors[:-1]]
-                    strain_colors_names = ['re', 'bl', 'gr', 'pu', 'or', 'ye', 'br', 'pi']
-                    strain_colors_names = dict(zip(strain_colors, strain_colors_names))
-                    strain_colors_names['black'] = 'black'
-                    j = 1
-                    link_colors = {}
-                    for i, link in reversed(list(enumerate(df_linkage))):
-                        daddy = np.where(df_linkage[:, :2] == (i + len(df)))[0]
-                        daddy = daddy[0] if daddy.shape[0] == 1 else df_linkage.shape[0] - 1
+                    relative_change = 1 - link[2]/df_linkage[daddy, 2]
 
-                        relative_change = 1 - link[2]/df_linkage[daddy, 2]
+                    if i != daddy and link_colors[daddy + len(df)] != 'black':
+                        link_colors[i + len(df)] = link_colors[daddy + len(df)]
+                    elif link[3] >= min_samples_per_strain and relative_change >= relative_change_threshold:
+                        link_colors[i + len(df)] = strain_colors[j % len(strain_colors)]
+                        j = j + 1
+                    else:
+                        link_colors[i + len(df)] = 'black'
 
-                        if i != daddy and link_colors[daddy + len(df)] != 'black':
-                            link_colors[i + len(df)] = link_colors[daddy + len(df)]
-                        elif link[3] >= min_samples_per_strain and relative_change >= relative_change_threshold:
-                            link_colors[i + len(df)] = strain_colors[j % 7]
-                            j = j + 1
+                # draw dendrograms
+                for ax, orientation in [(g.ax_col_dendrogram.axes, 'top'), (g.ax_row_dendrogram.axes, 'left')]:
+                    ax.clear()
+                    with plt.rc_context({'lines.linewidth': 0.5}):
+                        dendrogram(df_linkage, ax=ax, orientation=orientation, link_color_func=lambda x: link_colors[x])
+                    ax.set_xticks([])
+                    ax.set_yticks([])
+
+                    if orientation == 'left':
+                        ax.invert_yaxis()
+
+                sample_colors = {i: (s, link_colors[np.where(df_linkage[:, :2] == i)[0][0] + len(df)]) for i, s in enumerate(df.index)}
+                sample_colors = {sample_colors[i][0]: strain_colors_names[sample_colors[i][1]] for i in g.dendrogram_col.reordered_ind}
+
+                if pairs is not None:
+                    pairs2plot = pairs.loc[species]
+                    pairs2plot = pairs2plot[(pairs2plot['SampleName1'].isin(samples_mask)) &
+                                            (pairs2plot['SampleName2'].isin(samples_mask))]
+
+                    for _, (s1, s2, group) in pairs2plot.iterrows():
+                        s1i = g.data2d.index.tolist().index(s1)
+                        s2i = g.data2d.index.tolist().index(s2)
+                        g.ax_heatmap.arrow(x=s1i, y=s1i, dx=s2i-s1i, dy=0,
+                                           color=self.params.colors[group], head_width=3, head_length=2)
+
+                # statistical test
+
+                def statistics(a, is_col):
+
+                    def significance(c1, c2=None):
+
+                        annots_df = col_annots_df if is_col else row_annots[a][species].to_frame(a).join(col_annots_df)
+                        annots_covariates = col_annots_covariates if is_col else row_annots_covariates
+
+                        if len(annots_df[a].unique()) == 2:
+                            model = Logit
+                            data4model = sample_colors_df == c1 if c2 is None else \
+                                sample_colors_df[sample_colors_df != 'black'] == c1
                         else:
-                            link_colors[i + len(df)] = 'black'
+                            model = OLS
+                            data4model = sample_colors_df == c1 if c2 is None else \
+                                sample_colors_df.loc[sample_colors_df.isin([c1, c2])] == c1
 
-                    # draw dendrograms
-                    for ax, orientation in [(g.ax_col_dendrogram.axes, 'top'), (g.ax_row_dendrogram.axes, 'left')]:
-                        ax.clear()
-                        with plt.rc_context({'lines.linewidth': 0.5}):
-                            dendrogram(df_linkage, ax=ax, orientation=orientation, link_color_func=lambda x: link_colors[x])
-                        ax.set_xticks([])
-                        ax.set_yticks([])
+                        data4model = data4model.to_frame('strain').join(
+                            annots_df[list(set(annots_covariates + [a]))], how='inner').assign(constant=1)
+                        data4model = data4model.replace({False: 0, True: 1, 'Female': 0, 'Male': 1})
 
-                        if orientation == 'left':
-                            ax.invert_yaxis()
+                        results = model(data4model[a], data4model.loc[:, data4model.columns != a],
+                                        missing='drop').fit()
 
-                    sample_colors = {i: (s, link_colors[np.where(df_linkage[:, :2] == i)[0][0] + len(df)]) for i, s in enumerate(df.index)}
-                    sample_colors = {sample_colors[i][0]: strain_colors_names[sample_colors[i][1]] for i in g.dendrogram_col.reordered_ind}
-                    # notice this can be confusing if we have more than 8 strains because the colors repeat
+                        r2 = results.prsquared if len(annots_df[a].unique()) == 2 else results.rsquared
+                        if r2 > 0:
+                            return results.params['strain'], results.pvalues['strain']
+                        else:
+                            return 0, 1
 
-                    if pairs is not None:
-                        pairs2plot = pairs.loc[species]
-                        pairs2plot = pairs2plot[(pairs2plot['SampleName1'].isin(samples_mask)) &
-                                                (pairs2plot['SampleName2'].isin(samples_mask))]
+                    sample_colors_df = pd.Series(sample_colors.values(), index=sample_colors.keys())
+                    sample_colors_vc = sample_colors_df.value_counts()
+                    if 'black' in sample_colors_vc.index:
+                        n_black = sample_colors_vc.loc['black']
+                        sample_colors_vc = sample_colors_vc[sample_colors_vc.index != 'black']
+                    else:
+                        n_black = 0
+                    n_colors = len(sample_colors_vc)
 
-                        for _, (s1, s2, group) in pairs2plot.iterrows():
-                            s1i = g.data2d.index.tolist().index(s1)
-                            s2i = g.data2d.index.tolist().index(s2)
-                            g.ax_heatmap.arrow(x=s1i, y=s1i, dx=s2i-s1i, dy=0,
-                                               color=self.params.colors[group], head_width=3, head_length=2)
+                    if n_colors == 0 or (n_colors == 1 and n_black < min_samples_per_strain):
+                        # nothing
+                        p = 1
+                        l = a
+
+                    elif n_colors == 2 and n_black < min_samples_per_strain:
+                        # 1 vs 1
+                        color1 = sample_colors_vc.index[0]
+                        color2 = sample_colors_vc.index[1]
+                        r, p = significance(color1, color2)
+                        l = f'{a} ~ c={r:.1f} p={p:.0e}'
+
+                    else:
+                        # 1 vs all
+                        all_p = []
+                        anno_label = f'{a} ~'
+                        for color in sample_colors_vc.index:
+                            r, p = significance(color)
+                            all_p.append(p)
+                            anno_label = anno_label + (f' {color} c={r:.1f} p={p:.0e}' if n_colors > 1 else f' c={r:.1f} p={p:.0e}')
+                        p = min(all_p)
+                        l = anno_label
+
+                    return p, l
+
+                is_significant = []
+
+                if col_annots:
 
                     expanded_labels = []
-                    is_significant = []
 
-                    # statistical test
-                    if col_annots:
+                    for anno in col_annots:
+                        pvalue, label = statistics(anno, True)
+                        expanded_labels.append(label)
+                        is_significant.append(pvalue)
 
-                        # def significance(c1, c2=None):
-                        #
-                        #     if len(col_annots_df[anno].unique()) == 2:
-                        #         condition = sample_colors_df == c1 if c2 is None else \
-                        #             sample_colors_df[sample_colors_df != 'black'] == c1
-                        #         f_obs = condition.to_frame().join(col_annots_df[anno], how='left')
-                        #         f_obs = f_obs.value_counts().unstack(anno).values
-                        #         r, p, _, _ = chi2_contingency(f_obs, correction=True)
-                        #
-                        #     else:
-                        #         condition = sample_colors_df != c1 if c2 is None else sample_colors_df == c2
-                        #         r, p = ttest_ind(
-                        #             a=col_annots_df.loc[sample_colors_df[sample_colors_df == c1].index, anno].values,
-                        #             b=col_annots_df.loc[sample_colors_df[condition].index, anno].values,
-                        #             alternative='two-sided')
-                        #
-                        #     return p
+                    g.ax_col_colors.set_yticklabels(expanded_labels)
 
-                        def significance(c1, c2=None):
+                if 'Relative abundance' in row_annots:
+                    pvalue, label = statistics('Relative abundance', False)
+                    label = label.replace('Relative abundance', '  ')
+                    g.ax_heatmap.text(x=0, y=-0.33, s=label[1:], transform=g.ax_heatmap.transAxes)
+                    is_significant.append(pvalue)
 
-                            if len(col_annots_df[anno].unique()) == 2:
-                                model = Logit
-                                data4model = sample_colors_df == c1 if c2 is None else \
-                                             sample_colors_df[sample_colors_df != 'black'] == c1
-                            else:
-                                model = OLS
-                                data4model = sample_colors_df == c1 if c2 is None else \
-                                             sample_colors_df.loc[sample_colors_df.isin([c1, c2])] == c1
+                g.ax_heatmap.text(x=0.85, y=-0.05, s=f'n={df.shape[0]:,}', transform=g.ax_heatmap.transAxes)
 
-                            data4model = data4model.to_frame('strain').join(col_annots_df[list(set(col_annots_covariates + [anno]))], how='inner').assign(constant=1)
-                            data4model = data4model.replace({False: 0, True: 1, 'Female': 0, 'Male': 1})
+                # title
+                title = f'{species}\n{segal_name(species)[0]}'
+                g.ax_col_dendrogram.set_title(title)
 
-                            results = model(data4model[anno], data4model.loc[:, data4model.columns != anno], missing='drop').fit()
+                # axes labels
+                g.ax_heatmap.set_xlabel('Sample')
+                g.ax_heatmap.set_ylabel('Sample')
 
-                            r2 = results.prsquared if len(col_annots_df[anno].unique()) == 2 else results.rsquared
-                            if r2 > 0:
-                                return results.params['strain'], results.pvalues['strain']
-                            else:
-                                return 0, 1
+                # annotations legend
+                for label in coll_annots_labels:
+                    g.ax_col_dendrogram.bar(0, 0, color=self.params.colors[label], label=label, linewidth=0)
 
-                        for anno in col_annots:
-                            # statistics
-                            sample_colors_df = pd.Series(sample_colors.values(), index=sample_colors.keys())
-                            sample_colors_vc = sample_colors_df.value_counts()
-                            if 'black' in sample_colors_vc.index:
-                                n_black = sample_colors_vc.loc['black']
-                                sample_colors_vc = sample_colors_vc[sample_colors_vc.index != 'black']
-                            else:
-                                n_black = 0
-                            n_colors = len(sample_colors_vc)
+                # position of plot
+                plt.subplots_adjust(left=0.02, right=0.76, bottom=0.11, top=0.85)
 
-                            if n_colors == 0 or (n_colors == 1 and n_black < min_samples_per_strain):
-                                # nothing
-                                p = 1
-                                expanded_labels.append(anno)
+                # position of annotations legend
+                g.ax_col_dendrogram.legend(ncol=1, frameon=False, bbox_to_anchor=(-0.035, 1))
 
-                            elif n_colors == 2 and n_black < min_samples_per_strain:
-                                # 1 vs 1
-                                color1 = sample_colors_vc.index[0]
-                                color2 = sample_colors_vc.index[1]
-                                r, p = significance(color1, color2)
-                                expanded_labels.append(f'{anno} ~ c={r:.1f} p={p:.0e}')
+                # position of dissimilarity legend
+                g.cax.set_position([.26, .06, .5, .01])
 
-                            else:
-                                # 1 vs all
-                                all_p = []
-                                anno_label = f'{anno} ~'
-                                for color in sample_colors_vc.index:
-                                    r, p = significance(color)
-                                    all_p.append(p)
-                                    anno_label = anno_label + (f' {color} c={r:.1f} p={p:.0e}' if n_colors > 1 else f' c={r:.1f} p={p:.0e}')
-                                p = min(all_p)
-                                expanded_labels.append(anno_label)
+                if not os.path.exists(os.path.join(self.dirs.figs, obj.type)):
+                    os.makedirs(os.path.join(self.dirs.figs, obj.type))
+                plt.savefig(os.path.join(self.dirs.figs, obj.type, species), pad_inches=0.5)
 
-                            is_significant.append(p)
+                if any([p < self.params.alpha for p in is_significant]):
+                    if not os.path.exists(os.path.join(self.dirs.figs, obj.type, 'significant')):
+                        os.makedirs(os.path.join(self.dirs.figs, obj.type, 'significant'))
+                    plt.savefig(os.path.join(self.dirs.figs, obj.type, 'significant', species), pad_inches=0.5)
 
-                    for st, bo in zip(expanded_labels, [p < self.params.alpha for p in is_significant]):
-                        if bo:
-                            print(st)
+                plt.close()
 
-                    if len(expanded_labels) > 0:
-                        g.ax_col_colors.set_yticklabels(expanded_labels)
-
-                    # title
-                    title = '{}\n{}\n{}'.format(obj.type, species, segal_name(species)[0])
-                    g.ax_col_dendrogram.set_title(title)
-
-                    # annotations legend
-                    for label in coll_annots_labels:
-                        g.ax_col_dendrogram.bar(0, 0, color=self.params.colors[label], label=label, linewidth=0)
-
-                    # position of plot
-                    plt.subplots_adjust(left=0.02, right=0.76, bottom=0.11, top=0.85)
-
-                    # position of annotations legend
-                    g.ax_col_dendrogram.legend(ncol=1, frameon=False, bbox_to_anchor=(-0.035, 1))
-
-                    # position of dissimilarity legend
-                    g.cax.set_position([.26, .06, .5, .01])
-
-                    if not os.path.exists(os.path.join(self.dirs.figs, obj.type)):
-                        os.makedirs(os.path.join(self.dirs.figs, obj.type))
-                    plt.savefig(os.path.join(self.dirs.figs, obj.type, species), pad_inches=0.5)
-
-                    if any([p < self.params.alpha for p in is_significant]):
-                        if not os.path.exists(os.path.join(self.dirs.figs, obj.type, 'significant')):
-                            os.makedirs(os.path.join(self.dirs.figs, obj.type, 'significant'))
-                        plt.savefig(os.path.join(self.dirs.figs, obj.type, 'significant', species), pad_inches=0.5)
-
-                    plt.close()
-
-                    return sample_colors
+                return sample_colors
 
         # return cluster_optimization
 
