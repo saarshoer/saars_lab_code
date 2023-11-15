@@ -56,10 +56,11 @@ def plot(species, files, files2):
 
         r = []
         for file in fs:
-            contig = file.split('_')[-1].split('.')[0]
+            # contig = file.split('_')[-1].split('.')[0]
             with pd.HDFStore(file, 'r') as hdf:
                 for key in hdf.keys():
-                    r.append(hdf[key].to_frame('r').assign(species=species, contig=contig))
+                    r.append(hdf[key].to_frame('r').sample(frac=0.4, random_state=42))#.assign(species=species, contig=contig)) for memory efficiency
+        del hdf
         if len(r) > 0:
             r = pd.concat(r)
             r['ld'] = r['r'] * r['r']
@@ -77,45 +78,58 @@ def plot(species, files, files2):
     distance_bin = np.round(np.arange(0, 6.2, 0.1).tolist(), 2)
 
     results = get(files)
-    results2 = get(files2)
 
-    heatmap_data = results.groupby(['ld_bin', 'distance_bin']).apply(len).unstack('distance_bin').fillna(0).iloc[::-1]
-    heatmap_data = heatmap_data / heatmap_data.sum() * 100
-
-    missing_index = list(set(ld_bin[:-1]) - set(heatmap_data.index))
-    if len(missing_index) > 0:
-        heatmap_data = heatmap_data.T
-        heatmap_data.loc[:, missing_index] = 0
-        heatmap_data = heatmap_data.T
-
-    missing_columns = list(set(distance_bin[:-1]) - set(heatmap_data.columns))
-    if len(missing_columns) > 0:
-        heatmap_data.loc[:, missing_columns] = 0
-
-    heatmap_data = heatmap_data.sort_index().T.sort_index().T.iloc[::-1]
-
-    ax = sns.heatmap(heatmap_data, xticklabels=10, yticklabels=10,
-                     vmax=20, cmap='Greys', cbar_kws={'label': 'Density [%]'})
-    ax.set_title(f'{species}\n{segal_name(species)[0]}')
-    ax.set_xlabel('Genomic distance [log10 bp]')
-    ax.set_ylabel('Linkage disequilibrium [r^2]')
-
-    ax2 = plt.twinx()
-
-    for q, p in [(0.9, 'Blues'), (0.5, 'Reds')]:
-        for s, r in zip(['Israel', 'Netherlands'], [results, results2]):
-            if len(r) > 0:
-                sns.lineplot(data=r.groupby('distance_bin')['ld'].quantile(q) \
+    # just for df
+    r50 = results.groupby('distance_bin')['ld'].quantile(0.5) \
                              .rolling(3, min_periods=1, center=True).mean() \
-                             .to_frame(f'LD {q*100:.0f} {s}').reset_index(),
-                             palette=p, alpha=0.5 if s != 'Israel' else 1, ax=ax2)
+                             .to_frame(species)
+    r90 = results.groupby('distance_bin')['ld'].quantile(0.9) \
+                             .rolling(3, min_periods=1, center=True).mean() \
+                             .to_frame(species)
+    return r50, r90
 
-    ax2.legend(loc='upper right')
-    ax2.set_ylim(0, 1)
-    ax2.set_yticks([])
-
-    plt.savefig(os.path.join(os.path.dirname(res_dir), 'figs', 'linkage_disequilibrium', species))
-    plt.close()
+    # heatmap_data = results.groupby(['ld_bin', 'distance_bin']).apply(len)
+    # heatmap_data = heatmap_data.unstack('distance_bin').fillna(0).iloc[::-1]
+    # heatmap_data = heatmap_data / heatmap_data.sum() * 100
+    #
+    # missing_index = list(set(ld_bin[:-1]) - set(heatmap_data.index))
+    # if len(missing_index) > 0:
+    #     heatmap_data = heatmap_data.T
+    #     heatmap_data.loc[:, missing_index] = 0
+    #     heatmap_data = heatmap_data.T
+    #
+    # missing_columns = list(set(distance_bin[:-1]) - set(heatmap_data.columns))
+    # if len(missing_columns) > 0:
+    #     heatmap_data.loc[:, missing_columns] = 0
+    #
+    # heatmap_data = heatmap_data.sort_index().T.sort_index().T.iloc[::-1]
+    #
+    # ax = sns.heatmap(heatmap_data, xticklabels=10, yticklabels=10,
+    #                  vmax=20, cmap='Greys', cbar_kws={'label': 'Density [%]'})
+    # ax.set_title(f'{species}\n{segal_name(species)[0]}')
+    # ax.set_xlabel('Genomic distance [log10 bp]')
+    # ax.set_ylabel('Linkage disequilibrium [r^2]')
+    #
+    # del heatmap_data
+    #
+    # ax2 = plt.twinx()
+    #
+    # for q, p in [(0.9, 'Blues'), (0.5, 'Reds')]:
+    #     for s in ['Israel', 'Netherlands']:
+    #         if len(results) > 0:
+    #             sns.lineplot(data=results.groupby('distance_bin')['ld'].quantile(q) \
+    #                          .rolling(3, min_periods=1, center=True).mean() \
+    #                          .to_frame(f'LD {q*100:.0f} {s}').reset_index(),
+    #                          palette=p, alpha=0.5 if s != 'Israel' else 1, ax=ax2)
+    #         del results
+    #         results = get(files2)
+    #
+    # ax2.legend(loc='upper right')
+    # ax2.set_ylim(0, 1)
+    # ax2.set_yticks([])
+    #
+    # plt.savefig(os.path.join(os.path.dirname(res_dir), 'figs', 'linkage_disequilibrium', species))
+    # plt.close()
 
 
 # if __name__ == '__main__':
@@ -154,7 +168,7 @@ if __name__ == '__main__':
 
     os.makedirs(res_dir, exist_ok=True)
 
-    with qp(jobname='LK', _tryrerun=True, _num_reruns=10, _delete_csh_withnoerr=True, _mem_def='200G', max_r=125) as q:
+    with qp(jobname='LK', _tryrerun=True, _num_reruns=10, _delete_csh_withnoerr=True, _mem_def='100G', max_r=125) as q:
         q.startpermanentrun()
         tkttores = {}
 
@@ -162,21 +176,36 @@ if __name__ == '__main__':
         k10_sc['Contig'] = k10_sc.index.get_level_values('Contig').str.split('_').str[1]
         k10_sc = k10_sc['Contig'].reset_index('Species').drop_duplicates()
 
-        lld_sc = pd.read_hdf(os.path.join(base_dir.replace('10K', 'Lifeline_deep'), 'within', 'mb_gwas_counts.h5'))
-        lld_sc['Contig'] = lld_sc.index.get_level_values('Contig').str.split('_').str[1]
-        lld_sc = lld_sc['Contig'].reset_index('Species').drop_duplicates()
+        # lld_sc = pd.read_hdf(os.path.join(base_dir.replace('10K', 'Lifeline_deep'), 'within', 'mb_gwas_counts.h5'))
+        # lld_sc['Contig'] = lld_sc.index.get_level_values('Contig').str.split('_').str[1]
+        # lld_sc = lld_sc['Contig'].reset_index('Species').drop_duplicates()
+
+        results50 = pd.read_pickle(os.path.join(os.path.dirname(res_dir), 'data_frames', 'linkage_disequilibrium_50.df'))
+        results90 = pd.read_pickle(os.path.join(os.path.dirname(res_dir), 'data_frames', 'linkage_disequilibrium_90.df'))
 
         print('start sending jobs')
         for s, cs in k10_sc.groupby('Species')['Contig']:
-            if not os.path.exists(os.path.join(os.path.dirname(res_dir), 'figs', 'linkage_disequilibrium', f'{s}.png')):
-                k10_f = [os.path.join(res_dir, f'{s}_C_{c}.h5') for c in cs]
-                lld_f = [os.path.join(res_dir.replace('10K', 'Lifeline_deep'), f'{s}_C_{c}.h5') for c in
-                         lld_sc.loc[lld_sc['Species'] == s, 'Contig']]
-                tkttores[s] = q.method(plot, [s, k10_f, lld_f], _job_name=f'lk{s.split("_")[-1]}')
-                # print(s)
+            if s in results90.columns:
+                continue
+            # if not os.path.exists(os.path.join(os.path.dirname(res_dir), 'figs', 'linkage_disequilibrium', f'{s}.png')):
+            k10_f = [os.path.join(res_dir, f'{s}_C_{c}.h5') for c in cs]
+            # lld_f = [os.path.join(res_dir.replace('10K', 'Lifeline_deep'), f'{s}_C_{c}.h5') for c in
+            #          lld_sc.loc[lld_sc['Species'] == s, 'Contig']]
+            print(s)
+            # tkttores[s] = q.method(plot, [s, k10_f, None], _job_name=f'lk{s.split("_")[-1]}')
+        # del k10_sc
+        # del lld_sc
         print('finished sending jobs')
-
+        5/0
         print('start waiting for jobs')
         for k, v in tkttores.items():
-            q.waitforresult(v)
+            try:
+                results = q.waitforresult(v, _assert_on_errors=False)
+                results50 = results50.join(results[0], how='outer') if results50 is not None else results[0]
+                results90 = results90.join(results[1], how='outer') if results90 is not None else results[1]
+            except:
+                print(k)
+                continue
+        results50.to_pickle(os.path.join(os.path.dirname(res_dir), 'data_frames', 'linkage_disequilibrium_50.df'))
+        results90.to_pickle(os.path.join(os.path.dirname(res_dir), 'data_frames', 'linkage_disequilibrium_90.df'))
         print('finished waiting for jobs')

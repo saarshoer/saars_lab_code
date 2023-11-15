@@ -38,7 +38,7 @@ def color_by_coef(sp_df: pd.DataFrame, **kwargs):
     red = (1.0, 0.0, 0.0)
 
     color_dict = {True: red, False: blue}
-    color_label_dict = {True: 'positive coefficient', False: 'negative coefficient'}
+    color_label_dict = {True: 'Positive effect', False: 'Negative effect'}
 
     d['marker'] = 'o'
     d['s'] = -np.log10(sp_df[kwargs['pval_col']]).values/2  # to not divide by max because then it is species subjective
