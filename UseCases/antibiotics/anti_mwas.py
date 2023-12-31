@@ -52,7 +52,8 @@ class P:
     samples_set = snps.index.tolist()
     largest_sample_per_user = False
     min_positions_per_sample = None
-    subsample_dir = study
+    subsample_dir = study + '_saar' if study == '10K' else study
+    # subsample_dir = study + '_US' if study == 'D2' else study
     other_samples_set = None
     select_n_rand_samples = None
 

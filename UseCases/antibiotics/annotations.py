@@ -1,4 +1,5 @@
 import os
+import glob
 from LabQueue.qp import qp, fakeqp
 from LabUtils.addloglevels import sethandlers
 from LabData.DataAnalyses.MBSNPs import mwas_annots
@@ -17,8 +18,16 @@ jobs_path = os.path.join(base_dir, 'jobs')
 os.chdir(jobs_path)
 sethandlers()
 
-with qp(jobname='annot', _delete_csh_withnoerr=False, q=['himem7.q'], max_r=1, _mem_def='20G') as q:
+with qp(jobname='annot', _delete_csh_withnoerr=False, q=['himem7.q'], _mem_def='20G') as q:
     q.startpermanentrun()
 
     snps = q.method(mwas_annots.run, (mwas_file_path, base_dir, 'Gut', maf_template))
     q.waitforresult(snps)
+
+    # snps = {}
+    # all_files = glob.glob(mwas_file_path)
+    # for file in all_files:
+    #     snps[file] = q.method(mwas_annots.run, (file, os.path.join(base_dir, 'full_annotations'), 'Gut', maf_template))
+    #
+    # for value in snps.values():
+    #     q.waitforresult(value)
