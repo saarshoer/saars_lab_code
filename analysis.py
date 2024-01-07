@@ -1395,7 +1395,7 @@ class Study:
 
         return (pca_result, loadings), tsne_result, df
 
-    def fig_snp_heatmap(self, obj, maximal_filling=0.1, std_irregular=2, minimal_samples=100, method='average',
+    def fig_snp_heatmap(self, obj, maximal_filling=0.1, minimal_samples=100, method='average',
                         species=None, cmap=None, log_colors=False,
                         col_annots=None, col_annots_cmaps=None, col_annots_covariates=None,
                         add_hist=True, add_pairs=True, row_annots=None, row_annots_covariates=None,
@@ -1475,11 +1475,6 @@ class Study:
             samples_mask = df.columns[df.isna().sum() < df.shape[0] * maximal_filling].values
             df = df.loc[samples_mask, samples_mask]
 
-            # throw away extremely irregular samples
-            mean_dist = df.sum() / (df.shape[0] - 1)  # -1 to not count zero distance with self
-            deviation = ((mean_dist - mean_dist.mean()) / mean_dist.std())
-            samples_mask = df.columns[deviation <= std_irregular].values
-
             df = df.loc[samples_mask, samples_mask]
 
             if df.shape[0] >= minimal_samples:
@@ -1556,7 +1551,9 @@ class Study:
 
                     if i != daddy and link_colors[daddy + len(df)] != 'black':
                         link_colors[i + len(df)] = link_colors[daddy + len(df)]
-                    elif link[3] >= min_samples_per_strain and relative_change >= relative_change_threshold:
+                    elif (df.shape[1] - link[3] >= min_samples_per_strain) and \
+                         (link[3] >= min_samples_per_strain) and \
+                         (relative_change >= relative_change_threshold):
                         link_colors[i + len(df)] = strain_colors[j % len(strain_colors)]
                         j = j + 1
                     else:
