@@ -8,7 +8,7 @@ study = '10K'
 run_type = 'between'  # always
 
 run_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{study}/{run_type}'
-look_dir = f'/net/mraid08/export/genie/LabData/Analyses/saarsh/*_{study}_anti_mwas_{run_type}'
+look_dir = f'/net/mraid20/export/genie/LabData/Analyses/saarsh/*_{study}_anti_mwas_{run_type}'
 
 
 def rw(s, d):

@@ -116,7 +116,7 @@ class P:
     body_site = study_ids[0]
     # species
     # done_species = pd.read_csv(
-    #     '/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas_gut_0months/done_species.csv', index_col=0)
+    #     '/net/mraid20/export/genie/LabData/Analyses/saarsh/PNP3_mwas_gut_0months/done_species.csv', index_col=0)
     # done_species = done_species.iloc[:, 0].to_list()
     species_set = s#list(set(s) - set(done_species))
     # print(f'running on {len(species_set)} new species')
@@ -173,7 +173,7 @@ if __name__ == '__main__':
     # work_dir = m.gen_mwas()
     # print(work_dir)
 
-    work_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas_gut_change_R3_constant'
+    work_dir = '/net/mraid20/export/genie/LabData/Analyses/saarsh/PNP3_mwas_gut_change_R3_constant'
 
     MBSNPAnalyses(P, work_dir).post_full_run_recovery_from_files()
     df = pd.read_hdf(os.path.join(work_dir, 'mb_gwas.h5'))

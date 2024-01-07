@@ -20,8 +20,8 @@ first_columns = ['SGB', 'contig', 'Contig_with_part', 'Contig_without_part',
                  'GeneID', 'GeneRelation', 'GeneDistance', 'strand', 'start_pos', 'end_pos',
                  'feature']  # , 'gene', 'product', 'eggNOG annot']
 
-# annotations_file = '/net/mraid08/export/genie/LabData/Data/Annotations/Segata_annots/Segata_annots_2021_02_04_prokka_eggnog.csv'
-annotations_file = '/net/mraid08/export/genie/LabData/Data/Annotations/Segal_annots/Segal_annots_2021_07_31_prokka_eggnog.csv'
+# annotations_file = '/net/mraid20/export/genie/LabData/Data/Annotations/Segata_annots/Segata_annots_2021_02_04_prokka_eggnog.csv'
+annotations_file = '/net/mraid20/export/genie/LabData/Data/Annotations/Segal_annots/Segal_annots_2021_07_31_prokka_eggnog.csv'
 gene_annotations = None
 annotations_list = None
 global_body_site = 'Gut'

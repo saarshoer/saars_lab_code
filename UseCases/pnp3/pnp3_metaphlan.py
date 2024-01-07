@@ -9,7 +9,7 @@ output_dir = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3/paper/micr
 
 
 def do(in_file, out_file):
-    mpa_command = '/usr/wisdom/python/bin/metaphlan --input_type fastq --bowtie2db /net/mraid08/export/genie/Data/Databases/mpa_2023 --no_map -t rel_ab'
+    mpa_command = '/usr/wisdom/python/bin/metaphlan --input_type fastq --bowtie2db /net/mraid20/export/genie/Data/Databases/mpa_2023 --no_map -t rel_ab'
     mpa_command = ' '.join([mpa_command, in_file, out_file])
     os.system(mpa_command)
 

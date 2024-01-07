@@ -2,7 +2,7 @@ import pandas as pd
 
 species = 'SGB_6506'
 
-vcf_path = f'/net/mraid08/export/genie/LabData/Data/MBPipeline/PNP3_rerun_segata/MBSNP/CountsB/mb_snp_counts_{species}.h5'
+vcf_path = f'/net/mraid20/export/genie/LabData/Data/MBPipeline/PNP3_rerun_segata/MBSNP/CountsB/mb_snp_counts_{species}.h5'
 s1 = '946729_FD3159'
 s2 = '800808_FD3093'
 

@@ -31,7 +31,7 @@ def func(species_fname, output_fname):
 if __name__ == '__main__':
 
     # PNP3
-    # counts_dir = '/net/mraid08/export/genie/LabData/Data/MBPipeline/PNP3_rerun_segata/MBSNP/CountsB/'
+    # counts_dir = '/net/mraid20/export/genie/LabData/Data/MBPipeline/PNP3_rerun_segata/MBSNP/CountsB/'
     # species3letters = 'SGB'
 
     # Everything else

@@ -13,7 +13,7 @@ from LabData.CentralizedGenerators.prokka import prokka
 # conda create -n prokka_env -c conda-forge -c bioconda -c defaults prokka
 
 # in shell - add the prokka and eggnog environments to your .cshrc PATH, if not in file itself it will not work for jobs
-# setenv PATH /net/mraid08/export/genie/Bin/eggnogv2/eggnog-mapper/bin:~/Develop/anaconda_33/envs/prokk_env/bin:/net/mraid08/export/genie/Bin/eggnogv2/eggnog-mapper:${PATH}
+# setenv PATH /net/mraid20/export/genie/Bin/eggnogv2/eggnog-mapper/bin:~/Develop/anaconda_33/envs/prokk_env/bin:/net/mraid20/export/genie/Bin/eggnogv2/eggnog-mapper:${PATH}
 
 # in shell - run this script with your regular python (the one that has LabQueue and LabUtils configured)
 # /usr/wisdom/python3/bin/python ~/Develop/Git/LabData/LabData/CentralizedGenerators/annotate_reference_genome.py &
@@ -29,7 +29,7 @@ jobs_dir = os.path.join(output_dir, 'jobs')
 os.makedirs(jobs_dir, exist_ok=True)
 
 prokka_env = '~/Develop/anaconda_33/envs/prokk_env/bin'
-eggnog_env = '/net/mraid08/export/genie/Bin/eggnogv2/eggnog-mapper'
+eggnog_env = '/net/mraid20/export/genie/Bin/eggnogv2/eggnog-mapper'
 prokka_cmd = 'prokka --cpus 2 --quiet --force --outdir {} --prefix prokka {} --rfam'
 eggnog_cmd = 'emapper.py -i {} --output {} --dbmem --go_evidence all -m diamond --cpu 16'
 prokka_version = 'prokka_1.14.6'

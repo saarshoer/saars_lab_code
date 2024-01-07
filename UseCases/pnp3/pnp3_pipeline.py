@@ -38,7 +38,7 @@ urb_min_mapped_to_retain = {'NebNext': 1000000, 'NebNext_new': 1000000,  # Gut
                             'Nextseq': 500000, 'Novaseq': 500000}  # Oral
 urb_min_mapped_to_retain = urb_min_mapped_to_retain[run_name]
 
-base_dir = os.path.join('/net/mraid08/export/genie/LabData/Data/MBPipeline/PNP3_rerun_segata/', body_site, run_name)
+base_dir = os.path.join('/net/mraid20/export/genie/LabData/Data/MBPipeline/PNP3_rerun_segata/', body_site, run_name)
 
 
 # prep

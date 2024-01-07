@@ -24,7 +24,7 @@ class P:
 
     # species
     species_set = pd.read_pickle(os.path.join(dfs_dir, f'baseline_species.df')).index.tolist()
-    # with pd.HDFStore('/net/mraid08/export/genie/LabData/Analyses/saarsh/20221221_131517/mb_dists.h5', 'r') as hdf:
+    # with pd.HDFStore('/net/mraid20/export/genie/LabData/Analyses/saarsh/20221221_131517/mb_dists.h5', 'r') as hdf:
     #     done_species = [s[1:] for s in hdf.keys()]
     # species_set = list(set(species_set) - set(done_species))
     # del hdf
@@ -71,7 +71,7 @@ if __name__ == '__main__':
     m = MBSNPPairwiseDistances(P)
 
     # import glob
-    # files = glob.glob('/net/mraid08/export/genie/LabData/Analyses/saarsh/20221221_131517/*.h5')
+    # files = glob.glob('/net/mraid20/export/genie/LabData/Analyses/saarsh/20221221_131517/*.h5')
     # files = {i: f for i, f in enumerate(files)}
     # m._post_full_run(files)
 

@@ -21,8 +21,8 @@ from LabData.DataAnalyses.MBSNPs.mwas_annots import add_sequences, choose_contig
 
 ilegal_chars = [':', '*', '/', '(', ')']
 
-mafft_exe = '/net/mraid08/export/genie/Bin/mafft/mafftdir/bin/mafft'
-mafft_binaries = '/net/mraid08/export/genie/Bin/mafft/mafftdir/libexec/'
+mafft_exe = '/net/mraid20/export/genie/Bin/mafft/mafftdir/bin/mafft'
+mafft_binaries = '/net/mraid20/export/genie/Bin/mafft/mafftdir/libexec/'
 
 tax_df = taxonomy_df(level_as_numbers=False).set_index('SGB')['Species']
 
@@ -505,7 +505,7 @@ def run(mwas_fname=None, data_fname=None, annotations_df=None, y_df=None,  # inp
 
 if __name__ == '__main__':
     base_path = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/'
-    run_dir = '/net/mraid08/export/genie/LabData/Analyses/saarsh/anti_mwas_within'
+    run_dir = '/net/mraid20/export/genie/LabData/Analyses/saarsh/anti_mwas_within'
 
     annots = pd.read_hdf(os.path.join(run_dir, 'snps_gene_annotations_short.h5'))
     gene = 'ssrA'

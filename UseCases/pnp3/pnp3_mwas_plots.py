@@ -67,7 +67,7 @@ def pval_func(pval_col, pval_cutoff, df):
 
 body_site = 'Gut'
 
-base_dir = f'/net/mraid08/export/genie/LabData/Analyses/saarsh/PNP3_mwas_{body_site.lower()}_small'
+base_dir = f'/net/mraid20/export/genie/LabData/Analyses/saarsh/PNP3_mwas_{body_site.lower()}_small'
 mwas_fname = os.path.join(base_dir, 'mb_gwas_all_pvals_sig_y.h5')
 data_fname = os.path.join(base_dir, 'mb_gwas_data.h5')
 y_df = pd.read_pickle(f'/home/saarsh/Analysis/PNP3/data_frames/mwas_change/{body_site.lower()}_mwas_input_y.df')

@@ -117,7 +117,7 @@ class P:
 if __name__ == '__main__':
 
     base_path = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/dissimilarities/'
-    diss_path = '/net/mraid08/export/genie/LabData/Analyses/saarsh/threshold_diss/mb_dists.h5'
+    diss_path = '/net/mraid20/export/genie/LabData/Analyses/saarsh/threshold_diss/mb_dists.h5'
 
     meta = pd.read_pickle(samples_path)
 

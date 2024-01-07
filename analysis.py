@@ -146,7 +146,7 @@ class Study:
         # loading from Lab Data
         if self.params.study == 'PNP3':
             self.params.study = ['PNP3', 'T2D']
-            reg_ids = '/net/mraid08/export/genie/LabData/Data/StudySpecificData/PNP3/Combined_RandomizationResults_final.xlsx'
+            reg_ids = '/net/mraid20/export/genie/LabData/Data/StudySpecificData/PNP3/Combined_RandomizationResults_final.xlsx'
             reg_ids = pd.read_excel(reg_ids, engine='openpyxl')
             reg_ids = reg_ids.loc[reg_ids['IsActive'] == 1, 'RegistrationCode'].astype(int).astype(str).tolist()
         else:
