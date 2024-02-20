@@ -28,7 +28,7 @@ from xgboost import XGBClassifier, XGBRegressor
 from sklearn.metrics import r2_score, roc_auc_score
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.linear_model import LinearRegression, LogisticRegression, Lasso
-from sklearn.model_selection import RepeatedStratifiedKFold, train_test_split, GridSearchCV
+from sklearn.model_selection import RepeatedKFold, RepeatedStratifiedKFold, train_test_split, GridSearchCV
 
 # dimensionality reduction
 from sklearn.manifold import TSNE
@@ -877,7 +877,7 @@ class Study:
 
             # check if column is classifiable in order to know which model to use
             if sorted(np.unique(y)) == [0, 1] or sorted(np.unique(y)) == [False, True] \
-                    or not all([np.issubdtype(type(val[0]), np.number) for val in y]):
+                    or not all([np.issubdtype(type(val), np.number) for val in y]):#val[0]
                 classifiable = True
                 score_func = roc_auc_score
                 le = LabelEncoder()
@@ -928,15 +928,17 @@ class Study:
             # create K folds of the data and do for each fold
             number_of_splits = len(x) if n_splits == -1 else n_splits
 
-            kf = RepeatedStratifiedKFold(n_splits=number_of_splits, n_repeats=n_repeats, random_state=random_state) \
+            func = RepeatedStratifiedKFold if classifiable else RepeatedKFold
+            kf = func(n_splits=number_of_splits, n_repeats=n_repeats, random_state=random_state) \
                 if number_of_splits != 1 else None  # TODO: not sure if this is good for grid search
 
             # grid search mode
             if len(search_hyper_params) != 0:  # TODO: will probably not work with stats models
 
-                model = GridSearchCV(model_instance, search_hyper_params, cv=kf, refit=True, scoring='roc_auc_ovo', n_jobs=2)
+                model = GridSearchCV(model_instance, search_hyper_params, cv=kf, refit=True,
+                                     scoring='roc_auc_ovr' if classifiable else 'r2', n_jobs=2)
 
-                x_train, x_test, y_train, y_test = train_test_split(x, y, stratify=y,
+                x_train, x_test, y_train, y_test = train_test_split(x, y, stratify=y if classifiable else None,
                                                                     test_size=1/number_of_splits,
                                                                     random_state=random_state)
 
@@ -961,7 +963,10 @@ class Study:
                         y_true.append(y_test)
                         y_pred.append(model.predict(x_test))
                     else:
-                        scores.append(score_func(y_test, model.predict_proba(x_test), multi_class='ovo'))
+                        if classifiable:
+                            scores.append(score_func(y_test, model.predict_proba(x_test), multi_class='ovr'))
+                        else:
+                            scores.append(score_func(y_test, model.predict_proba(x_test)))
                         # try:
                         #     if len(set(y_test)) == 1:
                         #         scores.append(np.nan)
@@ -976,8 +981,10 @@ class Study:
             if abs(n_splits) == 1:
                 y_true = np.array(y_true).flatten()
                 y_pred = np.array(y_pred).flatten()
-                scores = score_func(y_true, y_pred, multi_class='ovo')
-                if not classifiable:
+                if classifiable:
+                    scores = score_func(y_true, y_pred, multi_class='ovr')
+                else:
+                    scores = score_func(y_true, y_pred)
                     r_pearson, p_pearson = pearsonr(y_true, y_pred)
                     r_spearman, p_spearman = spearmanr(y_true, y_pred)
 
@@ -2415,7 +2422,7 @@ def add_strain_replacement(test, control=None, quantile=0.05):
     control = control.groupby('Species')['dissimilarity'].quantile(quantile)
 
     # test data
-    # remove comparisons to the same samplefig_strain_replacements
+    # remove comparisons to the same sample
     condition = (test.index.get_level_values('SampleName1') != test.index.get_level_values('SampleName2'))
 
     # remove between person comparisons
@@ -2751,7 +2758,8 @@ if __name__ == '__main__':
                            'Lifeline_deep': sns.color_palette()[0], }
 
     meta = pd.read_pickle(os.path.join(study.dirs.data_frames, 'meta.df'))
-    strains = pd.read_pickle(os.path.join(study.dirs.data_frames, 'strains.df'))
+    # strains = pd.read_pickle(os.path.join(study.dirs.data_frames, 'strains.df'))
+    p_species = pd.read_pickle(os.path.join(study.dirs.data_frames, 'p_species.df'))
 
     body_systems = [
         'blood_lipids',
@@ -2772,33 +2780,55 @@ if __name__ == '__main__':
         'renal_function',
         'sleep']
 
-    cols = []
-    for col in strains.columns:
-        vc = strains[col].value_counts()
+    # cols = []
+    # for col in strains.columns:
+    #     vc = strains[col].value_counts()
+    #
+    #     # so there would not be labels with less than n_repeats or just not worth predicting
+    #     for c in (vc < 50).replace(False, np.nan).dropna().index:
+    #         strains[col] = strains[col].replace(c, np.nan)
+    #     vc = strains[col].value_counts()
+    #
+    #     # so there will be at least two valid labels
+    #     if len(vc) > 1 and vc.iloc[1] >= 50:
+    #         cols.append(col)
+    # len(cols)
+    #
+    # study.objs['strains'] = study.Object(obj_type='strains', df=strains[cols], columns='species')
+    # yobj = study.objs['strains']
+    # study.objs['y_col'] = study.Object(obj_type='y_col', df=abun[cols], columns='species')
 
-        # so there would not be labels with less than n_repeats or just not worth predicting
-        for c in (vc < 50).replace(False, np.nan).dropna().index:
-            strains[col] = strains[col].replace(c, np.nan)
-        vc = strains[col].value_counts()
+    study.objs['replacements'] = study.Object(obj_type='replacements', df=p_species.to_frame('replacements'),
+                                              columns='replacements')
+    study.objs['replacements'].df.index = \
+    meta[meta['research_stage'] == 'baseline'].reset_index().set_index('RegistrationCode').loc[
+        study.objs['replacements'].df.index, 'index'].tolist()
+    study.objs['replacements'].df.index.names = ['index']
+    yobj = study.objs['replacements']
+    #####can be done per spceies
 
-        # so there will be at least two valid labels
-        if len(vc) > 1 and vc.iloc[1] >= 50:
-            cols.append(col)
-    len(cols)
+    local_meta = meta.rename(columns={'age': 'Age', 'gender': 'Sex'})[['Age', 'Sex', 'RegistrationCode']].loc[
+        meta['research_stage'] == 'baseline']
 
-    study.objs['strains'] = study.Object(obj_type='strains', df=strains[cols], columns='species')
-
-    for system in body_systems[::-1]:
+    for system in ['baseline'] + body_systems:
         system
 
-        study.objs[system] = study.Object(obj_type=system, df=None, columns='features')
-        study.objs[system].df = pd.read_csv(os.path.join('data_frames', 'body_systems', 'Xs', f'{system}.csv'),
-                                            index_col=0).drop('gender', axis=1)
-        study.objs[system].df = meta.rename(columns={'gender': 'sex'})[['age', 'sex', 'RegistrationCode']].loc[
-            meta['research_stage'] == 'baseline'].join(
-            study.objs[system].df, on='RegistrationCode').drop('RegistrationCode', axis=1)
+        for RA in [False]:  ######, True]:
 
-        study.score_models(xobj=study.objs[system], yobj=study.objs['strains'], cobj=None, join_on='index',
+            system_name = f'{system}_abundance' if RA else system
+
+            study.objs[system_name] = study.Object(obj_type=system_name, df=None, columns='features')
+            if system == 'baseline':
+                study.objs[system_name].df = local_meta.drop('RegistrationCode', axis=1)
+            else:
+                study.objs[system_name].df = local_meta.join(
+                    pd.read_csv(os.path.join('data_frames', 'body_systems', 'Xs', f'{system}.csv'), index_col=0).drop(
+                        'gender', axis=1),
+                    on='RegistrationCode', how='inner').drop('RegistrationCode', axis=1)
+                if system == 'micrbiome':
+                    study.objs[system_name].df = study.objs[system_name].df.replace(-4, np.nan)
+
+        study.score_models(xobj=study.objs[system], yobj=yobj, cobj=None, join_on='index',
                            all_features=True, delta=False, add_constant=False, minimal_samples=100,
                            model_type='xgb', regularized=False, n_repeats=1, n_splits=3, random_state=42,
                            send2queue=False, save=True,

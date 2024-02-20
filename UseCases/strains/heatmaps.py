@@ -30,6 +30,14 @@ assemblies.loc[~assemblies['Source'].isin(['Segal', 'Segata']), 'SampleName'] = 
 assemblies['SampleName'] = assemblies['SampleName'].str.split('_v').str[0].str.replace('sample_', '')
 assemblies = assemblies.reset_index()
 
+# snps
+maf = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{}/pcs_covariate/mb_snp_maf_{}.h5'
+strain_variability = '/net/mraid08/export/mb/MBPipeline/Analyses/MBSNP/Gut/mb_sns_strain_variability_R3.h5'
+
+# pangenomes
+dists_mat16 = '/net/mraid08/export/jafar/Microbiome/Analyses/Unicorn/URS/URS_Build/dists/between_person/dists_mat16.dat'
+gene_presence_absence = '/net/mraid20/export/genie/LabData/Data/Annotations/Segal_annots_all_assemblies/{}/roary_3.13.0/gene_presence_absence.csv'
+
 mash_dist = None
 
 
@@ -54,9 +62,7 @@ def get_distance(species, metric, maximal_imputation, df=None):
         # get data
         global mash_dist
         if mash_dist is None:
-            mem = np.memmap(
-                '/net/mraid08/export/jafar/Microbiome/Analyses/Unicorn/URS/URS_Build/dists/between_person/dists_mat16.dat',
-                dtype=np.float16, mode='r', shape=(len(assemblies), len(assemblies)))
+            mem = np.memmap(dists_mat16, dtype=np.float16, mode='r', shape=(len(assemblies), len(assemblies)))
             mash_dist = np.array(mem)
             del mem
         genomes = assemblies.loc[assemblies['cluster_s'] == int(species.split('_')[-1]), 'SampleName']
@@ -77,10 +83,10 @@ def get_linkage(dist, method):
 
 def find_strains(dist, linkage_, relative_change_threshold, min_samples_per_strain, max_samples_per_strain):
 
-    colors = [mpl.colors.rgb2hex(c) for c in cm.Set1.colors[:-1]]
+    colors_ = [mpl.colors.rgb2hex(c) for c in cm.Set1.colors[:-1]]
     color_names = ['re', 'bl', 'gr', 'pu', 'or', 'ye', 'br', 'pi']
     color_names = [f'{c}3' for c in color_names] + [f'{c}2' for c in color_names] + color_names
-    color_names = dict(zip(colors + colors + colors, color_names))
+    color_names = dict(zip(colors_ + colors_ + colors_, color_names))
     color_names['black'] = 'black'
 
     j = 1
@@ -97,7 +103,7 @@ def find_strains(dist, linkage_, relative_change_threshold, min_samples_per_stra
         elif (link[3] < dist.shape[0] * max_samples_per_strain) and \
              (link[3] >= min_samples_per_strain) and\
              (relative_change >= relative_change_threshold):
-            link_colors[i + dist.shape[0]] = colors[j % len(colors)]
+            link_colors[i + dist.shape[0]] = colors_[j % len(colors_)]
             j = j + 1
         else:
             link_colors[i + dist.shape[0]] = 'black'
@@ -107,13 +113,12 @@ def find_strains(dist, linkage_, relative_change_threshold, min_samples_per_stra
 
 def get_data(species, snps):
     if snps:
-        file = os.path.join(
-            f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/10K/pcs_covariate/mb_snp_maf_{species}.h5')
+        file = maf.format(study, species)
         data = pd.read_hdf(file).replace(MAF_MISSING_VALUE, np.nan) / MAF_1_VALUE
         data = data.T
 
     else:
-        file = f'/net/mraid20/export/genie/LabData/Data/Annotations/Segal_annots_all_assemblies/Segal_and_external/{species}/roary_3.13.0/gene_presence_absence.csv'
+        file = gene_presence_absence.format(species)
 
         if species == 'Rep_449':
             all_chunks = []
@@ -183,7 +188,7 @@ def get_statistics(a, covariates, df, sample_colors, min_samples_per_strain):
         color1 = sample_colors_vc.index[0]
         color2 = sample_colors_vc.index[1]
         r, p = test(color1, color2)
-        l = f'{a} ~ c={r:.1f} p={p:.0e}'
+        l = f'{a} ~ {color1} c={r:.1f} p={p:.0e}'
 
     else:
         # 1 vs all
@@ -192,7 +197,7 @@ def get_statistics(a, covariates, df, sample_colors, min_samples_per_strain):
         for color in sample_colors_vc.index:
             r, p = test(color)
             all_p.append(p)
-            anno_label = anno_label + (f' {color} c={r:.1f} p={p:.0e}' if n_colors > 1 else f' c={r:.1f} p={p:.0e}')
+            anno_label = anno_label + (f' {color} c={r:.1f} p={p:.0e}' if n_colors > 1 else f' {color} c={r:.1f} p={p:.0e}')
         p = min(all_p)
         l = anno_label
 
@@ -234,6 +239,14 @@ def plot(df, mask, distance, snps, significant,
          row_linkage, col_linkage, link_colors,
          row_colors, col_colors):
 
+    if distance:
+        cmap = 'autumn'
+    else:
+        if snps:
+            cmap = 'Blues'
+        else:
+            cmap = colors.LinearSegmentedColormap.from_list('', ['tab:olive', 'white'])
+
     # clustermap
     g = sns.clustermap(df, mask=mask,
                        row_linkage=row_linkage,
@@ -248,8 +261,9 @@ def plot(df, mask, distance, snps, significant,
                        row_colors=row_colors,
                        col_colors=col_colors,
 
-                       vmax=df.quantile(0.9).quantile(0.9) if distance & snps else None,
-                       cmap='autumn' if distance else 'Blues',
+                       vmax=df.quantile(0.9).quantile(0.9) if snps & distance else None,
+                       cmap=cmap,
+
                        cbar_kws={'label': 'Distance', 'orientation': 'horizontal', 'ticks': None} if distance else {})
     g.ax_heatmap.set_facecolor('black')
 
@@ -306,12 +320,12 @@ def plot(df, mask, distance, snps, significant,
             if '~' in text.get_text():
                 label, tests = text.get_text().split(' ~ ')
                 short_labels.append(label)
-                colors = tests.split(' ')[::3]
+                colors_ = tests.split(' ')[::3]
                 pvals = [float(p.split('=')[-1]) for p in tests.split(' ')[2::3]]
                 y = text.get_position()[1]
                 i = 0
-                for i, (c, p) in enumerate(zip(colors, pvals)):
-                    if p < 0.05:
+                for c, p in zip(colors_, pvals):
+                    if p < alpha:
                         g.ax_col_colors.text(x=xlim, y=y+0.5, s=f'{" " * (5 + max_len + i*2)}*',
                                              color=c, fontsize=16)
                         i = i + 1
@@ -328,12 +342,12 @@ def plot(df, mask, distance, snps, significant,
             if '~' in text.get_text():
                 label, tests = text.get_text().split(' ~ ')
                 short_labels.append(label)
-                colors = tests.split(' ')[::3]
+                colors_ = tests.split(' ')[::3]
                 pvals = [float(p.split('=')[-1]) for p in tests.split(' ')[2::3]]
                 x = text.get_position()[0]
                 i = 0
-                for i, (c, p) in enumerate(zip(colors, pvals)):
-                    if p < 0.05:
+                for c, p in zip(colors_, pvals):
+                    if p < alpha:
                         g.ax_row_colors.text(x=x-0.5, y=ylim, s=f'*{" " * (10 + max_len + i*2)}',
                                              color=c, fontsize=16, rotation='vertical', va='top')
                         i = i + 1
@@ -401,10 +415,10 @@ def fig_snp_heatmap(
     for a in row_annots:
         pvalue, label = get_statistics(a, row_annots_covariates, row_annots_df, sample_colors, min_samples_per_strain)
         expanded_row_annots.append(label)
-        pvalues.append(pvalue)
+        # pvalues.append(pvalue)
     print(expanded_row_annots)
     if len(row_annots) > 0:
-        row_colors = get_colors(row_annots_df.loc[row_annots_df.index.intersection(data.columns), row_annots], row_annots_cmaps)
+        row_colors = get_colors(row_annots_df.loc[row_annots_df.index.intersection(data.index), row_annots], row_annots_cmaps)
         row_colors.columns = expanded_row_annots
     else:
         row_colors = None
@@ -416,13 +430,13 @@ def fig_snp_heatmap(
         pvalues.append(pvalue)
     print(expanded_col_annots)
     if len(col_annots) > 0:
-        col_colors = get_colors(col_annots_df.loc[col_annots_df.index.intersection(data.index), col_annots], col_annots_cmaps)
+        col_colors = get_colors(col_annots_df.loc[col_annots_df.index.intersection(data.columns), col_annots], col_annots_cmaps)
         col_colors.columns = expanded_col_annots
     else:
         col_colors = None
 
     reordered_ind = plot(df=data, mask=mask,
-                         distance=distance, snps=snps, significant=(np.array(pvalues)).any(),
+                         distance=distance, snps=snps, significant=(np.array(pvalues) < alpha).any(),
                          row_linkage=row_linkage, col_linkage=col_linkage, link_colors=col_link_colors,
                          row_colors=row_colors, col_colors=col_colors)
 
@@ -432,69 +446,95 @@ def fig_snp_heatmap(
 
 
 if __name__ == '__main__':
-    os.chdir(f'/home/saarsh/Analysis/strains/10K')
-
     snps = True
-    distance = True
+    distance = False
+    study = '10K'
 
+    col_annots = row_annots = []
+    col_annots_cmaps = row_annots_cmaps = {}
+    col_annots_df = row_annots_df = None
+    col_annots_covariates = row_annots_covariates = []
+
+    # do once
     if snps:
+        os.chdir(f'/home/saarsh/Analysis/strains/{study}')
+
+        alpha = 0.05 / 102 if study == '10K' else 0.05 / 112
+
         with pd.HDFStore(os.path.join('data_frames', 'mb_dists.h5'), 'r') as hdf:
             all_species = [key[1:] for key in hdf.keys()]
         del hdf
         strains = pd.read_pickle(os.path.join('data_frames', 'meta.df'))[[]]
 
-        pheno = pd.read_pickle(os.path.join('data_frames', 'body.df'))
+        pheno = pd.read_pickle(os.path.join('data_frames', 'pheno.df'))
         col_annots = col_annots_covariates = ['Age', 'Sex', 'BMI']
         col_annots_df = pheno[['age', 'sex', 'bmi']].rename(columns={'age': 'Age', 'sex': 'Sex', 'bmi': 'BMI'})
-        row_annots = ['Has genome', 'Variable positions', 'Relative abundance']
-        row_annots_cmaps = {'Variable positions': 'Greys', 'Relative abundance': 'Greys'}
 
-        HG = pd.read_hdf(os.path.join(os.getcwd(), 'data_frames', 'has_genome.h5'))
-        SV = pd.read_hdf('/net/mraid20/export/mb/MBPipeline/Analyses/MBSNP/Gut/mb_sns_strain_variability_R3.h5')
-        RA = pd.read_hdf(os.path.join(os.getcwd(), 'data_frames', 'abundance.h5'))
+        if distance:
+            row_annots = ['Has genome', 'Variable positions', 'Relative abundance'] if study == '10K' else ['Variable positions', 'Relative abundance']
+            row_annots_cmaps = {'Variable positions': 'Greys', 'Relative abundance': 'Greys'}
+
+            HG = pd.read_hdf(os.path.join(os.getcwd(), 'data_frames', 'has_genome.h5')) if study == '10K' else None
+            SV = pd.read_hdf(strain_variability)
+            RA = pd.read_hdf(os.path.join(os.getcwd(), 'data_frames', 'abundance.h5'))
+
+        else:
+            all_species = glob.glob(os.path.join('figs', 'snps_distance', 'significant', '*.png'))
+            all_species = [s.split('/')[-1].split('.')[0] for s in all_species]
 
     else:
-        all_species = glob.glob('/net/mraid20/export/genie/LabData/Data/Annotations/Segal_annots_all_assemblies/Segal_and_external/*/roary_3.13.0/gene_presence_absence.csv')
+        os.chdir(f'/home/saarsh/Analysis/pangenomes')
+
+        alpha = 0.05 / 191
+
+        all_species = glob.glob(gene_presence_absence.format('*'))
         all_species = [file.split('/')[-3] for file in all_species]
         strains = pd.DataFrame(index=assemblies['SampleName'].unique())
 
         col_annots = ['Age', 'Sex']
-        col_annots_covariates = []
         assemblies['Gender'] = assemblies['Gender'].replace({'F': 'Female', 'M': 'Male'})
-        row_annots = []
-        row_annots_cmaps = {}
 
-    for species in ['Rep_1468']:#all_species:
+    # run
+    for species in all_species:
 
         print(species)
 
+        # do per species
         if snps:
-            row_annots_df = HG[species].to_frame('Has genome').join(
-                            SV[species].to_frame('Variable positions'), how='outer').join(
-                            RA[species].to_frame('Relative abundance'), how='outer')
+            if distance:
+                if study == '10K':
+                    row_annots_df = HG[species].to_frame('Has genome').join(
+                                    SV[species].to_frame('Variable positions'), how='outer').join(
+                                    RA[species].to_frame('Relative abundance'), how='outer')
+                else:
+                    row_annots_df = SV[species].to_frame('Variable positions').join(
+                                    RA[species].to_frame('Relative abundance'), how='outer')
         else:
             col_annots_df = \
             assemblies.loc[assemblies['cluster_s'] == int(species.split('_')[-1])].set_index('SampleName').rename(
                 columns={'Gender': 'Sex'})[['Age', 'Sex']]
-            row_annots_df = None
 
+        # plot
         sample_colors = fig_snp_heatmap(
             # data
             species=species, snps=snps, distance=distance,
             # samples
-            minimal_samples=100, maximal_imputation=0.1,
+            minimal_samples=200, maximal_imputation=0.1,
             # clustering
             metric='euclidean', method='average',
             # strain definition
-            relative_change_threshold=0.05, min_samples_per_strain=50, max_samples_per_strain=0.8,
+            relative_change_threshold=0.01, min_samples_per_strain=50, max_samples_per_strain=0.8,
             # annotations
             col_annots=col_annots, col_annots_covariates=col_annots_covariates, col_annots_df=col_annots_df,
             col_annots_cmaps={'Age': 'Blues', 'BMI': 'Reds'},
-            row_annots=row_annots, row_annots_covariates=[], row_annots_df=row_annots_df, row_annots_cmaps=row_annots_cmaps,
+
+            row_annots=row_annots, row_annots_covariates=row_annots_covariates, row_annots_df=row_annots_df,
+            row_annots_cmaps=row_annots_cmaps,
         )
 
+        # data frame
         if len(sample_colors) > 0:
             strains.loc[list(sample_colors.keys()), species] = list(sample_colors.values())
 
-    # if distance:
-    #     strains.to_pickle(os.path.join('data_frames', f'{"strains" if snps else "pangenomes"}.df'))
+    if distance:
+        strains.to_pickle(os.path.join('data_frames', 'strains.df'))
