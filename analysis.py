@@ -940,7 +940,7 @@ class Study:
 
                 x_train, x_test, y_train, y_test = train_test_split(x, y, stratify=y if classifiable else None,
                                                                     test_size=1/number_of_splits,
-                                                                    random_state=random_state)
+                                                                    random_state=random_state)#42
 
                 model.fit(x_train, y_train)
                 scores.append(model.score(x_test, y_test))
@@ -2758,7 +2758,7 @@ if __name__ == '__main__':
                            'Lifeline_deep': sns.color_palette()[0], }
 
     meta = pd.read_pickle(os.path.join(study.dirs.data_frames, 'meta.df'))
-    # strains = pd.read_pickle(os.path.join(study.dirs.data_frames, 'strains.df'))
+    strains = pd.read_pickle(os.path.join(study.dirs.data_frames, 'strains.df'))
     p_species = pd.read_pickle(os.path.join(study.dirs.data_frames, 'p_species.df'))
 
     body_systems = [
@@ -2780,31 +2780,31 @@ if __name__ == '__main__':
         'renal_function',
         'sleep']
 
-    # cols = []
-    # for col in strains.columns:
-    #     vc = strains[col].value_counts()
-    #
-    #     # so there would not be labels with less than n_repeats or just not worth predicting
-    #     for c in (vc < 50).replace(False, np.nan).dropna().index:
-    #         strains[col] = strains[col].replace(c, np.nan)
-    #     vc = strains[col].value_counts()
-    #
-    #     # so there will be at least two valid labels
-    #     if len(vc) > 1 and vc.iloc[1] >= 50:
-    #         cols.append(col)
-    # len(cols)
-    #
-    # study.objs['strains'] = study.Object(obj_type='strains', df=strains[cols], columns='species')
-    # yobj = study.objs['strains']
+    cols = []
+    for col in strains.columns:
+        vc = strains[col].value_counts()
+
+        # so there would not be labels with less than n_repeats or just not worth predicting
+        for c in (vc < 50).replace(False, np.nan).dropna().index:
+            strains[col] = strains[col].replace(c, np.nan)
+        vc = strains[col].value_counts()
+
+        # so there will be at least two valid labels
+        if len(vc) > 1 and vc.iloc[1] >= 50:
+            cols.append(col)
+    len(cols)
+
+    study.objs['strains'] = study.Object(obj_type='strains', df=strains[cols], columns='species')
+    yobj = study.objs['strains']
     # study.objs['y_col'] = study.Object(obj_type='y_col', df=abun[cols], columns='species')
 
-    study.objs['replacements'] = study.Object(obj_type='replacements', df=p_species.to_frame('replacements'),
-                                              columns='replacements')
-    study.objs['replacements'].df.index = \
-    meta[meta['research_stage'] == 'baseline'].reset_index().set_index('RegistrationCode').loc[
-        study.objs['replacements'].df.index, 'index'].tolist()
-    study.objs['replacements'].df.index.names = ['index']
-    yobj = study.objs['replacements']
+    # study.objs['replacements'] = study.Object(obj_type='replacements', df=p_species.to_frame('replacements'),
+    #                                           columns='replacements')
+    # study.objs['replacements'].df.index = \
+    # meta[meta['research_stage'] == 'baseline'].reset_index().set_index('RegistrationCode').loc[
+    #     study.objs['replacements'].df.index, 'index'].tolist()
+    # study.objs['replacements'].df.index.names = ['index']
+    # yobj = study.objs['replacements']
     #####can be done per spceies
 
     local_meta = meta.rename(columns={'age': 'Age', 'gender': 'Sex'})[['Age', 'Sex', 'RegistrationCode']].loc[
@@ -2830,7 +2830,7 @@ if __name__ == '__main__':
 
         study.score_models(xobj=study.objs[system], yobj=yobj, cobj=None, join_on='index',
                            all_features=True, delta=False, add_constant=False, minimal_samples=100,
-                           model_type='xgb', regularized=False, n_repeats=1, n_splits=3, random_state=42,
+                           model_type='xgb', regularized=False, n_repeats=2, n_splits=3, random_state=42,
                            send2queue=False, save=True,
                            hyper_parameters={
                                'n_estimators': [1000],
