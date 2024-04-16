@@ -4,8 +4,8 @@ from LabQueue.qp import qp, fakeqp
 from LabUtils.addloglevels import sethandlers
 
 input_files = pd.read_csv(
-    '/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3/paper/microbiome_samples_location.csv').iloc[:, 0].tolist()
-output_dir = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3/paper/microbiome_metaphlan/'
+    '/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/PNP3/paper/microbiome_samples_location.csv').iloc[:, 0].tolist()
+output_dir = '/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/PNP3/paper/microbiome_metaphlan/'
 
 
 def do(in_file, out_file):

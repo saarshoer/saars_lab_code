@@ -30,12 +30,12 @@ body_meta = body_loader.df_metadata
 gut_mb_meta = gut_mb_loader.df_metadata
 metabloites_meta = serume_metabolomics_loader.df_metadata
 cytokines_data = pd.read_csv(
-    '/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3/data_frames/cytokines/cytokines-nastya.csv')
+    '/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/PNP3/data_frames/cytokines/cytokines-nastya.csv')
 cytokines_data.reset_index(inplace=True)
 cytokines_data = cytokines_data.astype({'RegistrationCode':str},errors='raise')
 cytokines_data.set_index(['Plate ID'], inplace=True)
 cytokines_meta = cytokines_data.copy()
-carbs = pd.read_pickle('/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3/data_frames/diet_20_corrected.df')[['% Carbohydrates']]
+carbs = pd.read_pickle('/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/PNP3/data_frames/diet_20_corrected.df')[['% Carbohydrates']]
 carbs.reset_index(inplace=True)
 carbs_6 = carbs[carbs['time_point'] == '6months']
 carbs_6.set_index(['person'], inplace=True)

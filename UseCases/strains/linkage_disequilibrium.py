@@ -13,11 +13,11 @@ min_periods = 50
 method = 'pearson'
 # min_reads_per_snp = 3
 
-base_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{study}'
+base_dir = f'/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/antibiotics/{study}'
 maf_file = os.path.join(base_dir, 'pcs_covariate', 'mb_snp_maf_{}.h5')
-# cov_file = os.path.join(f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{study}/coverage_covariate', 'mb_snp_coverage_{}.h5')
+# cov_file = os.path.join(f'/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/antibiotics/{study}/coverage_covariate', 'mb_snp_coverage_{}.h5')
 
-res_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/strains/{study}/linkage_disequilibrium'
+res_dir = f'/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/strains/{study}/linkage_disequilibrium'
 
 
 def do(species, contig=None):

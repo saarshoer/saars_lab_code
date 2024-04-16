@@ -14,7 +14,7 @@ alpha = 0.05
 study = '10K'
 run_type = 'within'
 
-base_path = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{study}/{run_type}'
+base_path = f'/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/antibiotics/{study}/{run_type}'
 sig_file = os.path.join(base_path, 'mb_gwas_significant.h5')
 data_file = os.path.join(base_path, 'raw_data', 'mb_gwas_{X}_{Y}.h5' if run_type == 'within' else 'mb_gwas_Rep_all_{Y}.h5')
 clump_file = os.path.join(base_path, 'clumping', 'mb_gwas_{X}_{Y}.pkl')

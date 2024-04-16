@@ -5,7 +5,7 @@ import pandas as pd
 run_type = 'between'
 coef_col = 'Coef'
 
-base_path = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics'
+base_path = '/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/antibiotics'
 
 study1 = '10K'
 study2 = 'Lifeline_deep'

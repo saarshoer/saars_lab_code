@@ -23,7 +23,7 @@ with pd.HDFStore(vcf_path, mode='r') as vcf:
 print('s1', s1_counter)
 print('shared', shared_counter)
 
-diss_path = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3/data_frames/diss_20_corrected.df'
+diss_path = '/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/PNP3/data_frames/diss_20_corrected.df'
 diss = pd.read_pickle(diss_path)
 
 print(diss.xs(species, level='Species').xs(s1, level='SampleName1')['shared_pos'])

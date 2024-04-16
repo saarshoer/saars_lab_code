@@ -7,7 +7,7 @@ from LabData.DataLoaders.Loader import LoaderData
 from LabData.DataAnalyses.MBSNPs.MWAS import MWAS
 from LabData.DataAnalyses.MBSNPs.MBSNPAnalyses import MBSNPAnalyses
 
-df_dir = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3/data_frames'
+df_dir = '/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/PNP3/data_frames'
 df_suffix = '_20_corrected'
 covariates = ['Age', 'Gender', 'Carbohydrates']
 

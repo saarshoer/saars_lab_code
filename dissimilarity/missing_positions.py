@@ -20,7 +20,7 @@ rcParams['savefig.format'] = 'png'  # {png, ps, pdf, svg}
 rcParams['savefig.bbox'] = 'tight'
 
 s = '10K'#'Lifeline_Stool'#'Lifeline_deep'#
-run_dir = os.path.join('/net/mraid08/export/jafar/Microbiome/Analyses/saar/strains', s)
+run_dir = os.path.join('/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/strains', s)
 strain_var = '/net/mraid08/export/mb/MBPipeline/Analyses/MBSNP/Gut/mb_sns_strain_variability_R3.h5'
 maf_file = os.path.join( f'/net/mraid08/export/mb/MBPipeline/Analyses/MBSNP/Gut/MAFS/{s}', 'mb_snp_maf_{}_R1_S500.h5')
 

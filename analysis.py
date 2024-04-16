@@ -53,10 +53,10 @@ from LabUtils.addloglevels import sethandlers
 from LabData.DataLoaders import GutMBLoader, OralMBLoader, BloodTestsLoader, BodyMeasuresLoader, \
     DietLoggingLoader
 
-segata_df = pd.read_csv('/net/mraid08/export/jafar/Microbiome/Analyses/Unicorn/Segata/'
+segata_df = pd.read_csv('/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/Unicorn/Segata/'
                         'SupplementaryTable8-SGBsDescription.csv')
 
-segal_df = pd.read_excel('/net/mraid08/export/jafar/Microbiome/Analyses/saar/GutMBLoader.xlsx').set_index('sBin')
+segal_df = pd.read_excel('/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/GutMBLoader.xlsx').set_index('sBin')
 
 
 # Main class

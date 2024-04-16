@@ -15,7 +15,7 @@ study = '10K'
 run_type = 'within'
 models_dir = 'models'
 
-train_df_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{study}/data_frames'
+train_df_dir = f'/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/antibiotics/{study}/data_frames'
 
 train_run_dir = os.path.join(os.path.dirname(train_df_dir), run_type)
 # test_run_dir = os.path.join(os.path.dirname(test_df_dir), run_type)

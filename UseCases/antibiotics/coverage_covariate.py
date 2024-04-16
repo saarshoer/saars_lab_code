@@ -7,7 +7,7 @@ from LabUtils.addloglevels import sethandlers
 study = '10K'
 run_type = 'within'  # always
 
-run_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{study}/{run_type}'
+run_dir = f'/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/antibiotics/{study}/{run_type}'
 counts_dir = f'/net/mraid08/export/mb/MBPipeline/Analyses/MBSNP/Gut/CountsS/'
 
 

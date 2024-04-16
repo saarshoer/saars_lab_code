@@ -5,7 +5,7 @@ import os
 from LabMBPipeline.mmmbp import get_args, main
 
 # change here for your dir
-out_dir = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/PNP3/simulation'
+out_dir = '/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/PNP3/simulation'
 DFOut_param = os.path.join(out_dir, 'DFOut') + ' '
 tmp_param = os.path.join(out_dir, 'tmp2') + ' '
 

@@ -8,16 +8,16 @@ from LabUtils.addloglevels import sethandlers
 from LabData.DataAnalyses.MBSNPs import mwas_plots
 from LabData.DataLoaders.MBSNPLoader import MAF_1_VALUE
 
-all_contigs = pd.read_csv('/net/mraid08/export/jafar/Microbiome/Analyses/Unicorn/URS/URS_Build/Rep_all/all_contigs.csv')
+all_contigs = pd.read_csv('/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/Unicorn/URS/URS_Build/Rep_all/all_contigs.csv')
 all_contigs['Species'] = 'Rep_' + all_contigs['contig'].str.split('_').str[1]
 all_contigs['contig_id'] = all_contigs['contig'].str.split('_').str[-1].astype(int)
 all_contigs = all_contigs.set_index(['Species', 'contig_id'])['len'].sort_values().to_frame('contig_len')*-1
 
-# dna_genes = pd.read_csv('/net/mraid08/export/jafar/Microbiome/Analyses/saar/dna_genes.csv')
+# dna_genes = pd.read_csv('/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/dna_genes.csv')
 # dna_genes['Species'] = 'Rep_' + dna_genes['Species'].astype(str)
 # dna_genes = dna_genes.set_index(['Species', 'contig_id', 'start_pos'])
 #
-# mobilome = pd.read_csv('/net/mraid08/export/jafar/Microbiome/Analyses/saar/mobilome.csv')
+# mobilome = pd.read_csv('/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/mobilome.csv')
 # mobilome = mobilome.set_index(['GeneID'])
 
 
@@ -134,7 +134,7 @@ if __name__ == '__main__':
     run_type = 'within'
     data_plots = False
 
-    input_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{study}/{run_type}'
+    input_dir = f'/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/antibiotics/{study}/{run_type}'
     output_dir = os.path.join(input_dir, 'figs', 'species')
     jobs_dir = os.path.join(input_dir, 'jobs')
 

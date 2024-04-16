@@ -504,7 +504,7 @@ def run(mwas_fname=None, data_fname=None, annotations_df=None, y_df=None,  # inp
 
 
 if __name__ == '__main__':
-    base_path = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/'
+    base_path = '/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/antibiotics/'
     run_dir = '/net/mraid20/export/genie/LabData/Analyses/saarsh/anti_mwas_within'
 
     annots = pd.read_hdf(os.path.join(run_dir, 'snps_gene_annotations_short.h5'))

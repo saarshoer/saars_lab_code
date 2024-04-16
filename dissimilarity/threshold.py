@@ -10,7 +10,7 @@ from LabUtils.addloglevels import sethandlers
 from LabData.DataLoaders.SubjectLoader import SubjectLoader
 from LabData.DataAnalyses.MBSNPs.MBSNPAnalyses import MBSNPPairwiseDistances
 
-samples_path = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/dissimilarities/threshold_samples.df'
+samples_path = '/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/dissimilarities/threshold_samples.df'
 
 
 class P:
@@ -116,7 +116,7 @@ class P:
 
 if __name__ == '__main__':
 
-    base_path = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/dissimilarities/'
+    base_path = '/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/dissimilarities/'
     diss_path = '/net/mraid20/export/genie/LabData/Analyses/saarsh/threshold_diss/mb_dists.h5'
 
     meta = pd.read_pickle(samples_path)

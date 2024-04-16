@@ -12,6 +12,7 @@ from statsmodels.tools.sm_exceptions import PerfectSeparationError
 import seaborn as sns
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 from matplotlib import rcParams, cm, colors
 
 from analysis import segal_name
@@ -23,7 +24,7 @@ rcParams['savefig.dpi'] = 200  # figure dots per inch or 'figure'
 rcParams['savefig.format'] = 'png'  # {png, ps, pdf, svg}
 rcParams['savefig.bbox'] = 'tight'
 
-assemblies = pd.read_csv('/net/mraid08/export/jafar/Microbiome/Analyses/Unicorn/URS/URS_Build/full_metadata_filtered_w_clusts_reps.csv', index_col=0)
+assemblies = pd.read_csv('/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/Unicorn/URS/URS_Build/full_metadata_filtered_w_clusts_reps.csv', index_col=0)
 assemblies.loc[assemblies['Source'] == 'Segal', 'SampleName'] = assemblies[assemblies['Source'] == 'Segal'].index.str.split('/').str[-3].str.split('-').str[-1]
 assemblies.loc[assemblies['Source'] == 'Segata', 'SampleName'] = assemblies[assemblies['Source'] == 'Segata'].index.str.split('/').str[-1].str.split('__bin').str[0].str.replace('.', '')
 assemblies.loc[~assemblies['Source'].isin(['Segal', 'Segata']), 'SampleName'] = assemblies[~assemblies['Source'].isin(['Segal', 'Segata'])].index.str.split('/').str[-1].str.split('#').str[0].str.split('_ASM').str[0].str.replace('.fa', '').str.replace('.fna', '').str.replace('.', '_')
@@ -31,11 +32,11 @@ assemblies['SampleName'] = assemblies['SampleName'].str.split('_v').str[0].str.r
 assemblies = assemblies.reset_index()
 
 # snps
-maf = '/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{}/pcs_covariate/mb_snp_maf_{}.h5'
+maf = '/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/antibiotics/{}/pcs_covariate/mb_snp_maf_{}.h5'
 strain_variability = '/net/mraid08/export/mb/MBPipeline/Analyses/MBSNP/Gut/mb_sns_strain_variability_R3.h5'
 
 # pangenomes
-dists_mat16 = '/net/mraid08/export/jafar/Microbiome/Analyses/Unicorn/URS/URS_Build/dists/between_person/dists_mat16.dat'
+dists_mat16 = '/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/Unicorn/URS/URS_Build/dists/between_person/dists_mat16.dat'
 gene_presence_absence = '/net/mraid20/export/genie/LabData/Data/Annotations/Segal_annots_all_assemblies/{}/roary_3.13.0/gene_presence_absence.csv'
 
 mash_dist = None
@@ -137,11 +138,14 @@ def get_data(species, snps):
     return data
 
 
-def get_statistics(a, covariates, df, sample_colors, min_samples_per_strain):
+def get_statistics(a, covariates, df, sample_colors, min_samples_per_strain, flip=False):
 
     def test(c1, c2=None):
 
-        if len(df[a].unique()) == 2:
+        if c1 == 'continuous':
+            model = OLS
+            data4model = sample_colors_df.copy()
+        elif len(df[a].unique()) == 2:
             model = Logit
             data4model = sample_colors_df == c1 if c2 is None else \
                 sample_colors_df[sample_colors_df != 'black'] == c1
@@ -154,18 +158,25 @@ def get_statistics(a, covariates, df, sample_colors, min_samples_per_strain):
             df[list(set(covariates + [a]))], how='inner').assign(constant=1)
         data4model = data4model.replace({False: 0, True: 1, 'Female': 0, 'Male': 1, 'Unknown': np.nan})
 
+        if flip:
+            x = a
+            y = 'strain'
+        else:
+            x = 'strain'
+            y = a
+
         try:
-            results = model(data4model[a], data4model.loc[:, data4model.columns != a],
+            results = model(data4model[y], data4model.loc[:, data4model.columns != y],
                             missing='drop').fit(disp=False)
         except LinAlgError:
-            results = model(data4model[a], data4model.loc[:, data4model.columns != a],
+            results = model(data4model[y], data4model.loc[:, data4model.columns != y],
                             missing='drop').fit(method='nm', disp=False)
         except PerfectSeparationError:
             return 1, 0
-        r2 = results.prsquared if len(df[a].unique()) == 2 else results.rsquared
+        r2 = results.prsquared if (c1 != 'continuous') & (len(df[a].unique()) == 2) else results.rsquared
 
         if r2 > 0:
-            return results.params['strain'], results.pvalues['strain']
+            return results.params[x], results.pvalues[x]
         else:
             return 0, 1
 
@@ -188,31 +199,37 @@ def get_statistics(a, covariates, df, sample_colors, min_samples_per_strain):
         color1 = sample_colors_vc.index[0]
         color2 = sample_colors_vc.index[1]
         r, p = test(color1, color2)
-        l = f'{a} ~ {color1} c={r:.1f} p={p:.0e}'
+        l = f'{a} ~ {color1} c={r:.2f} p={p:.0e}'
 
     else:
         # 1 vs all
         all_p = []
         anno_label = f'{a} ~'
-        for color in sample_colors_vc.index:
+        for color in (sample_colors_vc.index if sample_colors_vc.shape[0] < 20 else ['continuous']):
             r, p = test(color)
             all_p.append(p)
-            anno_label = anno_label + (f' {color} c={r:.1f} p={p:.0e}' if n_colors > 1 else f' {color} c={r:.1f} p={p:.0e}')
+            anno_label = anno_label + (f' {color} c={r:.2f} p={p:.0e}' if n_colors > 1 else f' {color} c={r:.2f} p={p:.0e}')
         p = min(all_p)
         l = anno_label
 
     return p, l
 
 
-def filter_data(df, sample_colors, min_samples_per_strain):
+def filter_data(df, sample_colors, min_samples_per_strain, suffix):
     results = pd.DataFrame(index=df.index, columns=['pvalue', 'label'])
     df = df.T
-    for anno in df.columns:
-        results.loc[anno, ['pvalue', 'label']] = get_statistics(anno, [], df, sample_colors, min_samples_per_strain)
+    for anno in df.columns:  # genes
+        results.loc[anno, ['pvalue', 'label']] = get_statistics(anno, [], df, sample_colors, min_samples_per_strain, True)
     results['p_Bonfferoni'] = (results['pvalue'] * results.shape[0]).clip(upper=1)
     df = df[results[results['p_Bonfferoni'] < 0.05].index]
     df = df.T
     mask = df.isna()
+
+    # saving
+    subdir = 'snps' if snps else 'genes'
+    if not os.path.exists(os.path.join('figs', subdir, 'data')):
+        os.makedirs(os.path.join('figs', subdir, 'data'))
+    results.to_csv(os.path.join('figs', subdir, 'data', f'{species}{suffix}.csv'))
 
     return df, mask
 
@@ -235,7 +252,7 @@ def get_colors(df, cmaps):
     return df
 
 
-def plot(df, mask, distance, snps, significant,
+def plot(df, mask, distance, snps, significant, sig_genes,
          row_linkage, col_linkage, link_colors,
          row_colors, col_colors):
 
@@ -245,7 +262,7 @@ def plot(df, mask, distance, snps, significant,
         if snps:
             cmap = 'Blues'
         else:
-            cmap = colors.LinearSegmentedColormap.from_list('', ['tab:olive', 'white'])
+            cmap = colors.LinearSegmentedColormap.from_list('', [(False, 'white'), (True, 'tab:olive')])
 
     # clustermap
     g = sns.clustermap(df, mask=mask,
@@ -254,8 +271,7 @@ def plot(df, mask, distance, snps, significant,
 
                        row_cluster=row_linkage is not None,
 
-                       yticklabels=False,
-                       # [g if g[:6] != 'group_' else '' for g in df.index],  # show only annotated gene labels
+                       yticklabels=False if len(sig_genes) == 0 else [g[:4] if (g[:6] != 'group_') & (g in sig_genes) else None for g in df.index],  # show only annotated gene labels
                        xticklabels=False,
 
                        row_colors=row_colors,
@@ -266,6 +282,7 @@ def plot(df, mask, distance, snps, significant,
 
                        cbar_kws={'label': 'Distance', 'orientation': 'horizontal', 'ticks': None} if distance else {})
     g.ax_heatmap.set_facecolor('black')
+    g.ax_heatmap.tick_params(right=False)
 
     # dendrograms
     for ax, orientation in [(g.ax_col_dendrogram.axes, 'top'), (g.ax_row_dendrogram.axes, 'left')]:
@@ -281,10 +298,10 @@ def plot(df, mask, distance, snps, significant,
             ax.invert_yaxis()
 
     # dimensions
-    g.ax_heatmap.text(x=0.75, y=-0.04, s=f'n={df.shape[0]:,} x {df.shape[1]:,}', transform=g.ax_heatmap.transAxes)
+    g.ax_heatmap.text(x=0.59, y=-0.035, s=f'n={df.shape[0]:,} {"" if distance else ("SNPs " if snps else "genes ")}x {df.shape[1]:,} {"samples" if snps else "strains"}', transform=g.ax_heatmap.transAxes)
 
     # title
-    title = f'{species}\n{segal_name(species)[0]}'
+    title = f'{segal_name(species)[0][3:]}'#{species}\n
     g.ax_col_dendrogram.set_title(title)
 
     # axes labels
@@ -292,18 +309,11 @@ def plot(df, mask, distance, snps, significant,
         g.ax_heatmap.set_xlabel('Samples')
         g.ax_heatmap.set_ylabel('Samples' if distance else 'SNPs')
     else:
-        g.ax_heatmap.set_xlabel('Genomes')
-        g.ax_heatmap.set_ylabel('Genomes' if distance else 'Shell genes')
-
-    # annotations legend
-    # for label in col_annots_labels:
-    #     g.ax_col_dendrogram.bar(0, 0, color=study.params.colors[label], label=label, linewidth=0)
+        g.ax_heatmap.set_xlabel('Strains')
+        g.ax_heatmap.set_ylabel('Strains' if distance else 'Shell genes', labelpad=-35)
 
     # position of plot
     plt.subplots_adjust(left=0.02, right=0.76, bottom=0.11, top=0.85)
-
-    # position of annotations legend
-    g.ax_col_dendrogram.legend(ncol=1, frameon=False, bbox_to_anchor=(-0.035, 1))
 
     # position of distance legend
     if distance:
@@ -326,8 +336,8 @@ def plot(df, mask, distance, snps, significant,
                 i = 0
                 for c, p in zip(colors_, pvals):
                     if p < alpha:
-                        g.ax_col_colors.text(x=xlim, y=y+0.5, s=f'{" " * (5 + max_len + i*2)}*',
-                                             color=c, fontsize=16)
+                        # g.ax_col_colors.text(x=xlim, y=y+0.5, s=f'{" " * (5 + max_len + i*2)}*',
+                        #                      color=c, fontsize=16)
                         i = i + 1
             else:
                 label = text.get_text()
@@ -348,13 +358,24 @@ def plot(df, mask, distance, snps, significant,
                 i = 0
                 for c, p in zip(colors_, pvals):
                     if p < alpha:
-                        g.ax_row_colors.text(x=x-0.5, y=ylim, s=f'*{" " * (10 + max_len + i*2)}',
-                                             color=c, fontsize=16, rotation='vertical', va='top')
+                        # g.ax_row_colors.text(x=x-0.5, y=ylim, s=f'*{" " * (10 + max_len + i*2)}',
+                        #                      color=c, fontsize=16, rotation='vertical', va='top')
                         i = i + 1
             else:
                 label = text.get_text()
                 short_labels.append(label)
         g.ax_row_colors.set_xticklabels(short_labels)
+
+    g.ax_col_dendrogram.legend(handles=[
+        Patch(facecolor='olive', edgecolor='black', label='Have gene'),
+        Patch(facecolor='white', edgecolor='black', label='Missing gene'),
+        Patch(facecolor='white', edgecolor='white', label=''),  # SPACE
+        Patch(facecolor='royalblue', edgecolor='white', label='Old'),
+        Patch(facecolor='lightsteelblue', edgecolor='white', label='Young'),
+        Patch(facecolor='lightpink', edgecolor='white', label='Female'),
+        Patch(facecolor='lightskyblue', edgecolor='white', label='Male'),
+        Patch(facecolor='black', edgecolor='white', label='Unknown'),
+    ], frameon=False, bbox_to_anchor=(-0.002, 1.1))
 
     subdir = 'snps' if snps else 'genes'
     subdir = (subdir + '_distance') if distance else subdir
@@ -401,7 +422,7 @@ def fig_snp_heatmap(
         data = get_data(species, snps)
         data[list(set(col_dist.index) - set(data.columns))] = np.nan
         data = data[col_dist.index]
-        data, mask = filter_data(data, sample_colors, min_samples_per_strain)
+        data, mask = filter_data(data, sample_colors, min_samples_per_strain, '')
         if data.shape[0] == 0:
             return {}
         elif data.shape[0] == 1:
@@ -423,20 +444,27 @@ def fig_snp_heatmap(
     else:
         row_colors = None
 
+    sig_genes = []
     expanded_col_annots = []
     for a in col_annots:
         pvalue, label = get_statistics(a, col_annots_covariates, col_annots_df, sample_colors, min_samples_per_strain)
         expanded_col_annots.append(label)
         pvalues.append(pvalue)
-    print(expanded_col_annots)
+        if pvalue < alpha:
+            sig_genes = filter_data(df=data,
+                                    sample_colors={i: (v[0], v[1]) for i, v in col_annots_df[a].reset_index().replace('Unknown', np.nan).iterrows()},
+                                    min_samples_per_strain=1,
+                                    suffix=f'_{a}')[0].index.union(sig_genes)
+        print(label)
+    # print(expanded_col_annots)
     if len(col_annots) > 0:
         col_colors = get_colors(col_annots_df.loc[col_annots_df.index.intersection(data.columns), col_annots], col_annots_cmaps)
         col_colors.columns = expanded_col_annots
     else:
         col_colors = None
 
-    reordered_ind = plot(df=data, mask=mask,
-                         distance=distance, snps=snps, significant=(np.array(pvalues) < alpha).any(),
+    reordered_ind = plot(df=data, mask=mask, distance=distance, snps=snps,
+                         significant=(np.array(pvalues) < alpha).any(),  sig_genes=sig_genes,
                          row_linkage=row_linkage, col_linkage=col_linkage, link_colors=col_link_colors,
                          row_colors=row_colors, col_colors=col_colors)
 
@@ -446,9 +474,9 @@ def fig_snp_heatmap(
 
 
 if __name__ == '__main__':
-    snps = True
+    snps = False
     distance = False
-    study = '10K'
+    study = None
 
     col_annots = row_annots = []
     col_annots_cmaps = row_annots_cmaps = {}
@@ -493,6 +521,10 @@ if __name__ == '__main__':
 
         col_annots = ['Age', 'Sex']
         assemblies['Gender'] = assemblies['Gender'].replace({'F': 'Female', 'M': 'Male'})
+
+        # all_species = glob.glob(os.path.join('figs', 'genes_blue', 'significant', '*png'))
+        # all_species = [file.split('/')[-1].split('.')[0] for file in all_species]
+        # all_species = ['Rep_721', 'Rep_449']
 
     # run
     for species in all_species:

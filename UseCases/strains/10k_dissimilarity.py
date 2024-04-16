@@ -12,7 +12,7 @@ class P:
     study_ids = ['10K']
     body_site = 'Gut'
 
-    dfs_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/strains/{study_ids[0]}/data_frames'
+    dfs_dir = f'/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/strains/{study_ids[0]}/data_frames'
 
     # queue
     max_jobs = 250

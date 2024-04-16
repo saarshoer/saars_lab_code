@@ -7,7 +7,7 @@ from LabData.DataAnalyses.MBSNPs.MWAS import MWAS
 from anti_mwas_functions import gen_cov_f, gen_y_f
 
 study = '10K'########don't forget to change within LabData code, look for "/antibiotics"
-df_dir = f'/net/mraid08/export/jafar/Microbiome/Analyses/saar/antibiotics/{study}/data_frames'
+df_dir = f'/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/antibiotics/{study}/data_frames'
 
 
 class P:

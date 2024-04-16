@@ -19,10 +19,10 @@ from LabData.CentralizedGenerators.prokka import prokka
 # /usr/wisdom/python3/bin/python ~/Develop/Git/LabData/LabData/CentralizedGenerators/annotate_reference_genome.py &
 
 # in python -
-reference_fasta = '/net/mraid08/export/jafar/Microbiome/Analyses/Unicorn/URS/URS_Build/Rep_all/single_fastas'  # Segal
-# reference_fasta = '/net/mraid08/export/jafar/Microbiome/Data/Databases/URA_IndicesAndScores/LargeOrNewGenusSGBs/SegataIndexLargeOrNewGenusSGBs.fa'  # Segata
-# reference_fasta = '/net/mraid08/export/jafar/Microbiome/Analyses/Unicorn/URA_DBs/SegataAll/other_single_fasta'  # Segata all - genomes that were in the original Segata paper but were not used by the lab
-# reference_fasta = '/net/mraid08/export/jafar/Microbiome/Analyses/Unicorn/URA_DBs/UHGG/all_reps_fasta' # UHGG - another genomes reference set that was published in 2021
+reference_fasta = '/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/Unicorn/URS/URS_Build/Rep_all/single_fastas'  # Segal
+# reference_fasta = '/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Data/Databases/URA_IndicesAndScores/LargeOrNewGenusSGBs/SegataIndexLargeOrNewGenusSGBs.fa'  # Segata
+# reference_fasta = '/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/Unicorn/URA_DBs/SegataAll/other_single_fasta'  # Segata all - genomes that were in the original Segata paper but were not used by the lab
+# reference_fasta = '/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/Unicorn/URA_DBs/UHGG/all_reps_fasta' # UHGG - another genomes reference set that was published in 2021
 output_dir = analyses_dir
 
 jobs_dir = os.path.join(output_dir, 'jobs')
