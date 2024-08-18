@@ -19,9 +19,10 @@ rgi_exe = '/home/saarsh/Develop/Git/rgi/rgi'
 
 def do(f, s):
     os.chdir(output_dir)
-    # TODO: make sure we do not want other arguments as well
-    os.system(f'python {rgi_exe} bwt -1 {f} -n {threads} -o {s} --clean')
-    # TODO: add deletion of unnecessary files
+    os.system(f'python {rgi_exe} bwt -1 {f} -n {threads} -o {s} --clean --include_wildcard')
+    os.remove(f'{s}.allele_mapping_data.json')
+    os.remove(f'{s}.sorted.length_100.bam')
+    os.remove(f'{s}.sorted.length_100.bam.bai')
 
 
 if __name__ == '__main__':
@@ -33,8 +34,7 @@ if __name__ == '__main__':
 
     samples = GutMBLoader().get_data('segal_species', study_ids=study_ids).df_metadata.index.tolist()
 
-    with qp(jobname='rgi', _mem_def='20G', _trds_def=threads,
-                _delete_csh_withnoerr=False, _tryrerun=False, _suppress_handlers_warning=True) as q:
+    with qp(jobname='rgi', _mem_def='20G', _trds_def=threads, _tryrerun=False) as q:
         q.startpermanentrun()
         tkttores = {}
 
@@ -55,15 +55,13 @@ if __name__ == '__main__':
                         os.remove(remove)
                     tkttores[sample] = q.method(do, (files[0], sample))
                 i = i + 1
-                # if i == 2:
-                #     break
         print('finished sending jobs')
 
         print(f'{i}/{len(samples)} ({i / len(samples) * 100}) found')
 
         print('start waiting for jobs')
         for k, v in tkttores.items():
-            q.waitforresult(v)
+            q.waitforresult(v, _assert_on_errors=False)
         print('finished waiting for jobs')
 
     print('done')
