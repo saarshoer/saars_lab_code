@@ -37,7 +37,7 @@ def color_by_coef(sp_df: pd.DataFrame, **kwargs):
     blue = (0.0, 0.0, 1.0)
     red = (1.0, 0.0, 0.0)
 
-    color_dict = {True: red, False: blue}
+    color_dict = {True: blue, False: red}
     color_label_dict = {True: 'Positive effect', False: 'Negative effect'}
 
     d['marker'] = 'o'
@@ -69,25 +69,25 @@ def color_by_coef(sp_df: pd.DataFrame, **kwargs):
     if 'text' in sp_df.columns:
         d['text'] = sp_df['text']
 
-    if (sp_df.index.get_level_values('Y') == sp_df.index.get_level_values('Species')).any():
-
-        sp_df['tick'] = '|contig start'
-        # sp_df['tick'] = '|contig start\ndna gene\nmobilome' if 'GeneID' in sp_df.columns else '|contig start\ndna gene'
-
-        # contigs
-        sp_df['tick'][1:] = sp_df['contig_id'][1:].values != sp_df['contig_id'][:-1].values
-        sp_df['tick'] = sp_df['tick'].replace({True: '|', False: ''})#{True: '|\n', False: '\n'}
-
-        # # dna genes
-        # sp_df['tick'] = sp_df['tick'] + sp_df['dna'].fillna('') + '\n'
-
-        # # mobilome
-        # if 'GeneID' in sp_df.columns:
-        #     sp_df = sp_df.join(mobilome, on='GeneID')
-        #     sp_df['tick'] = sp_df['tick'] + sp_df['mobilome'].fillna('')
-
-        # sp_df['tick'] = sp_df['tick'].replace({'\n\n': None})
-        d['tick'] = sp_df['tick']
+    # if (sp_df.index.get_level_values('Y') == sp_df.index.get_level_values('Species')).any():
+    #
+    #     sp_df['tick'] = '|contig start'
+    #     # sp_df['tick'] = '|contig start\ndna gene\nmobilome' if 'GeneID' in sp_df.columns else '|contig start\ndna gene'
+    #
+    #     # contigs
+    #     sp_df['tick'][1:] = sp_df['contig_id'][1:].values != sp_df['contig_id'][:-1].values
+    #     sp_df['tick'] = sp_df['tick'].replace({True: '|', False: ''})#{True: '|\n', False: '\n'}
+    #
+    #     # # dna genes
+    #     # sp_df['tick'] = sp_df['tick'] + sp_df['dna'].fillna('') + '\n'
+    #
+    #     # # mobilome
+    #     # if 'GeneID' in sp_df.columns:
+    #     #     sp_df = sp_df.join(mobilome, on='GeneID')
+    #     #     sp_df['tick'] = sp_df['tick'] + sp_df['mobilome'].fillna('')
+    #
+    #     # sp_df['tick'] = sp_df['tick'].replace({'\n\n': None})
+    #     d['tick'] = sp_df['tick']
 
     if kwargs['legend_elements'] is None:
         legend_coefficient = [Line2D([0], [0], linewidth=0, label=color_label_dict[k], alpha=d['alpha'],
@@ -132,24 +132,31 @@ if __name__ == '__main__':
 
     study = '10K'
     run_type = 'within'
-    data_plots = False
+    data_plots = True
 
     input_dir = f'/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/antibiotics/{study}/{run_type}'
-    output_dir = os.path.join(input_dir, 'figs', 'species')
+    output_dir = os.path.join(input_dir, 'figs_IHMC', 'species')
     jobs_dir = os.path.join(input_dir, 'jobs')
 
     ydata_fname = os.path.join(os.path.dirname(input_dir), 'data_frames', 'abundance.df')
 
-    mwas_df = pd.read_hdf(os.path.join(input_dir, 'mb_gwas_significant_clumping_validation.h5'))[['Pval', 'clumping', 'validation_level']]
+    mwas_df = pd.read_hdf(os.path.join(input_dir, 'mb_gwas_significant_clumping_validation.h5')).assign(validation_level=None)
+    mwas_df.loc[(mwas_df[f'validation_level_Lifeline_deep'] == 'CI overlap') & (mwas_df[f'validation_level_D2'] == 'CI overlap'), 'validation_level'] = 'CI overlap'
+    mwas_df.loc[(mwas_df[f'validation_level_Lifeline_deep'] == 'not tested') | (mwas_df[f'validation_level_D2'] == 'not tested'), 'validation_level'] = 'not tested'
+    mwas_df = mwas_df[['Pval', 'clumping', 'validation_level']]
+    mwas_df = mwas_df[mwas_df.index.get_level_values('Species') == 'Rep_620']
     annotations_df = pd.read_hdf(os.path.join(input_dir, 'snps_gene_annotations_short.h5'))[['GeneID', 'text']]
     mwas_df = mwas_df.join(annotations_df)
     del annotations_df
 
-    if not data_plots:
+    if True:#not data_plots:
         group_text = pd.DataFrame(mwas_df.sort_values('Pval').groupby(['Y', 'Species', 'GeneID']).apply(
             lambda g: g.reset_index()[list(mwas_df.index.names) + ['GeneID']].iloc[0].tolist() + [
                 f'{g["text"].fillna("").iloc[0]}'+(f'({g.shape[0]})' if g.shape[0] > 1 else '')]).tolist(),
                     columns=list(mwas_df.index.names) + ['GeneID', 'text']).set_index(mwas_df.index.names)
+        group_text = group_text[group_text['text'].str.contains('xerC|lptG')]
+        group_text = group_text[~group_text['text'].str.split("(").str[0].duplicated()]
+        group_text = group_text['text'].str.split("(").str[0]
         mwas_df = mwas_df.drop(['GeneID', 'text'], axis=1).join(group_text)
     mwas_df = mwas_df.drop(['Pval'], axis=1)
 
@@ -157,6 +164,7 @@ if __name__ == '__main__':
     alpha = 0.01/counts.sum().iloc[0]
     del counts
 
+    fmt0d = lambda coef, pos: f'$2^{{{coef:.0f}}}$'
     fmt1d = lambda coef, pos: f'$2^{{{coef:.1f}}}$'
 
     # queue
@@ -168,7 +176,7 @@ if __name__ == '__main__':
         tkttores = {}
 
         print('start sending jobs')
-        for mwas_fname in glob.glob(os.path.join(input_dir, 'raw_hdfs', 'mb_gwas_Rep_*_Rep_*.h5')):
+        for mwas_fname in glob.glob(os.path.join(input_dir, 'raw_hdfs', 'mb_gwas_Rep_620_Rep_620.h5')):
             data_fname = mwas_fname.replace('raw_hdfs', 'raw_data')
             if data_plots & ~os.path.exists(data_fname):
                 continue
@@ -184,7 +192,7 @@ if __name__ == '__main__':
                       'coef_col': 'Coef',
                       'pval_col': 'Pval',
                       'pval_cutoff': alpha,
-                      'fmt': fmt1d}
+                      'fmt': fmt0d}
             tkttores[mwas_fname] = q.method(mwas_plots.run, kwargs=kwargs)
         print('finished sending jobs')
 
