@@ -21,7 +21,7 @@ from LabData.DataLoaders.MBSNPLoader import MAF_MISSING_VALUE, MAF_1_VALUE
 rcParams['font.size'] = 12
 rcParams['figure.figsize'] = (rcParams['figure.figsize'][0] * 1.5, rcParams['figure.figsize'][1] * 1.5)  # figure size in inches
 rcParams['savefig.dpi'] = 200  # figure dots per inch or 'figure'
-rcParams['savefig.format'] = 'png'  # {png, ps, pdf, svg}
+rcParams['savefig.format'] = 'pdf'  # {png, ps, pdf, svg}
 rcParams['savefig.bbox'] = 'tight'
 
 assemblies = pd.read_csv('/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/Unicorn/URS/URS_Build/full_metadata_filtered_w_clusts_reps.csv', index_col=0)
@@ -39,7 +39,7 @@ strain_variability = '/net/mraid08/export/mb/MBPipeline/Analyses/MBSNP/Gut/mb_sn
 dists_mat16 = '/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/Unicorn/URS/URS_Build/dists/between_person/dists_mat16.dat'
 gene_presence_absence = '/net/mraid20/export/genie/LabData/Data/Annotations/Segal_annots_all_assemblies/{}/roary_3.13.0/gene_presence_absence.csv'
 
-mash_dist = None
+mash_dist = None#np.random.uniform(low=0, high=1, size=(241118, 241118))
 
 
 def get_distance(species, metric, maximal_imputation, df=None):
@@ -261,8 +261,10 @@ def plot(df, mask, distance, snps, significant, sig_genes,
     else:
         if snps:
             cmap = 'Blues'
+            rep = None
         else:
-            cmap = colors.LinearSegmentedColormap.from_list('', [(False, 'white'), (True, 'tab:olive')])
+            cmap = colors.ListedColormap(['gold', 'white'])
+            rep = assemblies.loc[(assemblies['cluster_s'] == int(species.split('_')[-1])) & assemblies['is_rep'], 'SampleName'].iloc[0]
 
     # clustermap
     g = sns.clustermap(df, mask=mask,
@@ -271,10 +273,11 @@ def plot(df, mask, distance, snps, significant, sig_genes,
 
                        row_cluster=row_linkage is not None,
 
-                       yticklabels=False if len(sig_genes) == 0 else [g[:4] if (g[:6] != 'group_') & (g in sig_genes) else None for g in df.index],  # show only annotated gene labels
-                       xticklabels=False,
+                       # yticklabels=False if len(sig_genes) == 0 else [g[:4] if (g[:6] != 'group_') & (g in sig_genes) else None for g in df.index],  # show only annotated gene labels
+                       yticklabels=False if len(sig_genes) == 0 else [g[:4].replace('metE', '\nmetE').replace('cmpB', 'cmpB\n') if (g[:6] != 'group_') & (g[:3] not in ['rpl', 'rpm', 'rps']) & (g in sig_genes) else None for g in df.index],  # show only annotated gene labels
+                       xticklabels=False if snps else ['*' if s == rep else None for s in df.columns],
 
-                       row_colors=row_colors,
+                       row_colors=row_colors if species != 'Rep_449' else pd.DataFrame(['white' if g[:3] in ['rpl', 'rpm', 'rps'] else 'grey' for g in df.index], index=df.index, columns=['Ribosomal']),  # ribosomal proteins
                        col_colors=col_colors,
 
                        vmax=df.quantile(0.9).quantile(0.9) if snps & distance else None,
@@ -282,7 +285,7 @@ def plot(df, mask, distance, snps, significant, sig_genes,
 
                        cbar_kws={'label': 'Distance', 'orientation': 'horizontal', 'ticks': None} if distance else {})
     g.ax_heatmap.set_facecolor('black')
-    g.ax_heatmap.tick_params(right=False)
+    g.ax_heatmap.tick_params(right=False, bottom=False)
 
     # dendrograms
     for ax, orientation in [(g.ax_col_dendrogram.axes, 'top'), (g.ax_row_dendrogram.axes, 'left')]:
@@ -309,8 +312,8 @@ def plot(df, mask, distance, snps, significant, sig_genes,
         g.ax_heatmap.set_xlabel('Samples')
         g.ax_heatmap.set_ylabel('Samples' if distance else 'SNPs')
     else:
-        g.ax_heatmap.set_xlabel('Strains')
-        g.ax_heatmap.set_ylabel('Strains' if distance else 'Shell genes', labelpad=-35)
+        g.ax_heatmap.set_xlabel('Strains', labelpad=-15)
+        g.ax_heatmap.set_ylabel('Strains' if distance else 'Shell genes', labelpad=-35 if species != 'Rep_449' else 0)
 
     # position of plot
     plt.subplots_adjust(left=0.02, right=0.76, bottom=0.11, top=0.85)
@@ -367,7 +370,7 @@ def plot(df, mask, distance, snps, significant, sig_genes,
         g.ax_row_colors.set_xticklabels(short_labels)
 
     g.ax_col_dendrogram.legend(handles=[
-        Patch(facecolor='olive', edgecolor='black', label='Have gene'),
+        Patch(facecolor='gold', edgecolor='black', label='Have gene'),
         Patch(facecolor='white', edgecolor='black', label='Missing gene'),
         Patch(facecolor='white', edgecolor='white', label=''),  # SPACE
         Patch(facecolor='royalblue', edgecolor='white', label='Old'),
@@ -447,14 +450,19 @@ def fig_snp_heatmap(
     sig_genes = []
     expanded_col_annots = []
     for a in col_annots:
-        pvalue, label = get_statistics(a, col_annots_covariates, col_annots_df, sample_colors, min_samples_per_strain)
+        if a == 'Study':
+            pvalue, label = 1, a
+        else:
+            pvalue, label = get_statistics(a, col_annots_covariates, col_annots_df, sample_colors, min_samples_per_strain)
         expanded_col_annots.append(label)
         pvalues.append(pvalue)
         if pvalue < alpha:
-            sig_genes = filter_data(df=data,
+            new_sig_genes = filter_data(df=data,
                                     sample_colors={i: (v[0], v[1]) for i, v in col_annots_df[a].reset_index().replace('Unknown', np.nan).iterrows()},
                                     min_samples_per_strain=1,
-                                    suffix=f'_{a}')[0].index.union(sig_genes)
+                                    suffix=f'_{a}')
+            if not ((species == 'Rep_449') & (a == 'Sex')):
+                sig_genes = new_sig_genes[0].index.union(sig_genes)
         print(label)
     # print(expanded_col_annots)
     if len(col_annots) > 0:
@@ -519,12 +527,15 @@ if __name__ == '__main__':
         all_species = [file.split('/')[-3] for file in all_species]
         strains = pd.DataFrame(index=assemblies['SampleName'].unique())
 
-        col_annots = ['Age', 'Sex']
-        assemblies['Gender'] = assemblies['Gender'].replace({'F': 'Female', 'M': 'Male'})
+        col_annots = ['Age', 'Sex', 'Study']
+        assemblies['Sex'] = assemblies['Gender'].replace({'F': 'Female', 'M': 'Male'})
+        assemblies['Study'] = assemblies['Source'].astype(str) + '_' + assemblies['StudyTypeID'].astype(str)
+        studies = {s: i for i, s in enumerate(sorted(assemblies['Study'].unique()))}
+        assemblies['Study'] = assemblies['Study'].replace(studies)
 
         # all_species = glob.glob(os.path.join('figs', 'genes_blue', 'significant', '*png'))
         # all_species = [file.split('/')[-1].split('.')[0] for file in all_species]
-        # all_species = ['Rep_721', 'Rep_449']
+        all_species = ['Rep_449']#'Rep_721',
 
     # run
     for species in all_species:
@@ -543,8 +554,7 @@ if __name__ == '__main__':
                                     RA[species].to_frame('Relative abundance'), how='outer')
         else:
             col_annots_df = \
-            assemblies.loc[assemblies['cluster_s'] == int(species.split('_')[-1])].set_index('SampleName').rename(
-                columns={'Gender': 'Sex'})[['Age', 'Sex']]
+            assemblies.loc[assemblies['cluster_s'] == int(species.split('_')[-1])].set_index('SampleName')[['Age', 'Sex', 'Study']]
 
         # plot
         sample_colors = fig_snp_heatmap(
@@ -558,7 +568,7 @@ if __name__ == '__main__':
             relative_change_threshold=0.01, min_samples_per_strain=50, max_samples_per_strain=0.8,
             # annotations
             col_annots=col_annots, col_annots_covariates=col_annots_covariates, col_annots_df=col_annots_df,
-            col_annots_cmaps={'Age': 'Blues', 'BMI': 'Reds'},
+            col_annots_cmaps={'Age': 'Blues', 'BMI': 'Reds', 'Study': 'nipy_spectral'},
 
             row_annots=row_annots, row_annots_covariates=row_annots_covariates, row_annots_df=row_annots_df,
             row_annots_cmaps=row_annots_cmaps,
