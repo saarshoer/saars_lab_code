@@ -940,7 +940,7 @@ class Study:
 
                 x_train, x_test, y_train, y_test = train_test_split(x, y, stratify=y if classifiable else None,
                                                                     test_size=1/number_of_splits,
-                                                                    random_state=random_state)#42
+                                                                    random_state=42)#42random_state
 
                 model.fit(x_train, y_train)
                 scores.append(model.score(x_test, y_test))
@@ -1054,7 +1054,7 @@ class Study:
         os.chdir(self.dirs.jobs)
         queue = qp if send2queue else fakeqp
 
-        with queue(jobname='model', _delete_csh_withnoerr=True, q=['himem7.q'], _tryrerun=True, _trds_def=16) as q:
+        with queue(jobname='model', _delete_csh_withnoerr=False, q=['himem8.q'], _tryrerun=False, _trds_def=16) as q:
 
             q.startpermanentrun()
             tkttores = {}
@@ -1078,7 +1078,7 @@ class Study:
             scores_df = pd.DataFrame(index=tkttores.keys(),
                                      columns=['score', 'r_pearson', 'p_pearson', 'r_spearman', 'p_spearman'])
             for k, v in tkttores.items():
-                scores_df.loc[k, scores_df.columns] = q.waitforresult(v)
+                scores_df.loc[k, scores_df.columns] = q.waitforresult(v, _assert_on_errors=False, remove=False)
 
         os.chdir(original_dir)
 
