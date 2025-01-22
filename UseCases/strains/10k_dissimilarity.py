@@ -9,10 +9,10 @@ from LabData.DataAnalyses.MBSNPs.MBSNPAnalyses import MBSNPPairwiseDistances
 
 class P:
     # data
-    study_ids = ['10K']
+    study_ids = ['10K', '10K_young', 'Longitudinal', 'PNP3', 'AD_FMT', 'AD_FMT2']
     body_site = 'Gut'
 
-    dfs_dir = f'/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/strains/{study_ids[0]}/data_frames'
+    # dfs_dir = f'/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/strains/{study_ids[0]}/data_frames'
 
     # queue
     max_jobs = 250
@@ -23,7 +23,7 @@ class P:
     work_dir_suffix = f'{"_".join(study_ids)}_diss'
 
     # species
-    species_set = pd.read_pickle(os.path.join(dfs_dir, f'baseline_species.df')).index.tolist()
+    species_set = None#pd.read_pickle(os.path.join(dfs_dir, f'baseline_species.df')).index.tolist()
     # with pd.HDFStore('/net/mraid20/export/genie/LabData/Analyses/saarsh/20230129_113349/mb_dists.h5', 'r') as hdf:
     #     done_species = [s[1:] for s in hdf.keys()]
     # species_set = list(set(species_set) - set(done_species))
@@ -36,11 +36,11 @@ class P:
     subjects_gen_f = lambda: SubjectLoader().get_data(study_ids=P.study_ids, groupby_reg='first')
 
     # samples
-    samples_set = pd.read_pickle(os.path.join(dfs_dir, 'meta.df')).index.tolist()
+    samples_set = None#pd.read_pickle(os.path.join(dfs_dir, 'meta.df')).index.tolist()
     largest_sample_per_user = False
     min_positions_per_sample = 20000
     min_common_positions = 20000
-    subsample_dir = study_ids[0]
+    subsample_dir = ''#study_ids[0]
     other_samples_set = None
     select_n_rand_samples = None
 

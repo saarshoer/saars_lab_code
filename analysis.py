@@ -91,7 +91,7 @@ class Study:
         rcParams['savefig.format'] = fig_format  # {png, ps, pdf, svg}
 
         # Jobs
-        sethandlers(file_dir=self.dirs.jobs)
+        # sethandlers(file_dir=self.dirs.jobs)
 
     class Object:
 
@@ -714,8 +714,7 @@ class Study:
 
                     # perform the actual test if you have enough samples
                     if test not in tests_without_control and \
-                            control_data.unique().shape[0] > minimal_samples and \
-                            test_data.unique().shape[0] > minimal_samples:
+                       control_data.unique().shape[0] + test_data.unique().shape[0] - 1 > minimal_samples:
 
                         # Compute the Mann-Whitney rank test on samples x and y
                         if test == 'mannwhitneyu':
@@ -730,7 +729,7 @@ class Study:
 
                         elif test == 'permutation_test':
                             stats_df_list[-1].loc[col, 'p'] = \
-                                permutation_test(control_data, test_data, metric=np.average, n_permutations=100)
+                                permutation_test(control_data, test_data, metric=np.median, n_permutations=10000)
 
                         # this is only relevant when between is 'time_point'
 
@@ -778,11 +777,11 @@ class Study:
                 # multiple hypothesis correction
                 _, stats_df_list[-1]['p_bonferroni'] = bonferroni_correction(stats_df_list[-1]['p'], alpha=self.params.alpha)
                 _, stats_df_list[-1]['p_FDR'] = fdr_correction(stats_df_list[-1]['p'], alpha=self.params.alpha)
-                stats_df_list[-1].sort_values(f'p_{main_correction_method}', inplace=True)
+                stats_df_list[-1].sort_values('p', inplace=True)
 
                 # delete from the data_df un-significant results
                 significant_indices = stats_df_list[-1]\
-                    [stats_df_list[-1][f'p_{main_correction_method}'] < self.params.alpha].index
+                    [stats_df_list[-1][('p' if main_correction_method is None else f'p_{main_correction_method}')] < self.params.alpha].index
                 non_significant_indices = data_df.index.difference(significant_indices)
                 data_df.loc[non_significant_indices, (major_e, minor_e)] = np.nan
 
@@ -790,12 +789,16 @@ class Study:
                 print('')
                 print(test)
                 print(stats_df_list[-1].name)
-                print('{}/{} {} are significant after bonferroni correction'
-                      .format((stats_df_list[-1]['p_bonferroni'] < self.params.alpha).sum(), stats_df_list[-1].shape[0],
+                print('{}/{} {} are significant before correction'
+                      .format((stats_df_list[-1]['p'] < self.params.alpha).sum(), stats_df_list[-1].shape[0],
                               obj.columns))
                 print('{}/{} {} are significant after FDR correction'
                       .format((stats_df_list[-1]['p_FDR'] < self.params.alpha).sum(), stats_df_list[-1].shape[0],
                               obj.columns))
+                print('{}/{} {} are significant after bonferroni correction'
+                      .format((stats_df_list[-1]['p_bonferroni'] < self.params.alpha).sum(), stats_df_list[-1].shape[0],
+                              obj.columns))
+
                 print('{} {} were not analyzed because they do not have enough samples'
                       .format(df.shape[1] - stats_df_list[-1].shape[0], obj.columns))
 
@@ -803,18 +806,18 @@ class Study:
                     # excel
                     stats_df_list[-1].to_excel(excel_writer, sheet_name=excel_sheet, freeze_panes=(1, 1))
 
-                    # figure
-                    if test not in tests_without_control:
-                        figure, axes = \
-                            fig_significant_stats(figure_internal=figure, axes_internal=axes,
-                                                  curr_data_df=data_df[[major_control, major_e]]
-                                                  .xs(minor_e, level=minor, axis=1))
-                    else:
-                        figure, axes = \
-                            fig_significant_stats(figure_internal=figure, axes_internal=axes,
-                                                  curr_data_df=data_df
-                                                  .xs(major_e, level=major, axis=1, drop_level=False)
-                                                  .xs(minor_e, level=minor, axis=1))
+                    # # figure
+                    # if test not in tests_without_control:
+                    #     figure, axes = \
+                    #         fig_significant_stats(figure_internal=figure, axes_internal=axes,
+                    #                               curr_data_df=data_df[[major_control, major_e]]
+                    #                               .xs(minor_e, level=minor, axis=1))
+                    # else:
+                    #     figure, axes = \
+                    #         fig_significant_stats(figure_internal=figure, axes_internal=axes,
+                    #                               curr_data_df=data_df
+                    #                               .xs(major_e, level=major, axis=1, drop_level=False)
+                    #                               .xs(minor_e, level=minor, axis=1))
 
         if not internal_use:
             # excel finishes
@@ -1054,7 +1057,7 @@ class Study:
         os.chdir(self.dirs.jobs)
         queue = qp if send2queue else fakeqp
 
-        with queue(jobname='model', _delete_csh_withnoerr=False, q=['himem8.q'], _tryrerun=False, _trds_def=16) as q:
+        with queue(jobname='model', _delete_csh_withnoerr=False, _tryrerun=False, _trds_def=16) as q:
 
             q.startpermanentrun()
             tkttores = {}
@@ -1383,7 +1386,7 @@ class Study:
             print("Optimizing perplexity")
             for p in range(1, df.shape[0]):#np.arange(1, np.ceil(df.shape[0]**0.5)+1):
                 tsne = TSNE(n_components=n_tsne_comp, perplexity=p,
-                            method='exact', init='random' if df.shape[0] <= 50 else 'pca')  # needs to be identicalto below
+                            method='exact', init='random' if df.shape[0] <= 50 else 'pca')  # needs to be identical to below
                 _ = tsne.fit_transform(df.values)
                 if p == 1 or tsne.kl_divergence_ < min_value:
                     perplexity = p
@@ -1392,7 +1395,7 @@ class Study:
             print("Chose perplexity ", perplexity)
 
         tsne = TSNE(n_components=n_tsne_comp, perplexity=perplexity,
-                    method='exact', init='random' if df.shape[0] <= 50 else 'pca')  # needs to be indentical to above
+                    method='exact', init='random' if df.shape[0] <= 50 else 'pca')  # needs to be identical to above
         tsne_result = tsne.fit_transform(df.values)
 
         fig_best_components()
@@ -1742,7 +1745,7 @@ class Study:
 
                 # between individuals
                 if not sub_data.loc[~same_person & same_minor].empty:
-                    sns.boxplot('dissimilarity', 'Species', minor,
+                    sns.boxplot(x='dissimilarity', y='Species', hue=minor,
                                 data=sub_data.loc[~same_person & same_minor],
                                 hue_order=np.unique(sub_data.loc[~same_person & same_minor, minor]),
                                 width=0.5, whis=whis, showfliers=False, **kwargs)
@@ -1750,10 +1753,10 @@ class Study:
                 # within individuals
                 if not sub_data.loc[same_person].empty:
                     hue = major if not all(sub_data.loc[same_person, 'person1'].isin(list(self.params.colors.keys()))) else 'person1'
-                    p = sns.scatterplot('dissimilarity', 'Species', hue,
-                                    data=sub_data.loc[same_person],
-                                    hue_order=np.unique(sub_data.loc[same_person, hue]),
-                                    alpha=0.2, legend='brief', **kwargs)
+                    p = sns.scatterplot(x='dissimilarity', y='Species', hue=hue,
+                                        data=sub_data.loc[same_person],
+                                        hue_order=np.unique(sub_data.loc[same_person, hue]),
+                                        alpha=0.2, legend='brief', **kwargs)
 
                     # replacements
                     if 'replacement' in sub_data.columns:
@@ -1764,11 +1767,11 @@ class Study:
                             n_replacements = sub_data.loc[same_person].groupby(['Species', 'person1'])['replacement'].any() \
                                 .replace(False, 0).replace(True, 1).groupby('Species').mean()
                         for s in n_replacements.index:
-                            p.text(1/20, s, f'{n_replacements.loc[s]:.0%}')
+                            p.text(1/20, s, f'{n_replacements.loc[s]}' if sum_not_mean else f'{n_replacements.loc[s]:.0%}')
 
                 # between individuals - significance
                 if minimal_between_comparisons is not None:
-                    sns.scatterplot(1/15, 'Species', minor,
+                    sns.scatterplot(x=1/15, y='Species', hue=minor,
                                     data=stats_between_df.loc[stats_between_df[major].isin(np.unique(sub_data[major])) &
                                                               stats_between_df['Species'].isin(np.unique(sub_data['Species']))],
                                     hue_order=np.unique(stats_between_df.loc[
@@ -1779,7 +1782,7 @@ class Study:
 
                 # within individuals - significance
                 if minimal_within_comparisons is not None:
-                    sns.scatterplot(1/20, 'Species', major,
+                    sns.scatterplot(x=1/20, y='Species', hue=major,
                                     data=stats_within_df.loc[stats_within_df[major].isin(np.unique(sub_data[major])) &
                                                              stats_within_df['Species'].isin(np.unique(sub_data['Species']))],
                                     hue_order=np.unique(stats_within_df.loc[
@@ -1923,7 +1926,7 @@ class Study:
         str_values = []
         int_values = []
         for v in df.loc[same_person, 'person1'].unique():
-            if v.isnumeric():
+            if str(v).isnumeric():
                 int_values.append(int(v))
             else:
                 str_values.append(v)
@@ -1967,12 +1970,13 @@ class Study:
 
                 # ticks
                 ax = g.axes.flatten()[0]
-                ax.set_yticklabels([f'{segata_name(tick.get_text())} ({tick.get_text()})'
+                ax.set_yticklabels([f'{segal_name(tick.get_text())[0]} ({tick.get_text()})'
                                     for tick in ax.get_yticklabels()])
 
                 # titles and labels
-                g.set_axis_labels(x_var='dissimilarity' if not summary else
-                                        'person\n(# replaced species / # compared species)', y_var='species')
+                # g.set_axis_labels(x_var='SNP distance' if not summary else
+                #                         'person\n(# replaced strains / # compared species)', y_var='Species')
+                g.set_axis_labels(x_var='SNP distance' if not summary else 'Participant', y_var='Species')
                 g.set_titles(row_template='{row_name}' if not summary else None, col_template='{col_name}')
                 for ax in g.axes.flatten():
                     if ax.get_title() in self.params.colors.keys():
@@ -1981,7 +1985,7 @@ class Study:
                         color = 'black'
                     ax.set_title(label=ax.get_title(), color=color)
 
-                plt.suptitle(title)
+                # plt.suptitle(title)
 
                 # figure
                 plt.tight_layout()
@@ -2652,7 +2656,7 @@ def mantel_test(s1, s2, s1_dis=True, s2_dis=False, maximal_filling=0.25, minimal
     return r, p, n
 
 
-def permutation_test(x1, x2, metric=np.average, n_permutations=100):
+def permutation_test(x1, x2, metric=np.average, n_permutations=10000):
     """
     Calculate permutation test p_value for any metric
 
@@ -2688,7 +2692,7 @@ def permutation_test(x1, x2, metric=np.average, n_permutations=100):
         pooled_distribution.append(np.abs(metric(pooled_shuffle[:len(x1)]) - metric(pooled_shuffle[-len(x2):])))
 
     # the proportion of permuted differences higher than the ground truth difference is the significance value
-    p_val = len(np.where(pooled_distribution >= ground_truth)[0]) / n_permutations
+    p_val = len(np.where(pooled_distribution > ground_truth)[0]) / n_permutations
 
     return p_val
 
@@ -2737,114 +2741,4 @@ class _Parameters:
 
 
 if __name__ == '__main__':
-    s = '10K'#'Lifeline_deep'#'Lifeline_Stool'#
-    os.chdir(os.path.join('/home/saarsh/Analysis/strains', s))
-
-    study = Study(study=s, controls={'time_point': 'baseline'}, colors=None,
-                  alpha=0.05, detection_threshold=0.0001, dissimilarity_threshold=1 / 20000,
-                  base_directory=os.getcwd())
-
-    study.params.colors = {'baseline': sns.color_palette()[1],
-                           '02_00_visit': sns.color_palette()[0],
-
-                           True: 'green',
-                           False: 'red',
-
-                           'Male': 'lightskyblue',
-                           'Female': 'lightpink',
-
-                           'Lifeline_Stool': sns.color_palette()[0],
-                           '10K': sns.color_palette()[0],
-                           'Lifeline_deep': sns.color_palette()[0], }
-
-    meta = pd.read_pickle(os.path.join(study.dirs.data_frames, 'meta.df'))
-    strains = pd.read_pickle(os.path.join(study.dirs.data_frames, 'strains.df'))
-    p_species = pd.read_pickle(os.path.join(study.dirs.data_frames, 'p_species.df'))
-
-    body_systems = [
-        'blood_lipids',
-        'body_composition',
-        'bone_density',
-        'cardiovascular_system',
-        'diet',
-        'diet_questions',
-        'frailty',
-        'glycemic_status',
-        'hematopoietic_system',
-        'immune_system',
-        'lifestyle',
-        'liver',
-        'medical_conditions',
-        'medications',
-    #     'microbiome',
-        'renal_function',
-        'sleep']
-
-    cols = []
-    for col in strains.columns:
-        vc = strains[col].value_counts()
-
-        # so there would not be labels with less than n_repeats or just not worth predicting
-        for c in (vc < 50).replace(False, np.nan).dropna().index:
-            strains[col] = strains[col].replace(c, np.nan)
-        vc = strains[col].value_counts()
-
-        # so there will be at least two valid labels
-        if len(vc) > 1 and vc.iloc[1] >= 50:
-            cols.append(col)
-    len(cols)
-
-    study.objs['strains'] = study.Object(obj_type='strains', df=strains[cols], columns='species')
-    yobj = study.objs['strains']
-    # study.objs['y_col'] = study.Object(obj_type='y_col', df=abun[cols], columns='species')
-
-    # study.objs['replacements'] = study.Object(obj_type='replacements', df=p_species.to_frame('replacements'),
-    #                                           columns='replacements')
-    # study.objs['replacements'].df.index = \
-    # meta[meta['research_stage'] == 'baseline'].reset_index().set_index('RegistrationCode').loc[
-    #     study.objs['replacements'].df.index, 'index'].tolist()
-    # study.objs['replacements'].df.index.names = ['index']
-    # yobj = study.objs['replacements']
-    #####can be done per spceies
-
-    local_meta = meta.rename(columns={'age': 'Age', 'gender': 'Sex'})[['Age', 'Sex', 'RegistrationCode']].loc[
-        meta['research_stage'] == 'baseline']
-
-    for system in ['baseline'] + body_systems:
-        system
-
-        for RA in [False]:  ######, True]:
-
-            system_name = f'{system}_abundance' if RA else system
-
-            study.objs[system_name] = study.Object(obj_type=system_name, df=None, columns='features')
-            if system == 'baseline':
-                study.objs[system_name].df = local_meta.drop('RegistrationCode', axis=1)
-            else:
-                study.objs[system_name].df = local_meta.join(
-                    pd.read_csv(os.path.join('data_frames', 'body_systems', 'Xs', f'{system}.csv'), index_col=0).drop(
-                        'gender', axis=1),
-                    on='RegistrationCode', how='inner').drop('RegistrationCode', axis=1)
-                if system == 'micrbiome':
-                    study.objs[system_name].df = study.objs[system_name].df.replace(-4, np.nan)
-
-        study.score_models(xobj=study.objs[system], yobj=yobj, cobj=None, join_on='index',
-                           all_features=True, delta=False, add_constant=False, minimal_samples=100,
-                           model_type='xgb', regularized=False, n_repeats=2, n_splits=3, random_state=42,
-                           send2queue=False, save=True,
-                           hyper_parameters={
-                               'n_estimators': [1000],
-                               'learning_rate': [0.01, 0.005, 0.001],
-                               'max_depth': [2, 5, 10],
-                               'min_child_weight': range(20, 100, 20),
-                               'max_leaves': range(0, 36, 5),
-                               'colsample_bytree': [i / 10. for i in range(1, 3)],
-                               'subsample': [i / 10 for i in range(4, 9, 2)]})
-    #                        hyper_parameters={
-    #                            'n_estimators': range(100, 2500, 50),
-    #                            'learning_rate': [0.1, 0.05, 0.02, 0.015, 0.01, 0.0075, 0.005, 0.002, 0.001, 0.0005, 0.0001],
-    #                            'max_depth': [-1, 2, 3, 4, 5, 10, 20, 40, 50],
-    #                            'min_child_weight': range(1, 80, 5),
-    #                            'max_leaves': range(0, 35),
-    #                            'colsample_bytree': [i / 10. for i in range(1, 6)],
-    #                            'subsample': [i / 10. for i in range(2, 11)]})
+    pass

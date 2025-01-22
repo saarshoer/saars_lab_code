@@ -21,10 +21,10 @@ from LabData.DataLoaders.MBSNPLoader import MAF_MISSING_VALUE, MAF_1_VALUE
 rcParams['font.size'] = 12
 rcParams['figure.figsize'] = (rcParams['figure.figsize'][0] * 1.5, rcParams['figure.figsize'][1] * 1.5)  # figure size in inches
 rcParams['savefig.dpi'] = 200  # figure dots per inch or 'figure'
-rcParams['savefig.format'] = 'pdf'  # {png, ps, pdf, svg}
+rcParams['savefig.format'] = 'png'  # {png, ps, pdf, svg}
 rcParams['savefig.bbox'] = 'tight'
 
-assemblies = pd.read_csv('/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/Unicorn/URS/URS_Build/full_metadata_filtered_w_clusts_reps.csv', index_col=0)
+assemblies = pd.read_csv('/net/mraid20/export/jafar/Microbiome/Analyses/Unicorn/URS/URS_Build/full_metadata_filtered_w_clusts_reps.csv', index_col=0)
 assemblies.loc[assemblies['Source'] == 'Segal', 'SampleName'] = assemblies[assemblies['Source'] == 'Segal'].index.str.split('/').str[-3].str.split('-').str[-1]
 assemblies.loc[assemblies['Source'] == 'Segata', 'SampleName'] = assemblies[assemblies['Source'] == 'Segata'].index.str.split('/').str[-1].str.split('__bin').str[0].str.replace('.', '')
 assemblies.loc[~assemblies['Source'].isin(['Segal', 'Segata']), 'SampleName'] = assemblies[~assemblies['Source'].isin(['Segal', 'Segata'])].index.str.split('/').str[-1].str.split('#').str[0].str.split('_ASM').str[0].str.replace('.fa', '').str.replace('.fna', '').str.replace('.', '_')
@@ -32,11 +32,11 @@ assemblies['SampleName'] = assemblies['SampleName'].str.split('_v').str[0].str.r
 assemblies = assemblies.reset_index()
 
 # snps
-maf = '/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/antibiotics/{}/pcs_covariate/mb_snp_maf_{}.h5'
-strain_variability = '/net/mraid08/export/mb/MBPipeline/Analyses/MBSNP/Gut/mb_sns_strain_variability_R3.h5'
+maf = '/net/mraid20/export/jafar/Microbiome/Analyses/saar/antibiotics/{}/pcs_covariate/mb_snp_maf_{}.h5'
+strain_variability = '/net/mraid20/export/mb/MBPipeline/Analyses/MBSNP/Gut/mb_sns_strain_variability_R3.h5'
 
 # pangenomes
-dists_mat16 = '/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/Unicorn/URS/URS_Build/dists/between_person/dists_mat16.dat'
+dists_mat16 = '/net/mraid20/export/jafar/Microbiome/Analyses/Unicorn/URS/URS_Build/dists/between_person/dists_mat16.dat'
 gene_presence_absence = '/net/mraid20/export/genie/LabData/Data/Annotations/Segal_annots_all_assemblies/{}/roary_3.13.0/gene_presence_absence.csv'
 
 mash_dist = None#np.random.uniform(low=0, high=1, size=(241118, 241118))
@@ -273,17 +273,19 @@ def plot(df, mask, distance, snps, significant, sig_genes,
 
                        row_cluster=row_linkage is not None,
 
-                       # yticklabels=False if len(sig_genes) == 0 else [g[:4] if (g[:6] != 'group_') & (g in sig_genes) else None for g in df.index],  # show only annotated gene labels
-                       yticklabels=False if len(sig_genes) == 0 else [g[:4].replace('metE', '\nmetE').replace('cmpB', 'cmpB\n') if (g[:6] != 'group_') & (g[:3] not in ['rpl', 'rpm', 'rps']) & (g in sig_genes) else None for g in df.index],  # show only annotated gene labels
+                       yticklabels=False if len(sig_genes) == 0 else [g[:4] if (g[:6] != 'group_') & (g in sig_genes) else None for g in df.index],  # show only annotated gene labels
+                       # yticklabels=False if len(sig_genes) == 0 else [g[:4].replace('metE', '\nmetE').replace('cmpB', 'cmpB\n') if (g[:6] != 'group_') & (g[:3] not in ['rpl', 'rpm', 'rps']) & (g in sig_genes) else None for g in df.index],  # show only annotated gene labels
                        xticklabels=False if snps else ['*' if s == rep else None for s in df.columns],
 
-                       row_colors=row_colors if species != 'Rep_449' else pd.DataFrame(['white' if g[:3] in ['rpl', 'rpm', 'rps'] else 'grey' for g in df.index], index=df.index, columns=['Ribosomal']),  # ribosomal proteins
+                       row_colors=row_colors,# if species != 'Rep_449' else pd.DataFrame(['white' if g[:3] in ['rpl', 'rpm', 'rps'] else 'grey' for g in df.index], index=df.index, columns=['Ribosomal']),  # ribosomal proteins
                        col_colors=col_colors,
 
                        vmax=df.quantile(0.9).quantile(0.9) if snps & distance else None,
                        cmap=cmap,
 
-                       cbar_kws={'label': 'Distance', 'orientation': 'horizontal', 'ticks': None} if distance else {})
+                       cbar_kws={'label': f'{"SNPs " if snps else "Genes "} distance',
+                                 'orientation': 'horizontal',
+                                 'ticks': [0, df.quantile(0.9).quantile(0.9)]} if distance else {})
     g.ax_heatmap.set_facecolor('black')
     g.ax_heatmap.tick_params(right=False, bottom=False)
 
@@ -300,27 +302,24 @@ def plot(df, mask, distance, snps, significant, sig_genes,
         if orientation == 'left':
             ax.invert_yaxis()
 
-    # dimensions
-    g.ax_heatmap.text(x=0.59, y=-0.035, s=f'n={df.shape[0]:,} {"" if distance else ("SNPs " if snps else "genes ")}x {df.shape[1]:,} {"samples" if snps else "strains"}', transform=g.ax_heatmap.transAxes)
-
     # title
     title = f'{segal_name(species)[0][3:]}'#{species}\n
     g.ax_col_dendrogram.set_title(title)
 
     # axes labels
     if snps:
-        g.ax_heatmap.set_xlabel('Samples')
-        g.ax_heatmap.set_ylabel('Samples' if distance else 'SNPs')
+        g.ax_heatmap.set_xlabel(f'Samples (n={df.shape[1]:,})')
+        g.ax_heatmap.set_ylabel(f'Samples (n={df.shape[0]:,})' if distance else f'SNPs (n={df.shape[0]:,})')
     else:
-        g.ax_heatmap.set_xlabel('Strains', labelpad=-15)
-        g.ax_heatmap.set_ylabel('Strains' if distance else 'Shell genes', labelpad=-35 if species != 'Rep_449' else 0)
+        g.ax_heatmap.set_xlabel(f'Strains (n={df.shape[1]:,})', labelpad=-15)
+        g.ax_heatmap.set_ylabel(f'Strains (n={df.shape[0]:,})' if distance else f'Shell genes (n={df.shape[0]:,})', labelpad=-35)# if species != 'Rep_449' else 0)
 
     # position of plot
     plt.subplots_adjust(left=0.02, right=0.76, bottom=0.11, top=0.85)
 
     # position of distance legend
     if distance:
-        g.cax.set_position([.26, .06, .5, .01])
+        g.cax.set_position([0.375, 0.06, 0.25, 0.01])
     else:
         g.cax.set_visible(False)
 
@@ -369,16 +368,27 @@ def plot(df, mask, distance, snps, significant, sig_genes,
                 short_labels.append(label)
         g.ax_row_colors.set_xticklabels(short_labels)
 
-    g.ax_col_dendrogram.legend(handles=[
-        Patch(facecolor='gold', edgecolor='black', label='Have gene'),
-        Patch(facecolor='white', edgecolor='black', label='Missing gene'),
-        Patch(facecolor='white', edgecolor='white', label=''),  # SPACE
-        Patch(facecolor='royalblue', edgecolor='white', label='Old'),
-        Patch(facecolor='lightsteelblue', edgecolor='white', label='Young'),
-        Patch(facecolor='lightpink', edgecolor='white', label='Female'),
-        Patch(facecolor='lightskyblue', edgecolor='white', label='Male'),
-        Patch(facecolor='black', edgecolor='white', label='Unknown'),
-    ], frameon=False, bbox_to_anchor=(-0.002, 1.1))
+    if snps:
+        handles = [
+            Patch(facecolor='white', edgecolor='white', label=''),  # SPACE
+            Patch(facecolor='royalblue', edgecolor='white', label='Old'),
+            Patch(facecolor='lightsteelblue', edgecolor='white', label='Young'),
+            Patch(facecolor='lightskyblue', edgecolor='white', label='Male'),
+            Patch(facecolor='lightpink', edgecolor='white', label='Female'),
+            Patch(facecolor='red', edgecolor='white', label='High'),
+            Patch(facecolor='lightsalmon', edgecolor='white', label='Low'),
+            Patch(facecolor='black', edgecolor='white', label='Unknown')]
+    else:
+        handles = [
+            Patch(facecolor='gold', edgecolor='black', label='Have gene'),
+            Patch(facecolor='white', edgecolor='black', label='Missing gene'),
+            Patch(facecolor='white', edgecolor='white', label=''),  # SPACE
+            Patch(facecolor='royalblue', edgecolor='white', label='Old'),
+            Patch(facecolor='lightsteelblue', edgecolor='white', label='Young'),
+            Patch(facecolor='lightpink', edgecolor='white', label='Female'),
+            Patch(facecolor='lightskyblue', edgecolor='white', label='Male'),
+            Patch(facecolor='black', edgecolor='white', label='Unknown')]
+    g.ax_col_dendrogram.legend(handles=handles, frameon=False, bbox_to_anchor=(-0.002, 1.1))
 
     subdir = 'snps' if snps else 'genes'
     subdir = (subdir + '_distance') if distance else subdir
@@ -413,6 +423,7 @@ def fig_snp_heatmap(
 
     col_dist, mask = get_distance(species, metric='diss' if snps else 'mash', maximal_imputation=maximal_imputation)
     if col_dist.shape[0] < minimal_samples:
+        # print('not enough samples')
         return {}
     col_linkage = get_linkage(col_dist, method)
     col_link_colors, color_names = find_strains(col_dist, col_linkage, relative_change_threshold, min_samples_per_strain, max_samples_per_strain)
@@ -427,6 +438,7 @@ def fig_snp_heatmap(
         data = data[col_dist.index]
         data, mask = filter_data(data, sample_colors, min_samples_per_strain, '')
         if data.shape[0] == 0:
+            # print('not enough features')
             return {}
         elif data.shape[0] == 1:
             row_linkage = None
@@ -461,8 +473,8 @@ def fig_snp_heatmap(
                                     sample_colors={i: (v[0], v[1]) for i, v in col_annots_df[a].reset_index().replace('Unknown', np.nan).iterrows()},
                                     min_samples_per_strain=1,
                                     suffix=f'_{a}')
-            if not ((species == 'Rep_449') & (a == 'Sex')):
-                sig_genes = new_sig_genes[0].index.union(sig_genes)
+            # if not ((species == 'Rep_449') & (a == 'Sex')):
+            #     sig_genes = new_sig_genes[0].index.union(sig_genes)
         print(label)
     # print(expanded_col_annots)
     if len(col_annots) > 0:
@@ -482,9 +494,10 @@ def fig_snp_heatmap(
 
 
 if __name__ == '__main__':
-    snps = False
-    distance = False
-    study = None
+    snps = True
+    distance = True####False keeps failing
+
+    study = 'D2'
 
     col_annots = row_annots = []
     col_annots_cmaps = row_annots_cmaps = {}
@@ -495,7 +508,12 @@ if __name__ == '__main__':
     if snps:
         os.chdir(f'/home/saarsh/Analysis/strains/{study}')
 
-        alpha = 0.05 / 102 if study == '10K' else 0.05 / 112
+        if study == '10K':
+            alpha = 0.05 / 102
+        elif study == 'Lifeline_deep':
+            alpha = 0.05 / 112
+        else:
+            alpha = 0.05 / 60
 
         with pd.HDFStore(os.path.join('data_frames', 'mb_dists.h5'), 'r') as hdf:
             all_species = [key[1:] for key in hdf.keys()]
@@ -507,10 +525,10 @@ if __name__ == '__main__':
         col_annots_df = pheno[['age', 'sex', 'bmi']].rename(columns={'age': 'Age', 'sex': 'Sex', 'bmi': 'BMI'})
 
         if distance:
-            row_annots = ['Has genome', 'Variable positions', 'Relative abundance'] if study == '10K' else ['Variable positions', 'Relative abundance']
+            row_annots = ['Has genome', 'Variable positions', 'Relative abundance'] if study != 'Lifeline_deep' else ['Variable positions', 'Relative abundance']
             row_annots_cmaps = {'Variable positions': 'Greys', 'Relative abundance': 'Greys'}
 
-            HG = pd.read_hdf(os.path.join(os.getcwd(), 'data_frames', 'has_genome.h5')) if study == '10K' else None
+            HG = pd.read_hdf(os.path.join(os.getcwd(), 'data_frames', 'has_genome.h5')) if study != 'Lifeline_deep' else None
             SV = pd.read_hdf(strain_variability)
             RA = pd.read_hdf(os.path.join(os.getcwd(), 'data_frames', 'abundance.h5'))
 
@@ -535,7 +553,7 @@ if __name__ == '__main__':
 
         # all_species = glob.glob(os.path.join('figs', 'genes_blue', 'significant', '*png'))
         # all_species = [file.split('/')[-1].split('.')[0] for file in all_species]
-        all_species = ['Rep_449']#'Rep_721',
+        # all_species = ['Rep_721', 'Rep_449'],
 
     # run
     for species in all_species:
@@ -545,7 +563,7 @@ if __name__ == '__main__':
         # do per species
         if snps:
             if distance:
-                if study == '10K':
+                if study != 'Lifeline_deep':
                     row_annots_df = HG[species].to_frame('Has genome').join(
                                     SV[species].to_frame('Variable positions'), how='outer').join(
                                     RA[species].to_frame('Relative abundance'), how='outer')
@@ -579,4 +597,4 @@ if __name__ == '__main__':
             strains.loc[list(sample_colors.keys()), species] = list(sample_colors.values())
 
     if distance:
-        strains.to_pickle(os.path.join('data_frames', 'strains.df'))
+        strains.to_pickle(os.path.join('data_frames', 'strains_new.df'))
