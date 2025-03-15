@@ -6,9 +6,9 @@ from LabUtils.addloglevels import sethandlers
 from LabData.DataAnalyses.MBSNPs.MWAS import MWAS
 from anti_mwas_functions import gen_human_cov_f, gen_human_y_f
 
-study = 'D2'########don't forget to change within LabData code, look for "/antibiotics"
+study = 'Lifeline_deep'########don't forget to change within LabData code, look for "/antibiotics"
 anti_df_dir = f'/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/antibiotics/{study}/data_frames'
-human_df_dir = f'/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/human_mwas/{study}/data_frames'
+human_df_dir = f'/net/mraid20/ifs/wisdom/segal_lab/jafar/Microbiome/Analyses/saar/human_mwas/lirons_params/{study}'
 
 
 class P:
@@ -27,7 +27,7 @@ class P:
     permute = False###need to be changed in LabUtils
 
     countries = None
-    collect_data = False
+    collect_data = True
 
     # queue
     max_jobs = 250
@@ -54,18 +54,21 @@ class P:
     samples_set = snps.index.tolist()
     largest_sample_per_user = False
     min_positions_per_sample = None
-    # subsample_dir = study + '_saar' if study == '10K' else study
-    subsample_dir = study + '_US' if study == 'D2' else study
+    subsample_dir = study
+    if study == '10K':
+        subsample_dir = subsample_dir + '_saar'
+    elif study == 'D2':
+        subsample_dir = subsample_dir + '_US'
     other_samples_set = None
     select_n_rand_samples = None
 
     # SNPs
     min_reads_per_snp = 1  # in maf file name
     min_subjects_per_snp_cached = 500  # in maf file name
-    max_on_fraq_major_per_snp = 0.95  # Max fraction of major AND minor allele frequency in analyzed samples
+    max_on_fraq_major_per_snp = 0.99  # Max fraction of major AND minor allele frequency in analyzed samples
     min_on_minor_per_snp = 50  # Min number of analyzed samples with a minor allele
-    min_subjects_per_snp = 500
-    snp_set = pd.read_hdf(os.path.join(os.path.dirname(human_df_dir), pheno, 'mb_gwas_significant.h5'))[[]] if collect_data else None
+    min_subjects_per_snp = 1000
+    snp_set = pd.read_hdf(os.path.join(human_df_dir, pheno, 'mb_gwas_significant.h5'))[[]] if collect_data else None
 
     # covariates
     covariate_gen_f = lambda species: gen_human_cov_f(anti_df_dir, species, P.pheno)
